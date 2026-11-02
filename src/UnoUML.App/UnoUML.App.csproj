@@ -11,6 +11,7 @@
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <WasmShellWebAppBasePath>./</WasmShellWebAppBasePath>
     <Description>A source-preserving visual PlantUML editor.</Description>
   </PropertyGroup>
   <ItemGroup>
@@ -19,10 +20,10 @@
     <UnoIcon Include="Assets/mark.svg" />
     <UnoSplashScreen Include="Assets/launch.svg" Color="#F8F8FC" BaseSize="64,64" />
   </ItemGroup>
-  <Target Name="PublishPlantUmlLibraries" AfterTargets="Publish">
+  <Target Name="PublishPlantUmlAssets" AfterTargets="Publish">
     <ItemGroup>
-      <_UmlVendor Include="wwwroot/uml/vendor/**/*" />
+      <_UmlAsset Include="wwwroot/uml/**/*" />
     </ItemGroup>
-    <Copy SourceFiles="@(_UmlVendor)" DestinationFiles="@(_UmlVendor->'$(PublishDir)wwwroot/uml/vendor/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_UmlAsset)" DestinationFiles="@(_UmlAsset->'$(PublishDir)/wwwroot/uml/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
 </Project>
