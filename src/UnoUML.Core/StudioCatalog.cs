@@ -1,0 +1,146 @@
+namespace UnoUML.Core;
+
+public sealed record ToolItem(string Group, string Name, string Snippet, string Families = "UML");
+public sealed record DiagramTemplate(string Family, string Name, string Source);
+
+/// <summary>Catalog entries contain ordinary PlantUML. Only the {id} marker is expanded on insertion.</summary>
+public static class StudioCatalog
+{
+    public static IReadOnlyList<ToolItem> Tools { get; } = BuildTools().ToArray();
+    public static IEnumerable<ToolItem> ForPage(DiagramPage page) => Tools.Where(tool => Accepts(tool, page));
+    public static bool Accepts(ToolItem tool, DiagramPage page) =>
+        tool.Families == "*" || tool.Families.Split('|').Contains(page.Family, StringComparer.Ordinal)
+        || (page.Family == "UML" && tool.Families.Split('|').Any(UmlFamilies.Contains));
+    private static readonly HashSet<string> UmlFamilies = ["Sequence", "Class", "Component", "Deployment", "Use case", "Object", "State", "Activity", "Timing"];
+
+    private static IEnumerable<ToolItem> BuildTools()
+    {
+        const string structural = "Class|Component|Deployment|Use case|Object";
+        foreach (var name in new[] { "Participant", "Actor", "Boundary", "Control", "Entity", "Database", "Collections", "Queue" })
+            yield return new("Lifelines", name, name.ToLowerInvariant() + " \"" + name + "\" as {id}", "Sequence");
+        foreach (var name in new[] { "Class", "Abstract class", "Interface", "Enum", "Annotation", "Struct", "Exception", "Protocol", "Metaclass", "Stereotype", "Entity" })
+            yield return new("Types", name, name.ToLowerInvariant() + " \"" + name + "\" as {id} {\n}", "Class");
+        foreach (var name in new[] { "Action", "Actor", "Agent", "Artifact", "Boundary", "Card", "Circle", "Cloud", "Collections", "Component", "Control", "Database", "Entity", "File", "Folder", "Frame", "Hexagon", "Interface", "Label", "Node", "Package", "Person", "Process", "Queue", "Rectangle", "Stack", "Storage", "Usecase" })
+            yield return new("Architecture", name, name.ToLowerInvariant() + " \"" + name + "\" as {id}", "Component|Deployment|Use case");
+        yield return new("Use cases", "Business actor", "actor/ \"Business actor\" as {id}", "Use case");
+        yield return new("Use cases", "Business use case", "usecase/ \"Business use case\" as {id}", "Use case");
+        yield return new("Objects", "Object", "object \"Instance\" as {id} {\n  key = value\n}", "Object");
+        yield return new("Objects", "Map", "map {id} {\n  key => value\n}", "Object");
+        yield return new("Containers", "Package", "package \"Package\" as {id} {\n}", structural);
+        yield return new("Containers", "Namespace", "namespace {id} {\n}", "Class");
+        yield return new("Sequence", "Alternative", "alt condition\n  ...\nelse otherwise\n  ...\nend", "Sequence");
+        foreach (var (name, token) in new[] { ("Optional", "opt"), ("Loop", "loop"), ("Parallel", "par"), ("Critical", "critical"), ("Break", "break"), ("Group", "group") })
+            yield return new("Sequence", name, token + " " + name + "\n  ...\nend", "Sequence");
+        yield return new("Sequence", "Divider", "== Phase ==", "Sequence");
+        yield return new("Sequence", "Delay", "... waiting ...", "Sequence");
+        yield return new("Sequence", "Spacing", "|||", "Sequence");
+        yield return new("Sequence", "Page break", "newpage Next phase", "Sequence");
+        yield return new("Sequence", "Note", "note over {id}\nA note\nend note", "Sequence");
+        yield return new("States", "State", "state \"State\" as {id}", "State");
+        foreach (var (name, type) in new[] { ("Choice", "choice"), ("Fork", "fork"), ("Join", "join"), ("Entry point", "entryPoint"), ("Exit point", "exitPoint"), ("Input pin", "inputPin"), ("Output pin", "outputPin") })
+            yield return new("States", name, "state {id} <<" + type + ">>", "State");
+        yield return new("States", "Composite state", "state {id} {\n  [*] --> Idle\n}", "State");
+        yield return new("Activities", "Action", ":New action;", "Activity");
+        yield return new("Activities", "Decision", "if (Condition?) then (yes)\n  :Action;\nelse (no)\n  :Alternative;\nendif", "Activity");
+        yield return new("Activities", "Parallel paths", "fork\n  :First;\nfork again\n  :Second;\nend fork", "Activity");
+        yield return new("Activities", "Repeat", "repeat\n  :Action;\nrepeat while (Again?) is (yes)", "Activity");
+        yield return new("Activities", "Loop", "while (Continue?) is (yes)\n  :Action;\nendwhile (no)", "Activity");
+        yield return new("Activities", "Partition", "partition {id} {\n  :Action;\n}", "Activity");
+        yield return new("Activities", "Swimlane", "|{id}|\n:Action;", "Activity");
+        foreach (var name in new[] { "Robust", "Concise", "Binary", "Analog" })
+            yield return new("Timing", name, name.ToLowerInvariant() + " \"" + name + "\" as {id}", "Timing");
+        yield return new("Timing", "Clock", "clock \"Clock\" as {id} with period 10", "Timing");
+        yield return new("Outline", "Branch", "** Topic", "Mind map|WBS");
+        yield return new("Outline", "Subtopic", "*** Subtopic", "Mind map|WBS");
+        yield return new("Planning", "Task", "[{id}] lasts 3 days", "Gantt");
+        yield return new("Planning", "Milestone", "[{id}] happens 2026-01-06", "Gantt");
+        yield return new("Planning", "Event", "[{id}] happens 2026-01-06", "Chronology");
+        yield return new("Grammar", "Production", "{id} = \"value\";", "EBNF");
+        yield return new("Grammar", "Alternatives", "{id} = \"first\" | \"second\";", "EBNF");
+        yield return new("Network", "Network", "network {id} {\n    server [address = \"192.0.2.1\"];\n  }", "Network");
+        yield return new("Topology", "Node", "{id} [label=\"Node\"];", "DOT");
+        yield return new("Topology", "Edge", "client -> {id};", "DOT");
+        yield return new("Wireframe", "Button", "[Button]", "Wireframe");
+        yield return new("Wireframe", "Text field", "\"Text field                \"", "Wireframe");
+        yield return new("Wireframe", "Checkbox", "[X] Checkbox", "Wireframe");
+        yield return new("Wireframe", "Dropdown", "^Option^", "Wireframe");
+        yield return new("Wireframe", "Radio button", "() Option", "Wireframe");
+        yield return new("Data", "Property", "{id}: value", "YAML");
+        yield return new("C4", "Person", "Person({id}, \"Person\", \"Description\")", "C4");
+        yield return new("C4", "Software system", "System({id}, \"System\", \"Description\")", "C4");
+        yield return new("C4", "External system", "System_Ext({id}, \"External system\", \"Description\")", "C4");
+        yield return new("Annotations", "Floating note", "note \"New note\" as {id}", structural + "|State");
+        yield return new("Annotations", "Legend", "legend right\n  Diagram key\nendlegend", structural + "|Sequence|State|Activity|Timing");
+        yield return new("Annotations", "Comment", "' Comment", structural + "|Sequence|State|Activity|Timing|Gantt|Mind map|WBS");
+    }
+
+    private static DiagramTemplate Template(string family, string name, string dialect, string body) =>
+        new(family, name, "@start" + dialect + "\n" + body + "\n@end" + dialect + "\n");
+
+    public static IReadOnlyList<DiagramTemplate> Templates { get; } =
+    [
+        Template("Sequence", "Checkout flow", "uml", """
+            title Checkout flow
+            hide footbox
+            skinparam backgroundColor transparent
+            skinparam shadowing false
+            skinparam sequence {
+              ArrowColor #575D83
+              LifeLineBorderColor #9094AF
+              ParticipantBorderColor #767CBA
+              ParticipantBackgroundColor #EFF0FF
+              ParticipantFontColor #232746
+              ActorBorderColor #767CBA
+              ActorBackgroundColor #EFF0FF
+            }
+            autonumber
+            actor "Shopper" as Shopper
+            participant "Storefront" as Store
+            participant "Payments" as Pay
+            database "Orders" as Orders #DEF5EB
+
+            Shopper -> Store : Place order
+            activate Store
+            Store -> Pay : Authorize payment
+            Pay --> Store : Authorized
+            Store -> Orders : Record order
+            Orders --> Store : Order number
+            Store --> Shopper : Show confirmation
+            deactivate Store
+            """),
+        Template("Class", "Domain model", "uml", "title Order domain\nclass Order {\n  +id : UUID\n  +total() : Money\n}\nclass LineItem {\n  +quantity : int\n}\nOrder \"1\" *-- \"many\" LineItem : contains"),
+        Template("Use case", "Customer goals", "uml", "actor \"Customer\" as Customer\nusecase \"Place order\" as Checkout\nCustomer --> Checkout"),
+        Template("Activity", "Review process", "uml", "start\n:Prepare review;\nif (Approved?) then (yes)\n  :Publish;\nelse (no)\n  :Revise;\nendif\nstop"),
+        Template("State", "Order lifecycle", "uml", "state Draft\nstate Submitted\nstate Complete\n[*] --> Draft\nDraft --> Submitted : submit\nSubmitted --> Complete : fulfill\nComplete --> [*]"),
+        Template("Component", "Service boundary", "uml", "component \"Client\" as Client\ncomponent \"API\" as API\ndatabase \"Storage\" as Store\nClient --> API : HTTPS\nAPI --> Store : query"),
+        Template("Deployment", "Cloud deployment", "uml", "node \"Edge\" as Edge\nnode \"Application cluster\" as Cluster {\n  artifact \"Worker\" as Worker\n}\nEdge --> Worker"),
+        Template("Object", "Order instance", "uml", "object \"order : Order\" as Order {\n  id = 42\n}\nobject \"item : Line\" as Item\nOrder *-- Item"),
+        Template("Timing", "Signal trace", "uml", "robust \"Bus\" as Bus\n@0\nBus is Idle\n@10\nBus is Active\n@30\nBus is Idle"),
+        Template("Mind map", "Discovery map", "mindmap", "* Product\n** Research\n*** Interviews\n** Design\n*** Prototypes"),
+        Template("WBS", "Delivery breakdown", "wbs", "* Delivery\n** Plan\n*** Estimate\n** Implement\n*** Validate"),
+        Template("Gantt", "Release plan", "gantt", "Project starts 2026-01-05\n[Design] lasts 3 days\n[Build] starts at [Design]'s end\n[Build] lasts 5 days"),
+        Template("Chronology", "Release milestones", "chronology", "[Kickoff] happens 2026-01-05\n[Release] happens 2026-01-12"),
+        Template("JSON", "JSON structure", "json", "{\n  \"service\": \"store\",\n  \"regions\": [\"eu\", \"us\"],\n  \"online\": true\n}"),
+        Template("YAML", "Service configuration", "yaml", "service: checkout\nregions:\n  - Europe\n  - America"),
+        Template("Wireframe", "Sign-in panel", "salt", "{\n  Sign in\n  User | \"Username      \"\n  () Remember me\n  [Submit]\n}"),
+        Template("Network", "Office network", "nwdiag", "nwdiag {\n  network office {\n    address = \"192.0.2.0/24\";\n    client [address = \"192.0.2.10\"];\n    server [address = \"192.0.2.20\"];\n  }\n}"),
+        Template("EBNF", "Identifier grammar", "ebnf", "digit = \"0\" | \"1\";\nsequence = digit, { digit };"),
+        Template("Regex", "Regular expression", "regex", "[A-Z][a-z]+"),
+        Template("DOT", "Directed graph", "dot", "digraph G {\n  rankdir=LR;\n  client -> server;\n  server -> storage;\n}"),
+        Template("C4", "System context", "uml", "!include <C4/C4_Context>\nPerson(user, \"Customer\")\nSystem(store, \"Storefront\")\nRel(user, store, \"Shops\")"),
+        Template("ArchiMate", "Business capability", "uml", "!include <archimate/Archimate>\nBusiness_Role(customer, \"Customer\")\nBusiness_Process(order, \"Place order\")\nRel_Assignment(customer, order)"),
+        Template("Chen", "Entity relationship", "chen", "entity CUSTOMER {\n  Id <<key>>\n  Name\n}\nentity ORDER {\n  Number <<key>>\n}\nrelationship PLACES {\n}\nPLACES -1- CUSTOMER\nPLACES -N- ORDER"),
+        Template("Ditaa", "ASCII architecture", "ditaa", "+--------+     +-------+\n| Client +---->| Store |\n+--------+     +-------+"),
+        Template("Math", "Equation", "math", "E = mc^2"),
+        Template("LaTeX", "Typeset equation", "latex", "\\frac{a}{b}"),
+        Template("Creole", "Formatted notes", "creole", "= System notes\n* First item\n* **Important** item")
+    ];
+
+    internal static string FamilyName(string dialect) => dialect switch
+    {
+        "mindmap" => "Mind map", "wbs" => "WBS", "gantt" => "Gantt", "chronology" => "Chronology",
+        "json" => "JSON", "yaml" => "YAML", "salt" => "Wireframe", "nwdiag" => "Network",
+        "ebnf" => "EBNF", "regex" => "Regex", "dot" => "DOT", "chen" => "Chen", "ditaa" => "Ditaa",
+        "math" => "Math", "latex" => "LaTeX", "creole" => "Creole", _ => dialect
+    };
+}

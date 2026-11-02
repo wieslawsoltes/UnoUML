@@ -1,0 +1,7 @@
+bin/
+obj/
+node_modules/
+artifacts/
+src/UnoUML.App/wwwroot/uml/vendor/
+*.user
+.vs/
