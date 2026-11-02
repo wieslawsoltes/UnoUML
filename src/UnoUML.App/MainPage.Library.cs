@@ -93,6 +93,7 @@ public sealed partial class MainPage
         string newline = doc.Source.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
         string text = template.Source.ReplaceLineEndings(newline);
         doc.SetSource(doc.Source.TrimEnd('\r','\n') + newline + newline + text);
+        fitAfterRender = true;
         doc.ActivePage = Math.Min(added, doc.Pages.Count - 1);
         if (lastWidth < 620) { libraryOpen = false; ArrangePanels(); }
         Changed();

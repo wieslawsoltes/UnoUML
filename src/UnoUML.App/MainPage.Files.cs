@@ -81,7 +81,7 @@ public sealed partial class MainPage
     {
         changeTimer.Stop();
         ResetRenderer();
-        doc = new(source); fileName = name; additionalSelection.Clear(); selected = null; revision++; dirty = false; outlineLimit = 40;
+        fitAfterRender = true; doc = new(source); fileName = name; additionalSelection.Clear(); selected = null; revision++; dirty = false; outlineLimit = 40;
         Refresh(); _ = RenderPageAsync();
     }
 

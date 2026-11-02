@@ -28,7 +28,9 @@ jobs:
           npm ci --ignore-scripts
           npm run prepare:renderer
       - name: Test the renderer in Chromium
-        run: CHROMIUM_PATH="$(command -v google-chrome)" npm run test:renderer
+        run: |
+          dotnet run --no-build --project tests/UnoUML.Core.Tests -c Release -- --catalog > "$RUNNER_TEMP/catalog.json"
+          UNOUML_CATALOG="$RUNNER_TEMP/catalog.json" CHROMIUM_PATH="$(command -v google-chrome)" npm run test:renderer
       - name: Publish WebAssembly
         run: dotnet publish src/UnoUML.App -f net10.0-browserwasm -c Release -o "$RUNNER_TEMP/site"
       - name: Validate static site

@@ -32,6 +32,7 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
 try {
   const page = await browser.newPage({ viewport: { width: 1390, height: 860 }, colorScheme: 'light', acceptDownloads: true });
   const errors = [];
+  page.setDefaultTimeout(35000);
   page.on('pageerror', error => errors.push(error.message));
   const url = external || `http://127.0.0.1:${server.address().port}${prefix}`;
   const click = name => page.getByText(name, { exact: true }).last().click();
@@ -48,8 +49,7 @@ try {
   await paper.waitFor({ state: 'visible', timeout: 120000 });
   await screenshot('unouml-desktop');
   await click('Split');
-  const source = page.locator('textarea:visible').filter({ visible: true });
-  await source.first().waitFor();
+  await page.locator('textarea:visible').first().waitFor();
   // Normal pointer clicks exercise the Uno native-host presenter and hit testing in the shadow SVG.
   await store.click();
   await page.getByText('Apply label', { exact: true }).waitFor();
@@ -78,6 +78,34 @@ try {
   await click('Diagrams');
   await click('Domain model');
   await page.locator('.paper [data-qualified-name="Order"]').first().waitFor({ timeout: 25000 });
+  const node = name => page.locator(`.paper [data-qualified-name="${name}"] text`).filter({ hasText: new RegExp('^' + name + '$') }).first();
+  const selectPair = async () => {
+    await node('Order').click();
+    await node('LineItem').click({ modifiers: ['Shift'] });
+    await page.getByText('MULTIPLE SELECTION', { exact: true }).waitFor();
+  };
+  const target = await node('Order').boundingBox();
+  const canvas = await surface.boundingBox();
+  assert.ok(target && canvas && target.x >= canvas.x && target.y >= canvas.y &&
+    target.x + target.width <= canvas.x + canvas.width && target.y + target.height <= canvas.y + canvas.height,
+    'Switching pages fits the new diagram even if the previous page was manually zoomed');
+  await surface.press('0');
+  await selectPair();
+  await page.keyboard.press('Control+d');
+  await page.locator('.paper [data-qualified-name="OrderCopy"]').first().waitFor();
+  await page.locator('.paper [data-qualified-name="LineItemCopy"]').first().waitFor();
+  await selectPair();
+  await click('Group in package…');
+  await click('Group');
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1')).Source.includes('package "Group"'));
+  await click('Objects');
+  await click('Standard library…');
+  await page.getByText('Search include paths', { exact: true }).last().waitFor();
+  const search = page.locator('textarea:visible').last();
+  await search.fill('c4_context');
+  await click('c4/c4_context');
+  await click('Insert include');
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1')).Source.includes('!include <c4/c4_context>'));
   const download = page.waitForEvent('download');
   await click('Save');
   assert.ok((await download).suggestedFilename().endsWith('.puml'));
@@ -85,9 +113,9 @@ try {
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
   await screenshot('unouml-mobile');
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.locator('.paper [data-qualified-name="Order"]').first().waitFor({ timeout: 120000 });
+  await page.locator('.paper [data-qualified-name="OrderCopy"]').first().waitFor({ timeout: 120000 });
   assert.deepEqual(errors, []);
-  console.log('Passed published workspace startup, native hit testing, source edit, toolbox insertion, zoom, template pages, source download, mobile layout and draft restoration.');
+  console.log('Passed published workspace startup, native hit testing, source edit, toolbox insertion, zoom, template pages, multi-select, duplicate and group, standard library search and inclusion, source download, mobile layout and draft restoration.');
 } finally {
   await browser.close();
   if (server) await new Promise(resolve => server.close(resolve));

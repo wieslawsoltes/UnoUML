@@ -99,17 +99,7 @@ public sealed partial class StudioDocument
 
     public DiagramObject? Find(string? alias, int? sourceLine = null)
     {
-        if (sourceLine.HasValue)
-        {
-            // Prefer the innermost source object, e.g. a member inside a class.
-            DiagramObject? best = null;
-            foreach (var obj in Objects)
-            {
-                if (obj.Line == sourceLine) return obj;
-                if (obj.Line < sourceLine && obj.EndLine >= sourceLine && (best == null || best.Line < obj.Line)) best = obj;
-            }
-            if (best != null) return best;
-        }
+        if (sourceLine is { } line && Index.AtLine(ActivePage, line) is { } item) return item;
         return string.IsNullOrEmpty(alias) ? null : Objects.FirstOrDefault(o => !o.Ambiguous && o.Alias == alias);
     }
 
@@ -131,18 +121,12 @@ public sealed partial class StudioDocument
             var page = Pages[i];
             if (line < page.StartLine || line > page.EndLine) continue;
             pageIndex = i;
-            DiagramObject? best = null;
-            foreach (var item in Index.Objects(i))
-            {
-                if (item.Line > line) break;
-                if (item.EndLine >= line) best = item;
-            }
-            return best;
+            return Index.AtLine(i, line);
         }
         return null;
     }
 
-    private bool Current(DiagramObject item) => Objects.Contains(item) && !item.Unclosed;
+    private bool Current(DiagramObject item) => ReferenceEquals(Index.AtLine(ActivePage, item.Line), item) && !item.Unclosed;
     private string LocalNewLines(string text) => text.ReplaceLineEndings(Index.NewLine);
 
     public bool Insert(string snippet)

@@ -25,7 +25,7 @@ public sealed partial class MainPage : Page
     string mode = "Design", tool = "select", tab = "Objects", lastSource = "";
     int revision, renderedRevision = -1, outlineLimit = 40;
     bool ready, syncing, libraryOpen, inspectorOpen, dirty;
-    bool draftSaved = true;
+    bool draftSaved = true, fitAfterRender = true;
     double lastWidth = -1;
 
     public MainPage()
@@ -235,7 +235,7 @@ public sealed partial class MainPage : Page
         if (page < 0) return;
         if (page != doc.ActivePage)
         {
-            doc.ActivePage = page; selected = item; revision++;
+            fitAfterRender = true; doc.ActivePage = page; selected = item; revision++;
             Refresh(); _ = RenderPageAsync();
         }
         else if (selected != item)
@@ -250,7 +250,7 @@ public sealed partial class MainPage : Page
     {
         if (!ready || syncing || PagePicker.SelectedIndex < 0) return;
         if (doc.ActivePage == PagePicker.SelectedIndex) return;
-        doc.ActivePage = PagePicker.SelectedIndex; additionalSelection.Clear(); selected = null; revision++;
+        fitAfterRender = true; doc.ActivePage = PagePicker.SelectedIndex; additionalSelection.Clear(); selected = null; revision++;
         outlineLimit = 40; Refresh(); _ = RenderPageAsync();
     }
 
@@ -293,6 +293,7 @@ public sealed partial class MainPage : Page
             await viewport.RenderAsync(input);
             if (request != revision) return;
             renderedRevision = request;
+            if (fitAfterRender) { viewport.Fit(); fitAfterRender = false; }
             SyncCanvasSelection();
             if (draftSaved) Status(dirty ? "Draft saved in this browser" : "Ready");
             else Status("Browser draft unavailable. Use Save to download your changes.", true);

@@ -7,12 +7,12 @@ if (args.Contains("--catalog"))
     var fixtures = new List<object>();
     foreach (var template in StudioCatalog.Templates)
     {
-        fixtures.Add(new { template.Name, template.Family, template.Source });
+        fixtures.Add(new { template.Name, template.Family, template.RequiresServer, template.Source });
         foreach (var tool in StudioCatalog.ForPage(new StudioDocument(template.Source).Page))
         {
             var example = new StudioDocument(template.Source);
             example.Add(tool);
-            fixtures.Add(new { Name = template.Name + " / " + tool.Name, template.Family, example.Source });
+            fixtures.Add(new { Name = template.Name + " / " + tool.Name, template.Family, template.RequiresServer, example.Source });
         }
     }
     Console.WriteLine(JsonSerializer.Serialize(fixtures));

@@ -59,6 +59,29 @@ internal sealed partial class DiagramIndex
     internal List<DiagramPage> Pages { get; } = [];
     internal string NewLine { get; }
     private readonly Dictionary<int, List<DiagramObject>> _cache = [];
+    private readonly Dictionary<int, DiagramObject?[]> _lineObjects = [];
+
+    internal DiagramObject? AtLine(int pageIndex, int line)
+    {
+        var page = Pages[pageIndex];
+        int relative = line - page.StartLine;
+        if ((uint)relative > (uint)(page.EndLine - page.StartLine)) return null;
+        if (!_lineObjects.TryGetValue(pageIndex, out var lineIndex))
+        {
+            var objects = Objects(pageIndex);
+            lineIndex = new DiagramObject?[page.EndLine - page.StartLine + 1];
+            var owners = new Stack<DiagramObject>();
+            int i = 0;
+            for (int row = page.StartLine; row <= page.EndLine; row++)
+            {
+                while (owners.TryPeek(out var top) && top.EndLine < row) owners.Pop();
+                while (i < objects.Count && objects[i].Line == row) owners.Push(objects[i++]);
+                lineIndex[row - page.StartLine] = owners.TryPeek(out var owner) ? owner : null;
+            }
+            _lineObjects.Add(pageIndex, lineIndex);
+        }
+        return lineIndex[relative];
+    }
 
     // These match only an unambiguous editable prefix. Everything else stays a verbatim source entry.
     private const string Token = """(?:"(?:\\.|[^"\\])*"|[\p{L}_$][\w.$]*)""";
@@ -78,7 +101,7 @@ internal sealed partial class DiagramIndex
     [GeneratedRegex(@"^\s*(?<from>" + Token + @") -\[hidden\](?<direction>left|right|up|down)-> (?<to>" + Token + @")\s*$", RegexOptions.CultureInvariant)]
     private static partial Regex ManagedLayout();
 
-    [GeneratedRegex(@"^\s*@(?<tag>start|end)(?<dialect>\w+)(?:\s+(?<name>.*?))?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^\s*@(?<tag>start|end)(?<dialect>\w+)(?:\(id=[^)]+\))?(?:\s+(?<name>.*?))?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Boundary();
 
     public DiagramIndex(string source)

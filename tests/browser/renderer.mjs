@@ -103,6 +103,20 @@ try {
     const s=parseSvg('<svg xmlns="http://www.w3.org/2000/svg"><a href="javascript:alert(1)" onload="x()"/><foreignObject/><script>alert(1)</script><image href="https://example.invalid/tracker.png"/></svg>');
     if (s.querySelector('script,foreignObject,[onload],[href]')) throw Error('Unsafe SVG');
   });
+  if (process.env.UNOUML_CATALOG) {
+    const fixtures = JSON.parse(await readFile(process.env.UNOUML_CATALOG, 'utf8'));
+    const local = fixtures.filter(f => !f.RequiresServer);
+    for (const fixture of local) {
+      try {
+        await page.evaluate(async source => {
+          await ui.render('diagram', source);
+          const svg = document.querySelector('#diagram').shadowRoot.querySelector('.paper > svg');
+          if (!svg || !svg.viewBox.baseVal.width || !svg.childElementCount) throw new Error('Empty diagram');
+        }, fixture.Source);
+      } catch (error) { throw new Error('Catalog fixture failed: ' + fixture.Name, {cause: error}); }
+    }
+    console.log('Verified ' + local.length + ' local catalog fixtures.');
+  }
   await verifyServerRendering(page);
   assert.deepEqual(errors,[]);
   console.log('Renderer checks passed. Covered selection, editing, connect, zoom, SVG/PNG downloads, C4, DOT, local includes, syntax diagnostics, and SVG sanitization.');
