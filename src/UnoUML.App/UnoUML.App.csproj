@@ -1,0 +1,28 @@
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-browserwasm</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>UnoUML.App</RootNamespace>
+    <UnoSingleProject>true</UnoSingleProject>
+    <UnoDisableHotDesign>true</UnoDisableHotDesign>
+    <UnoFeatures>NativeRenderer</UnoFeatures>
+    <ApplicationTitle>UnoUML</ApplicationTitle>
+    <ApplicationId>io.github.wieslawsoltes.unouml</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>A source-preserving visual PlantUML editor.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Remove="wwwroot/uml/vendor/**/*" />
+    <ProjectReference Include="../UnoUML.Core/UnoUML.Core.csproj" />
+    <UnoIcon Include="Assets/mark.svg" />
+    <UnoSplashScreen Include="Assets/mark.svg" Color="#10182B" BaseSize="64,64" />
+  </ItemGroup>
+  <Target Name="PublishPlantUmlLibraries" AfterTargets="Publish">
+    <ItemGroup>
+      <_UmlVendor Include="wwwroot/uml/vendor/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_UmlVendor)" DestinationFiles="@(_UmlVendor->'$(PublishDir)wwwroot/uml/vendor/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
