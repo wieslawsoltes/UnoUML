@@ -2,7 +2,7 @@ import { indexHits, parseSvg } from './svg.js';
 import { download, includeFiles, includeRevision } from './files.js';
 export { openFile, saveFile, importIncludes } from './files.js';
 
-import { getServerEndpoint, layoutOnServer } from './server.js';
+import { getServerEndpoint, getServerTransport, layoutOnServer } from './server.js';
 export { setServerEndpoint } from './server.js';
 
 const views = new Map();
@@ -45,7 +45,10 @@ class Viewport {
     this.surface = html('div', 'surface', root);
     this.surface.tabIndex = 0; this.surface.dataset.tool = 'select';
     this.surface.setAttribute('role', 'region');
-    this.surface.setAttribute('aria-label', 'Diagram canvas. Drag the background to pan. Control-wheel or pinch to zoom.');
+    this.surface.setAttribute('aria-label', 'Diagram canvas. Arrow keys select objects, Enter edits. Drag the background to pan; control-wheel or pinch to zoom.');
+    this.announcement = html('div', 'announcement', this.surface);
+    this.announcement.setAttribute('role', 'status');
+    this.announcement.setAttribute('aria-live', 'polite');
     this.paper = html('div', 'paper', this.surface);
     this.selection = html('div', 'selection', this.surface);
     this.target = html('div', 'target', this.surface);
@@ -66,13 +69,14 @@ class Viewport {
     this.fetchJob?.abort();
     this.pristine = null;
     const endpoint = getServerEndpoint();
-    const files = endpoint ? null : await includeFiles(), key = endpoint + '\0' + includeRevision + '\0' + source;
+    const transport = getServerTransport();
+    const files = endpoint ? null : await includeFiles(), key = transport + endpoint + '\0' + includeRevision + '\0' + source;
     if (version !== this.version) return;
     let svg = this.cache.get(key);
     if (!svg) {
       const controller = endpoint ? new AbortController() : null;
       this.fetchJob = controller;
-      const layout = endpoint ? s => layoutOnServer(endpoint, s, AbortSignal.any([controller.signal, AbortSignal.timeout(45000)])) : await loadEngine();
+      const layout = endpoint ? s => layoutOnServer(endpoint, s, AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]), transport) : await loadEngine();
       // Serialize the shared TeaVM renderer while dropping superseded requests
       // before they reach expensive graph layout.
       while (this.active) await this.active.catch(() => {});
@@ -97,6 +101,14 @@ class Viewport {
     this.pristine = svg;
     this.svg = document.importNode(svg, true);
     this.index = indexHits(this.svg, source);
+    const visited = new Set();
+    this.objects = [...this.index.hits].filter(([el, hit]) => {
+      // Lifelines and tails refer to the same participant as its header.
+      if (el.matches('.participant-lifeline,.participant-tail')) return false;
+      const key = hit.id ? 'id:' + hit.id : 'line:' + hit.line;
+      if (visited.has(key)) return false;
+      visited.add(key); return true;
+    }).map(([el]) => el);
     this.drag = null; this.linkStart = null; this.clearGuide();
     this.paper.replaceChildren(this.svg);
     this.paper.classList.remove('is-new');
@@ -137,17 +149,58 @@ class Viewport {
     this.marked = (id && this.index?.byId.get(id)) || this.index?.byLine.get(line) || null;
     this.outline(this.selection, this.marked);
   }
+  setAdditional(lines, text) {
+    this.clipboard = text;
+    this.additional?.forEach(el => el.classList.remove('multi-mark'));
+    this.additional = lines ? lines.split(',').map(n => this.index?.byLine.get(Number(n))).filter(Boolean) : [];
+    this.additional.forEach(el => el.classList.add('multi-mark'));
+  }
   hit(el, kind='select') {
     const value = this.index?.hits.get(el) || empty;
     this.marked = el; this.outline(this.selection, el);
+    this.announcement.textContent = value.label || value.id || (value.line >= 0 ? 'Source line ' + (value.line + 1) : 'Selection cleared');
     this.emit('hit', { action:kind, ...value });
     return value;
+  }
+  direction(el, x, y, drag) {
+    const r = el.getBoundingClientRect();
+    let dx = (x - r.left) / Math.max(1, r.width) - .5;
+    let dy = (y - r.top) / Math.max(1, r.height) - .5;
+    // When dropping precisely at center, preserve the side of approach.
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < .05) { dx = drag.x - x; dy = drag.y - y; }
+    return Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down');
   }
   setTool(tool) { this.surface.dataset.tool = tool; this.linkStart = null; this.clearGuide(); }
   clearGuide() { this.guide.setAttribute('hidden',''); this.target.hidden = true; }
   bindGestures() {
     const s = this.surface, pointers = this.pointers;
     const distance = () => { const [a,b] = pointers.values(); return Math.hypot(b.x-a.x,b.y-a.y); };
+    for (const kind of ['copy','cut','paste']) s.addEventListener(kind, event => {
+      if (!event.clipboardData) return;
+      if (kind === 'paste') {
+        const text = event.clipboardData.getData('text/plain');
+        if (!text) return;
+        this.emit('command', {action: 'paste', text});
+      } else {
+        if (!this.clipboard) return;
+        event.clipboardData.setData('text/plain', this.clipboard);
+        if (kind === 'cut') this.emit('command', {action: 'cut', text: ''});
+      }
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    s.addEventListener('keydown', event => {
+      let action;
+      if (event.key === 'Delete' || event.key === 'Backspace') action = 'delete';
+      if (event.ctrlKey || event.metaKey) {
+        if (event.key.toLowerCase() === 'd') action = 'duplicate';
+        if (event.key.toLowerCase() === 'g') action = 'group';
+      }
+      if (action) {
+        event.preventDefault(); event.stopPropagation();
+        this.emit('command', {action, text: ''});
+      }
+    });
     s.addEventListener('dragover', e => {
       if (e.dataTransfer.types.includes('text/plain')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
     });
@@ -156,8 +209,26 @@ class Viewport {
       if (text.startsWith('unouml:tool:')) { e.preventDefault(); e.stopPropagation(); this.emit('drop', { text }); }
     });
     s.addEventListener('click', e => e.preventDefault());
-    s.addEventListener('dblclick', e => { const el = this.pick(this.host.shadowRoot.elementFromPoint(e.clientX, e.clientY)); if (el) this.hit(el,'edit'); });
+    s.addEventListener('dblclick', e => { if (this.touchEditTime && performance.now() - this.touchEditTime < 400) return;
+      const el = this.pick(this.host.shadowRoot.elementFromPoint(e.clientX, e.clientY)); if (el) this.hit(el,'edit'); });
     s.addEventListener('keydown', e => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End') {
+        if (!this.objects?.length) return;
+        const backwards = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
+        const i = this.objects.indexOf(this.marked), n = this.objects.length;
+        const index = e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 :
+          i < 0 ? (backwards ? n - 1 : 0) : (i + (backwards ? n - 1 : 1)) % n;
+        const el = this.objects[index]; this.hit(el);
+        const item = el.getBoundingClientRect(), r = this.rect();
+        if (item.right < r.left || item.left > r.right || item.bottom < r.top || item.top > r.bottom) {
+          this.autoFit = false;
+          this.x += (r.left + r.right - item.left - item.right) / 2;
+          this.y += (r.top + r.bottom - item.top - item.bottom) / 2; this.position();
+        }
+        e.preventDefault(); return;
+      }
+      if (e.key === 'Enter' && this.marked) { this.hit(this.marked, 'edit'); e.preventDefault(); return; }
       if (e.key === 'Escape') { this.linkStart = null; this.clearGuide(); this.hit(null); }
       else if (e.key === '+' || e.key === '=') this.zoom(1.2);
       else if (e.key === '-') this.zoom(1 / 1.2);
@@ -179,7 +250,7 @@ class Viewport {
       if (pointers.size === 2) { this.drag=null; this.pinch=distance(); this.clearGuide(); return; }
       let tool = s.dataset.tool;
       if (e.button===1 || !el) tool='pan';
-      this.drag = { el, tool, id:e.pointerId, x:e.clientX, y:e.clientY, ox:this.x, oy:this.y, moved:false };
+      this.drag = { el, tool, add:e.shiftKey || e.ctrlKey || e.metaKey, id:e.pointerId, x:e.clientX, y:e.clientY, ox:this.x, oy:this.y, moved:false };
     });
     s.addEventListener('pointermove', e => {
       if (!pointers.has(e.pointerId)) return;
@@ -194,10 +265,12 @@ class Viewport {
       drag.moved ||= Math.hypot(dx,dy)>4;
       if (!drag.moved) return;
       if (drag.tool==='pan') { this.autoFit=false; this.x=drag.ox+dx; this.y=drag.oy+dy; s.dataset.panning=''; this.position(); return; }
-      if (drag.tool === 'connect' || drag.tool === 'move') {
+      if (drag.tool === 'connect' || drag.tool === 'move' || drag.tool === 'place') {
         const r=this.rect(); this.guide.removeAttribute('hidden');
         for (const [name,value] of [['x1',drag.x-r.left],['y1',drag.y-r.top],['x2',e.clientX-r.left],['y2',e.clientY-r.top]]) this.line.setAttribute(name,value);
-        this.outline(this.target,this.pick(this.host.shadowRoot.elementFromPoint(e.clientX,e.clientY)));
+        const target = this.pick(this.host.shadowRoot.elementFromPoint(e.clientX,e.clientY));
+        this.outline(this.target, target);
+        this.target.dataset.side = target && drag.tool === 'place' ? this.direction(target,e.clientX,e.clientY,drag) : '';
       }
     });
     const finish = (e, cancelled) => {
@@ -206,14 +279,26 @@ class Viewport {
       if (!d || cancelled || d.id!==e.pointerId) return;
       const el=this.pick(this.host.shadowRoot.elementFromPoint(e.clientX,e.clientY));
       if (d.moved) {
-        if (d.el && el && el!==d.el && (d.tool==='connect' || d.tool==='move')) {
-          this.emit('gesture',{action:d.tool==='move'?'moveBefore':'connect',from:this.index.hits.get(d.el),to:this.index.hits.get(el)});
+        if (d.el && el && el!==d.el && (d.tool==='connect' || d.tool==='move' || d.tool==='place')) {
+          this.emit('gesture', { action:d.tool==='move' ? 'moveBefore' : d.tool,
+            from:this.index.hits.get(d.el), to:this.index.hits.get(el), direction:this.direction(el,e.clientX,e.clientY,d) });
         }
       } else if (d.tool==='connect' && el) {
         const to=this.hit(el);
         if (this.linkStart) { this.emit('gesture',{action:'connect',from:this.linkStart,to}); this.linkStart=null; }
         else this.linkStart=to;
-      } else { this.linkStart=null; this.hit(d.el); }
+      } else {
+        this.linkStart=null;
+        // A short second tap on the same object is an edit gesture on touch
+        // hardware even when the browser does not synthesize a dblclick.
+        if (e.pointerType === 'touch' && d.el && d.tool === 'select') {
+          const now = performance.now();
+          const doubleTap = this.tap?.el === d.el && now - this.tap.at < 400;
+          this.tap = doubleTap ? null : {el:d.el, at:now};
+          if (doubleTap) { this.touchEditTime = now; this.hit(d.el, 'edit'); return; }
+        }
+        this.hit(d.el, d.add ? 'toggle' : 'select');
+      }
     };
     s.addEventListener('pointerup',e=>finish(e,false));
     s.addEventListener('pointercancel',e=>finish(e,true));
@@ -257,3 +342,5 @@ export async function exportDiagram(id, format, fileName) {
     download(fileName,png);
   } finally { URL.revokeObjectURL(url); }
 }
+
+export function setAdditionalSelection(id, lines, clipboard) { views.get(id)?.setAdditional(lines, clipboard); }

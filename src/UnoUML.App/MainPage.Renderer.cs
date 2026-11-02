@@ -7,16 +7,19 @@ namespace UnoUML.App;
 public sealed partial class MainPage
 {
     private string serverEndpoint = "";
+    private bool encodedServerUrl;
 
     private async void ShowRendererSettings()
     {
         var useServer = new ToggleSwitch { Header = "Use a PlantUML server for this document", IsOn = serverEndpoint.Length > 0 };
         var address = new TextBox { Header = "Server SVG endpoint", PlaceholderText = "https://your-server.example/plantuml/svg", Text = serverEndpoint, IsEnabled = useServer.IsOn };
-        useServer.Toggled += (_, _) => address.IsEnabled = useServer.IsOn;
+        var transport = new CheckBox { Content = "Encode the diagram in the request URL (GET)", IsChecked = encodedServerUrl, IsEnabled = useServer.IsOn };
+        useServer.Toggled += (_, _) => address.IsEnabled = transport.IsEnabled = useServer.IsOn;
         var content = new StackPanel { Spacing = 12 };
         content.Children.Add(Caption("The bundled engine renders diagrams on this device. A JVM server can render additional dialects such as Chen, Ditaa and LaTeX, depending on its configuration."));
         content.Children.Add(useServer);
         content.Children.Add(address);
+        content.Children.Add(transport);
         content.Children.Add(Caption("When enabled, each preview sends this page’s PlantUML source to the endpoint you enter. Imported include files stay on this device. Opening a different document switches back to local rendering."));
         if (await AskAsync("Rendering engine", content, "Apply") != ContentDialogResult.Primary) return;
 
@@ -31,7 +34,8 @@ public sealed partial class MainPage
         try
         {
             await BrowserBridge.ReadyAsync();
-            BrowserBridge.SetServerEndpoint(endpoint);
+            encodedServerUrl = transport.IsChecked == true;
+            BrowserBridge.SetServerEndpoint(endpoint, encodedServerUrl);
             serverEndpoint = endpoint;
             revision++;
             await RenderPageAsync();
@@ -42,7 +46,8 @@ public sealed partial class MainPage
     private void ResetRenderer()
     {
         if (serverEndpoint.Length == 0) return;
-        BrowserBridge.SetServerEndpoint("");
+        BrowserBridge.SetServerEndpoint("", false);
+        encodedServerUrl = false;
         serverEndpoint = "";
     }
 }

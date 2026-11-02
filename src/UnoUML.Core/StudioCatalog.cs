@@ -3,7 +3,7 @@ namespace UnoUML.Core;
 public sealed record ToolItem(string Group, string Name, string Snippet, string Families = "UML");
 public sealed record DiagramTemplate(string Family, string Name, string Source)
 {
-    public bool RequiresServer => Family is "Chen" or "Ditaa" or "Math" or "LaTeX";
+    public bool RequiresServer => Family is "Files" or "Chen" or "Ditaa" or "Math" or "LaTeX";
 }
 
 /// <summary>Catalog entries contain ordinary PlantUML. Only the {id} marker is expanded on insertion.</summary>

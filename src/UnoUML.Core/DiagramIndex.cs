@@ -74,6 +74,10 @@ internal sealed partial class DiagramIndex
     [GeneratedRegex(@"^\s*(?:<<[^<>]+>>\s*)*(?:(?<color>#[A-Za-z0-9]+)\s*)?(?<brace>\{)?\s*$", RegexOptions.CultureInvariant)]
     private static partial Regex DeclarationStyle();
 
+    internal const string LayoutMarker = "' @unouml:layout";
+    [GeneratedRegex(@"^\s*(?<from>" + Token + @") -\[hidden\](?<direction>left|right|up|down)-> (?<to>" + Token + @")\s*$", RegexOptions.CultureInvariant)]
+    private static partial Regex ManagedLayout();
+
     [GeneratedRegex(@"^\s*@(?<tag>start|end)(?<dialect>\w+)(?:\s+(?<name>.*?))?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Boundary();
 
@@ -307,6 +311,17 @@ internal sealed partial class DiagramIndex
         string code = row.Code.TrimEnd();
         string text = code.TrimStart();
         DiagramObject New(string kind, string label) => new(_source, row.Start, Lines[end].End, line, end, parent, kind, label);
+        if (line > 0 && _source.AsSpan(Lines[line - 1].Start, Lines[line - 1].End - Lines[line - 1].Start).Trim().SequenceEqual(LayoutMarker) &&
+            ManagedLayout().Match(code) is { Success: true } layout)
+        {
+            string from = layout.Groups["from"].Value, to = layout.Groups["to"].Value;
+            return new DiagramObject(_source, Lines[line - 1].Start, row.End, line - 1, line, parent, "Layout", $"{to} relative to {from}")
+            {
+                From = from, To = to, Arrow = layout.Groups["direction"].Value,
+                FromAt = row.Start - Lines[line - 1].Start + layout.Groups["from"].Index,
+                ToAt = row.Start - Lines[line - 1].Start + layout.Groups["to"].Index
+            };
+        }
         if (Declaration().Match(code) is { Success: true } declaration)
         {
             var name = declaration.Groups["name"];

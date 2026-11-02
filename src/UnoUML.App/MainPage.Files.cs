@@ -8,7 +8,7 @@ using UnoUML.Core;
 namespace UnoUML.App;
 
 internal sealed record LibrarySnippet(string Name, string Source);
-internal sealed record StudioDraft(string FileName, string Source, int Page);
+internal sealed record StudioDraft(string FileName, string Source, int Page, bool Dirty = false);
 
 [JsonSerializable(typeof(List<LibrarySnippet>))]
 [JsonSerializable(typeof(StudioDraft))]
@@ -23,7 +23,7 @@ public sealed partial class MainPage
             if (BrowserFiles.ReadDraft(DraftKey) is { Length: > 0 } json &&
                 JsonSerializer.Deserialize(json, StudioJson.Default.StudioDraft) is { Source: not null, FileName: not null } draft)
             {
-                doc = new(draft.Source); fileName = draft.FileName; doc.ActivePage = Math.Clamp(draft.Page, 0, doc.Pages.Count - 1);
+                doc = new(draft.Source); dirty = draft.Dirty; fileName = draft.FileName; doc.ActivePage = Math.Clamp(draft.Page, 0, doc.Pages.Count - 1);
             }
             if (BrowserFiles.ReadDraft(LibraryKey) is { Length: > 0 } library &&
                 JsonSerializer.Deserialize(library, StudioJson.Default.ListLibrarySnippet) is { } stored)
@@ -37,7 +37,7 @@ public sealed partial class MainPage
         if (!ready) return;
         try
         {
-            var draft = new StudioDraft(fileName, doc.Source, doc.ActivePage);
+            var draft = new StudioDraft(fileName, doc.Source, doc.ActivePage, dirty);
             BrowserFiles.WriteDraft(DraftKey, JsonSerializer.Serialize(draft, StudioJson.Default.StudioDraft));
             draftSaved = true;
         }
@@ -81,13 +81,20 @@ public sealed partial class MainPage
     {
         changeTimer.Stop();
         ResetRenderer();
-        doc = new(source); fileName = name; selected = null; revision++; dirty = false; outlineLimit = 40;
+        doc = new(source); fileName = name; additionalSelection.Clear(); selected = null; revision++; dirty = false; outlineLimit = 40;
         Refresh(); _ = RenderPageAsync();
     }
 
     async void SaveFile()
     {
-        try { await BrowserFiles.SaveAsync(fileName, doc.Source); dirty = false; SaveDraft(); Status($"Downloaded {fileName}"); }
+        try
+        {
+            var snapshot = doc.Source;
+            var name = fileName;
+            await BrowserFiles.SaveAsync(name, snapshot);
+            if (fileName == name && doc.Source == snapshot) { dirty = false; SaveDraft(); }
+            Status($"Downloaded {name}");
+        }
         catch (Exception ex) { Status(ex.Message, true); }
     }
 
@@ -145,7 +152,8 @@ public sealed partial class MainPage
         {
             int count = folder ? await BrowserFiles.ImportIncludeFolderAsync() : await BrowserFiles.ImportIncludesAsync();
             if (count == 0) return;
-            revision++; await RenderPageAsync(); Status($"Loaded {count} include file(s)");
+            revision++; await RenderPageAsync();
+            if (renderedRevision == revision || mode == "Source") Status($"Loaded {count} include file(s)");
         }
         catch (Exception ex) { Status(ex.Message, true); }
     }

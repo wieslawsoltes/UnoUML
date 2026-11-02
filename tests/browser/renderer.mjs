@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { verifyServerRendering } from './server-cases.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
@@ -12,7 +13,7 @@ const server = createServer(async (req, res) => {
     const path = new URL(req.url, 'http://localhost').pathname;
     if (path === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end('<!doctype html><div id="diagram" style="position:relative;width:800px;height:560px"></div>');
+      res.end('<!doctype html><div id="diagram" style="position:relative;width:800px;height:560px;pointer-events:none"></div>');
       return;
     }
     const file = resolve(wwwroot, '.' + path);
@@ -26,7 +27,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 try {
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, headless: true });
-  const page = await browser.newPage();
+  const page = await browser.newPage({ hasTouch: true });
   const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
   await page.goto('http://127.0.0.1:' + server.address().port + '/');
@@ -44,6 +45,20 @@ try {
   assert.deepEqual(await page.evaluate(() => { const {action,id,line} = log.at(-1); return {action,id,line}; }), { action:'select',id:'A',line:1 });
   await entity.dblclick();
   assert.equal(await page.evaluate(() => log.at(-1).action), 'edit');
+  await page.locator('.surface').press('Home');
+  await page.locator('.surface').press('ArrowRight');
+  assert.equal(await page.evaluate(() => log.at(-1).id), 'B');
+  await page.locator('.surface').press('Enter');
+  assert.equal(await page.evaluate(() => log.at(-1).action), 'edit');
+  await entity.tap(); await entity.tap();
+  assert.equal(await page.evaluate(() => log.at(-1).action), 'edit');
+  await page.evaluate(() => ui.setTool('diagram','place'));
+  const a = await entity.boundingBox(), b = await page.locator('.paper [data-qualified-name="B"]').boundingBox();
+  await page.mouse.move(a.x + a.width/2, a.y + a.height/2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 3, b.y + b.height/2, {steps:10});
+  await page.mouse.up();
+  assert.deepEqual(await page.evaluate(() => [log.at(-1).action,log.at(-1).direction]),['place','left']);
   await page.evaluate(() => ui.setTool('diagram','connect'));
   await entity.click();
   await page.locator('.paper [data-qualified-name="B"]').click();
@@ -59,6 +74,13 @@ try {
     const bytes=await readFile(await file.path());
     if (format==='png') assert.equal(bytes.subarray(1,4).toString(),'PNG');
     else { assert.match(bytes.toString(),/Studio/); assert.doesNotMatch(bytes.toString(),/data-uml-hit/); }
+  }
+  // Structural drag writes a managed hidden edge. Verify physical geometry under both rank orders.
+  for (const [rank, direction] of [['', 'left'], ['left to right direction\n', 'up']]) {
+    await render("@startuml\n" + rank + "class A\nclass B\n' @unouml:layout\nA -[hidden]" + direction + "-> B\n@enduml");
+    const anchor = await page.locator('.paper [data-qualified-name="A"]').boundingBox();
+    const placed = await page.locator('.paper [data-qualified-name="B"]').boundingBox();
+    assert.ok(placed.x + placed.width < anchor.x, 'B is left of A in ' + (rank || 'top-to-bottom'));
   }
   await render('@startuml\n!include <C4/C4_Context>\nPerson(viewer,"Reviewer")\n@enduml');
   await page.locator('.paper [data-qualified-name="viewer"]').click();
@@ -81,6 +103,7 @@ try {
     const s=parseSvg('<svg xmlns="http://www.w3.org/2000/svg"><a href="javascript:alert(1)" onload="x()"/><foreignObject/><script>alert(1)</script><image href="https://example.invalid/tracker.png"/></svg>');
     if (s.querySelector('script,foreignObject,[onload],[href]')) throw Error('Unsafe SVG');
   });
+  await verifyServerRendering(page);
   assert.deepEqual(errors,[]);
   console.log('Renderer checks passed. Covered selection, editing, connect, zoom, SVG/PNG downloads, C4, DOT, local includes, syntax diagnostics, and SVG sanitization.');
 } finally {

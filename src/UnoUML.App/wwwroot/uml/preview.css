@@ -1,6 +1,8 @@
 :host { display: block; }
 .surface {
-  position: absolute; inset: 0; overflow: hidden; touch-action: none; user-select: none;
+  /* Uno's DOM ContentPresenter inherits pointer-events:none until a XAML
+     hit-test target is registered. This shadow surface owns native input. */
+  position: absolute; inset: 0; overflow: hidden; pointer-events: auto; touch-action: none; user-select: none;
   isolation: isolate; outline: none; color-scheme: light;
   background-color: #f7f8fb; background-image: radial-gradient(#d7dbe5 1px, transparent 1px);
   background-size: 16px 16px; font: 13px system-ui, sans-serif;
@@ -25,3 +27,13 @@
  .paper.is-new > svg { animation: diagram-in 140ms ease-out; }
  @keyframes diagram-in { from { opacity: .45 } to { opacity: 1 } }
 }
+
+.announcement { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+
+.surface[data-tool="place"] .paper [data-uml-hit] { cursor: move; }
+.target[data-side="left"] { border-left: 4px solid #168d88; }
+.target[data-side="right"] { border-right: 4px solid #168d88; }
+.target[data-side="up"] { border-top: 4px solid #168d88; }
+.target[data-side="down"] { border-bottom: 4px solid #168d88; }
+
+.paper .multi-mark { outline: 2px solid #7062cf; outline-offset: 3px; }

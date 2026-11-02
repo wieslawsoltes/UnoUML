@@ -72,8 +72,11 @@ export function indexHits(svg, source) {
     el.setAttribute('data-uml-hit', '');
     const hit = { id, line, label };
     hits.set(el, hit);
-    if (id && !byId.has(id)) byId.set(id, el);
-    if (line >= 0 && !byLine.has(line)) byLine.set(line, el);
+    // Use the visible header as the representative of a sequence participant.
+    // The engine emits lifelines first and may repeat the same source line on
+    // participants declared implicitly by a message.
+    if (id && (!byId.has(id) || el.classList.contains('participant-head'))) byId.set(id, el);
+    if (line >= 0 && (!byLine.has(line) || el.matches('.participant-head, .message'))) byLine.set(line, el);
   }
   for (const el of svg.querySelectorAll('[data-source-line],[data-qualified-name]')) {
     if (!el.children.length) continue;

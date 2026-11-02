@@ -15,6 +15,7 @@ public sealed partial class MainPage
         {
             if (includePaths == null)
             {
+                if (!OperatingSystem.IsBrowser()) return;
                 Status("Loading standard library index…");
                 using var browser = JSHost.GlobalThis.GetPropertyAsJSObject("document")!;
                 var baseUri = new Uri(browser.GetPropertyAsString("baseURI")!);

@@ -1,7 +1,9 @@
 // The endpoint is intentionally memory-only and cleared when switching documents.
-let endpoint = '';
+let endpoint = '', encodedUrl = false;
 export function getServerEndpoint() { return endpoint; }
-export function setServerEndpoint(value) {
+export function getServerTransport() { return encodedUrl ? 'GET' : 'POST'; }
+export function setServerEndpoint(value, useEncodedUrl = false) {
+  encodedUrl = useEncodedUrl;
   if (!value) { endpoint = ''; return; }
   const url = new URL(value);
   const loopback = url.hostname === 'localhost' || url.hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(url.hostname);
@@ -9,11 +11,33 @@ export function setServerEndpoint(value) {
     throw new Error('Use an HTTPS server endpoint, or HTTP on localhost.');
   endpoint = url.href;
 }
-export async function layoutOnServer(url, source, signal) {
+// PlantUML uses raw DEFLATE and its own 64-character alphabet.
+export async function encodeDiagram(source) {
+  const stream = new Blob([source]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+  const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_';
+  let output = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const bits = (bytes[i] << 16) | ((bytes[i + 1] || 0) << 8) | (bytes[i + 2] || 0);
+    output += alphabet[bits >>> 18] + alphabet[(bits >>> 12) & 63] +
+      alphabet[(bits >>> 6) & 63] + alphabet[bits & 63];
+  }
+  return output;
+}
+
+export async function layoutOnServer(url, source, signal, method = 'POST') {
+  const headers = { Accept: 'image/svg+xml' };
+  if (method === 'GET') {
+    const target = new URL(url);
+    target.pathname = target.pathname.replace(/\/$/, '') + '/' + await encodeDiagram(source);
+    url = target.href;
+  } else {
+    headers['Content-Type'] = 'text/plain;charset=UTF-8';
+  }
   const response = await fetch(url, {
-    method: 'POST', mode: 'cors', credentials: 'omit', cache: 'no-store', redirect: 'error',
+    method, mode: 'cors', credentials: 'omit', cache: 'no-store', redirect: 'error',
     referrerPolicy: 'no-referrer', signal,
-    headers: { 'Content-Type': 'text/plain;charset=UTF-8', Accept: 'image/svg+xml' }, body: source
+    headers, body: method === 'GET' ? undefined : source
   });
   if (!response.ok) {
     const diagnostic = response.headers.get('X-PlantUML-Diagram-Error');

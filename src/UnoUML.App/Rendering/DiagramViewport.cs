@@ -6,7 +6,7 @@ using Uno.UI.NativeElementHosting;
 namespace UnoUML.App.Rendering;
 
 public sealed record DiagramHit(string Kind, string Id, int Line, string Label);
-public sealed record DiagramGesture(string Kind, DiagramHit From, DiagramHit To);
+public sealed record DiagramGesture(string Kind, DiagramHit From, DiagramHit To, string Direction = "");
 
 public sealed partial class DiagramViewport : ContentControl
 {
@@ -27,6 +27,12 @@ public sealed partial class DiagramViewport : ContentControl
         Content = element;
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+    }
+
+    public event Action<string, string>? CanvasCommand;
+    public void SetAdditionalSelection(string lines, string clipboard)
+    {
+        if (mounted) BrowserBridge.SetAdditionalSelection(HostId, lines, clipboard);
     }
 
     public event EventHandler<DiagramHit>? Hit;
@@ -89,6 +95,9 @@ public sealed partial class DiagramViewport : ContentControl
         var data = payload.RootElement;
         switch (data.GetProperty("kind").GetString())
         {
+            case "command":
+                CanvasCommand?.Invoke(data.GetProperty("action").GetString()!, data.GetProperty("text").GetString() ?? "");
+                break;
             case "zoom":
                 Zoom = data.GetProperty("zoom").GetDouble();
                 ZoomChanged?.Invoke(this, Zoom);
@@ -98,7 +107,8 @@ public sealed partial class DiagramViewport : ContentControl
                 break;
             case "gesture":
                 Gesture?.Invoke(this, new(data.GetProperty("action").GetString()!,
-                    ReadHit(data.GetProperty("from"), "select"), ReadHit(data.GetProperty("to"), "select")));
+                    ReadHit(data.GetProperty("from"), "select"), ReadHit(data.GetProperty("to"), "select"),
+                    data.TryGetProperty("direction", out var direction) ? direction.GetString() ?? "" : ""));
                 break;
             case "drop":
                 DropSnippet?.Invoke(this, data.GetProperty("text").GetString()!);

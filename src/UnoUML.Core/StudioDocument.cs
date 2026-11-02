@@ -1,7 +1,7 @@
 namespace UnoUML.Core;
 
 /// <summary>Owns the verbatim PlantUML text. The index is a projection, never a serializer.</summary>
-public sealed class StudioDocument
+public sealed partial class StudioDocument
 {
     private sealed record Edit(int At, string Before, string After, int Page);
     private const int HistoryLimit = 200;
@@ -329,24 +329,7 @@ public sealed class StudioDocument
     public bool Replace(DiagramObject item, string statement) =>
         Current(item) && Patch(item.Offset, item.End, LocalNewLines(statement));
 
-    public bool Remove(DiagramObject item)
-    {
-        if (!Current(item)) return false;
-        // Explicit relationships to unique declarations are removed atomically with their declarations.
-        var aliases = Objects.Where(x => x.Line >= item.Line && x.Line <= item.EndLine && x.IsConnectable)
-                             .Select(x => x.Alias).ToHashSet(StringComparer.Ordinal);
-        var ranges = Objects.Where(x => !(x.Line >= item.Line && x.Line <= item.EndLine) &&
-                                          x.Kind == "Relationship" && (aliases.Contains(x.From) || aliases.Contains(x.To)))
-                            .Append(item).OrderBy(x => x.Line).ToArray();
-        int start = ranges[0].Offset, cursor = start;
-        var result = new System.Text.StringBuilder();
-        foreach (var range in ranges)
-        {
-            result.Append(Source, cursor, range.Offset - cursor);
-            cursor = Index.Lines[range.EndLine].Next;
-        }
-        return Patch(start, cursor, result.ToString());
-    }
+    public bool Remove(DiagramObject item) => RemoveMany([item]);
 
     public bool Duplicate(DiagramObject item)
     {
@@ -360,6 +343,38 @@ public sealed class StudioDocument
             copy = string.Concat(copy.AsSpan(0, item.AliasAt), alias, copy.AsSpan(item.AliasAt + item.AliasLength));
         }
         return Patch(item.End, item.End, Index.NewLine + copy);
+    }
+
+    public bool CanPlaceRelative(DiagramObject item, DiagramObject anchor) =>
+        Page.Family is "Class" or "Component" or "Object" or "Deployment" or "Use case" or "State" &&
+        Current(item) && Current(anchor) && item != anchor && item.IsConnectable && anchor.IsConnectable &&
+        item.ParentLine == anchor.ParentLine;
+
+    /// <summary>Constrain a sibling relative to its anchor through a portable PlantUML hidden edge.</summary>
+    public bool PlaceRelative(DiagramObject item, DiagramObject anchor, string direction)
+    {
+        if (!CanPlaceRelative(item, anchor) || direction is not ("left" or "right" or "up" or "down")) return false;
+        // The directions in PlantUML source are rank-relative. Rotate them back into screen coordinates
+        // when a diagram uses left-to-right rank order.
+        if (Objects.Any(o => o.Kind == "Source" && Index.Lines[o.Line].Code.Trim().Equals("left to right direction", StringComparison.OrdinalIgnoreCase)))
+            direction = direction switch { "left" => "up", "right" => "down", "up" => "left", _ => "right" };
+        string edge = $"{anchor.Alias} -[hidden]{direction}-> {item.Alias}";
+        var prior = Objects.FirstOrDefault(o => o.Kind == "Layout" &&
+            ((o.From == anchor.Alias && o.To == item.Alias) || (o.From == item.Alias && o.To == anchor.Alias)));
+        if (prior != null)
+        {
+            var line = Index.Lines[prior.EndLine];
+            string indent = line.Code[..(line.Code.Length - line.Code.TrimStart().Length)];
+            return Patch(line.Start + indent.Length, line.End, edge);
+        }
+        // Emit inside the lexical parent to resolve the same names inside packages or composite states.
+        if (item.ParentLine >= 0 && Objects.FirstOrDefault(o => o.Line == item.ParentLine) is { } parent)
+        {
+            string code = Index.Lines[anchor.Line].Code;
+            string indent = code[..(code.Length - code.TrimStart().Length)];
+            return InsertAt(parent.EndLine, indent + DiagramIndex.LayoutMarker + Index.NewLine + indent + edge);
+        }
+        return Insert(DiagramIndex.LayoutMarker + Index.NewLine + edge);
     }
 
     public bool Move(DiagramObject item, int direction)

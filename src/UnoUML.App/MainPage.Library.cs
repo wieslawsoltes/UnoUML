@@ -105,7 +105,8 @@ public sealed partial class MainPage
         var item = selected;
         SelectionType.Text = item == null ? "DIAGRAM" : item.Kind.ToUpperInvariant();
         SelectionTitle.Text = item?.Label ?? doc.Page.Title;
-        if (item == null)
+        if (additionalSelection.Count > 0 && selected != null) ShowSelectionActions();
+        else if (item == null)
         {
             var info = new Grid { ColumnSpacing = 6 };
             info.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -162,7 +163,7 @@ public sealed partial class MainPage
         foreach (var obj in outline.Take(outlineLimit))
         {
             var b = Item(string.IsNullOrEmpty(obj.Label) ? obj.Statement : obj.Label, ShapeIcon(obj.Kind), () => Select(obj));
-            if (obj == item) Highlight(b, true);
+            if (obj == item || additionalSelection.Contains(obj)) Highlight(b, true);
             ToolTipService.SetToolTip(b, $"{obj.Kind} · line {obj.Line + 1}");
             OutlineItems.Children.Add(b);
         }

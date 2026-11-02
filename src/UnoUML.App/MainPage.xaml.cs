@@ -34,6 +34,7 @@ public sealed partial class MainPage : Page
         BuildCommands();
         ViewportHost.Children.Add(viewport);
         SourceEditor.SelectionChanged += (_, _) => OnSourceSelection();
+        viewport.CanvasCommand += OnCanvasCommand;
         viewport.Hit += (_, hit) => OnHit(hit);
         viewport.Gesture += (_, gesture) => OnGesture(gesture);
         viewport.DropSnippet += (_, payload) => DropTool(payload);
@@ -80,7 +81,7 @@ public sealed partial class MainPage : Page
         }
         undoButton = Command("Undo", "undo", () => History(false)); HistoryActions.Children.Add(undoButton);
         redoButton = Command("Redo", "redo", () => History(true)); HistoryActions.Children.Add(redoButton);
-        foreach (var (key, name) in new[] { ("select","Select"),("pan","Pan"),("connect","Connect two objects"),("move","Reorder before another object") })
+        foreach (var (key, name) in new[] { ("select","Select"),("pan","Pan"),("connect","Connect two objects"),("move","Move or reorder objects") })
         {
             var b = Command(name, key, () => SetTool(key)); tools.Add(key, b); CanvasTools.Children.Add(b);
         }
@@ -120,7 +121,7 @@ public sealed partial class MainPage : Page
         {
             case VirtualKey.F2: _ = EditStatementAsync(item); break;
             case VirtualKey.Delete: Edit(() => doc.Remove(item)); break;
-            case VirtualKey.Escape: selected = null; ShowInspector(); SyncCanvasSelection(); break;
+            case VirtualKey.Escape: additionalSelection.Clear(); selected = null; ShowInspector(); SyncCanvasSelection(); break;
             default: return;
         }
         e.Handled = true;
@@ -212,14 +213,15 @@ public sealed partial class MainPage : Page
         tool = value; viewport.SetTool(value);
         foreach (var p in tools) Highlight(p.Value, p.Key == tool);
         if (value == "connect") Status("Drag between two objects or click the source and target.");
-        if (value == "move") Status("Drag an object onto a sibling to move its declaration before it.");
+        if (value == "move") Status("Drop beside an object to guide graph layout, or onto a sibling to reorder its declaration.");
     }
 
     void OnSourceChanged(object sender, TextChangedEventArgs e)
     {
         if (!ready || syncing) return;
+        if (SourceEditor.Text == doc.Source) return;
         doc.SetSource(SourceEditor.Text);
-        revision++; dirty = true; selected = null;
+        revision++; dirty = true; additionalSelection.Clear(); selected = null;
         undoButton.IsEnabled = doc.CanUndo; redoButton.IsEnabled = doc.CanRedo;
         Status("Editing source…");
         changeTimer.Stop(); changeTimer.Start();
@@ -227,7 +229,8 @@ public sealed partial class MainPage : Page
 
     void OnSourceSelection()
     {
-        if (!ready || syncing || mode == "Design" || changeTimer.IsEnabled || SourceEditor.Text != doc.Source) return;
+        if (!ready || syncing || mode == "Design" || SourceEditor.FocusState == FocusState.Unfocused ||
+            changeTimer.IsEnabled || SourceEditor.Text != doc.Source) return;
         var item = doc.FindAtOffset(SourceEditor.SelectionStart, out int page);
         if (page < 0) return;
         if (page != doc.ActivePage)
@@ -237,7 +240,7 @@ public sealed partial class MainPage : Page
         }
         else if (selected != item)
         {
-            selected = item; ShowInspector(); SyncCanvasSelection();
+            additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
         }
     }
 
@@ -247,7 +250,7 @@ public sealed partial class MainPage : Page
     {
         if (!ready || syncing || PagePicker.SelectedIndex < 0) return;
         if (doc.ActivePage == PagePicker.SelectedIndex) return;
-        doc.ActivePage = PagePicker.SelectedIndex; selected = null; revision++;
+        doc.ActivePage = PagePicker.SelectedIndex; additionalSelection.Clear(); selected = null; revision++;
         outlineLimit = 40; Refresh(); _ = RenderPageAsync();
     }
 
@@ -312,7 +315,7 @@ public sealed partial class MainPage : Page
 
     void Changed()
     {
-        selected = null; revision++; dirty = true;
+        additionalSelection.Clear(); selected = null; revision++; dirty = true;
         changeTimer.Stop(); Refresh(); _ = RenderPageAsync();
     }
 
@@ -326,25 +329,40 @@ public sealed partial class MainPage : Page
 
     void OnHit(DiagramHit hit)
     {
+        if (renderedRevision != revision) return;
+        if (hit.Kind == "toggle") { ToggleSelection(Resolve(hit)); return; }
+        additionalSelection.Clear();
         selected = Resolve(hit);
         ShowInspector(); SyncCanvasSelection();
         if (mode == "Split" && selected != null) SelectSource(selected);
         if (hit.Kind == "edit" && selected != null) _ = EditStatementAsync(selected);
     }
 
-    void SyncCanvasSelection() => viewport.SetSelection(selected?.Alias ?? "", selected == null ? -1 : selected.Line - doc.Page.StartLine);
+    void SyncCanvasSelection()
+    {
+        viewport.SetSelection(selected?.Alias ?? "", selected == null ? -1 : selected.Line - doc.Page.StartLine);
+        var items = SelectionItems();
+        viewport.SetAdditionalSelection(string.Join(",", additionalSelection.Select(o => o.Line - doc.Page.StartLine)),
+            items.Length == 0 ? "" : doc.CopySelection(items) ?? (items.Length == 1 ? items[0].Statement : ""));
+    }
 
     void OnGesture(DiagramGesture gesture)
     {
+        if (renderedRevision != revision) return;
         var from = Resolve(gesture.From); var to = Resolve(gesture.To);
         if (from == null || to == null) { Status("Choose two source-backed objects.", true); return; }
         if (gesture.Kind == "connect") Edit(() => doc.Connect(from, to), "These objects cannot be connected with the current diagram syntax.");
-        if (gesture.Kind == "moveBefore") Edit(() => doc.MoveBefore(from, to), "Only sibling declarations can be reordered.");
+        if (gesture.Kind is "moveBefore" or "place")
+        {
+            if (gesture.Direction.Length != 0 && doc.CanPlaceRelative(from, to))
+                Edit(() => doc.PlaceRelative(from, to, gesture.Direction));
+            else Edit(() => doc.MoveBefore(from, to), "Only compatible graph objects or sibling declarations can be moved.");
+        }
     }
 
     void Select(DiagramObject item)
     {
-        selected = item; ShowInspector(); SyncCanvasSelection();
+        additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
         if (mode != "Design") SelectSource(item);
     }
 
