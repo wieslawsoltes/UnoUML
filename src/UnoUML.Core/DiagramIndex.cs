@@ -32,15 +32,23 @@ public sealed class DiagramObject
     internal bool Ambiguous { get; set; }
     internal bool PlainName { get; set; }
     internal bool Unclosed { get; set; }
-    internal int Offset { get; }
-    internal int End { get; }
+    public int Offset { get; }
+    public int End { get; }
     internal int ParentLine { get; }
     internal int LabelAt { get; set; } = -1;
     internal int LabelLength { get; set; }
     internal int AliasAt { get; set; } = -1;
     internal int AliasLength { get; set; }
-    internal string From { get; set; } = "";
-    internal string To { get; set; } = "";
+    public string From { get; internal set; } = "";
+    public string To { get; internal set; } = "";
+    public string Arrow { get; internal set; } = "";
+    internal int FromAt { get; set; }
+    internal int ToAt { get; set; }
+    internal int ArrowAt { get; set; }
+    internal int ColorAt { get; set; } = -1;
+    internal int ColorLength { get; set; }
+    public bool CanSetFill => ColorAt >= 0 && !Ambiguous && !Unclosed;
+    public bool CanInsertMember { get; internal set; }
 }
 
 internal sealed partial class DiagramIndex
@@ -62,6 +70,9 @@ internal sealed partial class DiagramIndex
 
     [GeneratedRegex(@"^\s*(?<from>" + Endpoint + """)\s*(?:"[^"]*"\s*)?(?<arrow>[<|o*x+#^}({]*[-.=/\\]+(?:\[[^\]]+\]|left|right|up|down|[lrud])?[-.=/\\]*[>|o*x+#^}{)]*)\s*(?:"[^"]*"\s*)?(?<to>""" + Endpoint + @")\s*(?::\s*(?<label>.*))?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Relation();
+
+    [GeneratedRegex(@"^\s*(?:<<[^<>]+>>\s*)*(?:(?<color>#[A-Za-z0-9]+)\s*)?(?<brace>\{)?\s*$", RegexOptions.CultureInvariant)]
+    private static partial Regex DeclarationStyle();
 
     [GeneratedRegex(@"^\s*@(?<tag>start|end)(?<dialect>\w+)(?:\s+(?<name>.*?))?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Boundary();
@@ -155,6 +166,14 @@ internal sealed partial class DiagramIndex
             if (s.StartsWith("title ", StringComparison.OrdinalIgnoreCase)) name = s[6..].Trim();
             if (family == "UML") family = DetectFamily(s);
         }
+        if (family == "UML")
+        {
+            for (int i = first; i <= last; i++)
+            {
+                var link = Relation().Match(Lines[i].Code.TrimEnd());
+                if (link.Success && link.Groups["arrow"].Value is "->" or "-->" or "->>" or "-->>" or "<-" or "<--") { family = "Sequence"; break; }
+            }
+        }
         string title = string.IsNullOrWhiteSpace(name) ? $"{family} diagram" : name;
         Pages.Add(new(title, family, _source[Lines[first].Start..Lines[last].End], first, last));
     }
@@ -195,23 +214,32 @@ internal sealed partial class DiagramIndex
         var ends = new Dictionary<int, int>();
         var parents = new Dictionary<int, int>();
         var unclosed = new HashSet<int>();
+        var branches = new Dictionary<int, int>();
         for (int i = page.StartLine; i <= page.EndLine; i++)
         {
             string code = Lines[i].Code.Trim();
             if (code.Length == 0 || code.StartsWith("@start", StringComparison.OrdinalIgnoreCase) || code.StartsWith("@end", StringComparison.OrdinalIgnoreCase)) continue;
             if (stack.TryPeek(out var context))
             {
-                if (code.Equals(context.End, StringComparison.OrdinalIgnoreCase) ||
-                    (context.End.StartsWith("end", StringComparison.Ordinal) &&
-                     code.StartsWith("end ", StringComparison.OrdinalIgnoreCase) &&
-                     code.AsSpan(4).Equals(context.End.AsSpan(3), StringComparison.OrdinalIgnoreCase)))
+                if (Closes(code, context.End))
                 {
                     ends[stack.Pop().Line] = i;
                     continue;
                 }
-                if (context.Opaque) continue;
+                if (context.Opaque)
+                {
+                    if (context.End.StartsWith('!') && code.StartsWith('!') && BlockEnd(code, page.Family) is { Opaque: true } nested)
+                        stack.Push((i, nested.End, true));
+                    continue;
+                }
+                if (code == "else" || code.StartsWith("else ", StringComparison.OrdinalIgnoreCase) ||
+                    code == "fork again" || code.StartsWith("case ", StringComparison.OrdinalIgnoreCase))
+                {
+                    branches[context.Line] = i;
+                    continue;
+                }
             }
-            parents[i] = stack.TryPeek(out var parent) ? parent.Line : -1;
+            parents[i] = stack.TryPeek(out var parent) ? branches.GetValueOrDefault(parent.Line, parent.Line) : -1;
             if (BlockEnd(code, page.Family) is { } block) stack.Push((i, block.End, block.Opaque));
         }
         foreach (var pending in stack) unclosed.Add(pending.Line);
@@ -230,6 +258,14 @@ internal sealed partial class DiagramIndex
         return _cache[pageIndex] = result;
     }
 
+    private static bool Closes(string code, string end)
+    {
+        if (code.Equals(end, StringComparison.OrdinalIgnoreCase)) return true;
+        if (end is "repeat while" or "endwhile") return code.StartsWith(end + " ", StringComparison.OrdinalIgnoreCase);
+        return end.StartsWith("end", StringComparison.Ordinal) && code.StartsWith("end ", StringComparison.OrdinalIgnoreCase)
+            && code.AsSpan(4).Equals(end.AsSpan(3), StringComparison.OrdinalIgnoreCase);
+    }
+
     private static (string End, bool Opaque)? BlockEnd(string code, string family)
     {
         int sep = code.IndexOfAny([' ', '\t']);
@@ -242,7 +278,18 @@ internal sealed partial class DiagramIndex
             if (!code.Contains(':') && !code.Contains('"')) return ("end" + token, true);
         }
         if (code.Equals("<style>", StringComparison.OrdinalIgnoreCase)) return ("</style>", true);
-        if (code is "title" or "header" or "footer" or "legend" or "caption") return ("end" + code, true);
+        if (code is "title" or "header" or "footer" or "legend" or "caption" || token == "legend") return ("end" + token, true);
+        if (family == "Activity")
+        {
+            if (token == "if") return ("endif", false);
+            if (token == "while") return ("endwhile", false);
+            if (token == "repeat") return ("repeat while", false);
+            if (token == "switch") return ("endswitch", false);
+            if (token == "fork") return ("end fork", false);
+        }
+        if (token is "!if" or "!ifdef" or "!ifndef") return ("!endif", true);
+        if (token == "!while") return ("!endwhile", true);
+        if (token == "!foreach") return ("!endfor", true);
         if (token == "!startsub") return ("!endsub", true);
         if ((token is "!procedure" or "!function") && !code.Contains("!return", StringComparison.Ordinal)) return ("!end" + token[1..], true);
         if (family is "Sequence" or "UML")
@@ -277,12 +324,36 @@ internal sealed partial class DiagramIndex
                 item.LabelLength = name.Length;
                 item.PlainName = !alias.Success;
             }
+            int tailStart = declaration.Index + declaration.Length;
+            var style = DeclarationStyle().Match(code[tailStart..]);
+            if (style.Success)
+            {
+                var color = style.Groups["color"];
+                int insertion = code.Length;
+                if (style.Groups["brace"] is { Success: true } brace)
+                {
+                    insertion = tailStart + brace.Index;
+                    while (insertion > tailStart && char.IsWhiteSpace(code[insertion - 1])) insertion--;
+                }
+                if (family is "Class" or "Object" or "Component" or "Deployment" or "State" or "Sequence" or "Use case" or "UML")
+                {
+                    item.ColorAt = color.Success ? tailStart + color.Index : insertion;
+                    item.ColorLength = color.Length;
+                }
+                item.CanInsertMember = (end > line || !style.Groups["brace"].Success) &&
+                    item.Kind.ToLowerInvariant() is "class" or "abstract class" or "abstract" or "object" or "entity" or "interface" or "enum" or "annotation" or "struct" or "metaclass" or "protocol" or "stereotype" or "exception" &&
+                    family is "Class" or "Object";
+            }
             return item;
         }
         if (Relation().Match(code) is { Success: true } relation)
         {
             var label = relation.Groups["label"];
             var item = New("Relationship", label.Success ? label.Value : text);
+            item.ArrowAt = relation.Groups["arrow"].Index;
+            item.Arrow = relation.Groups["arrow"].Value;
+            item.FromAt = relation.Groups["from"].Index;
+            item.ToAt = relation.Groups["to"].Index;
             item.From = relation.Groups["from"].Value;
             item.To = relation.Groups["to"].Value;
             item.LabelAt = label.Success ? label.Index : code.Length;

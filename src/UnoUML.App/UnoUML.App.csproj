@@ -1,6 +1,6 @@
 <Project Sdk="Uno.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0-browserwasm</TargetFramework>
+    <TargetFrameworks>net10.0-browserwasm</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <RootNamespace>UnoUML.App</RootNamespace>
     <UnoSingleProject>true</UnoSingleProject>
@@ -17,7 +17,7 @@
     <Content Remove="wwwroot/uml/vendor/**/*" />
     <ProjectReference Include="../UnoUML.Core/UnoUML.Core.csproj" />
     <UnoIcon Include="Assets/mark.svg" />
-    <UnoSplashScreen Include="Assets/mark.svg" Color="#10182B" BaseSize="64,64" />
+    <UnoSplashScreen Include="Assets/launch.svg" Color="#F8F8FC" BaseSize="64,64" />
   </ItemGroup>
   <Target Name="PublishPlantUmlLibraries" AfterTargets="Publish">
     <ItemGroup>

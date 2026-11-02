@@ -40,7 +40,7 @@ export function parseSvg(text) {
 
 export function indexHits(svg, source) {
   const lines = source.split(/\r\n|\r|\n/);
-  const labels = new Map(), repeated = new Set();
+  const labels = new Map(), repeated = new Set(), macroAliases = new Map();
   // Text-only diagrams may omit all semantic groups. Only associate a label
   // with a statement if its source line is unambiguous.
   const addLabel = (name, i) => {
@@ -48,16 +48,23 @@ export function indexHits(svg, source) {
     if (labels.has(name) && labels.get(name) !== i) repeated.add(name);
     else labels.set(name, i);
   };
+  const previousClose = new Int32Array(lines.length);
+  let lastClose = -1;
   for (const [i, line] of lines.entries()) {
+    previousClose[i] = lastClose;
+    if (/^\s*\}/.test(line)) lastClose = i;
     const t = line.trim();
     if (!t || /^['!@]/.test(t)) continue;
     const quoted = [...t.matchAll(/"([^"]+)"/g)];
     for (const m of quoted) addLabel(m[1], i);
     addLabel(t.replace(/^(?:[*+#-]+\s+|:)\s*/, '').replace(/;$/, ''), i);
+    // PlantUML renders class visibility and member modifiers as separate
+    // glyphs, while the label itself only contains the signature.
+    addLabel(t.replace(/^(?:[+#~-]\s*)?(?:\{(?:static|abstract|field|method)\}\s*)?/i, ''), i);
     const tail = t.indexOf(':');
     if (tail >= 0) addLabel(t.slice(tail + 1).trim().replace(/;$/, ''), i);
     const macro = /^\w+\(\s*([\w.$]+)\s*,/.exec(t);
-    if (macro) addLabel(macro[1], i);
+    if (macro) macroAliases.set(macro[1], macroAliases.has(macro[1]) ? -1 : i);
   }
   const hits = new Map(), byId = new Map(), byLine = new Map();
   const inferred = label => repeated.has(label) ? -1 : labels.get(label) ?? -1;
@@ -77,14 +84,22 @@ export function indexHits(svg, source) {
     if (line >= lines.length) line = -1;
     // Preprocessing replaces lines. Prefer an original macro invocation over
     // a coincidentally in-bounds expanded line number.
-    if (id && inferred(id) >= 0) line = inferred(id);
+    if ((macroAliases.get(id) ?? -1) >= 0) line = macroAliases.get(id);
     if (line < 0) line = inferred(label);
     if (id || line >= 0) register(el, id, line, label);
   }
   for (const el of svg.querySelectorAll('text')) {
-    if (el.closest('[data-uml-hit]')) continue;
     const label = el.textContent.trim(), line = inferred(label);
-    if (line >= 0) register(el, '', line, label);
+    if (line < 0) continue;
+    const parent = el.closest('[data-uml-hit]');
+    if (parent) {
+      const start = hits.get(parent)?.line ?? -1;
+      if (!parent.classList.contains('entity') || start < 0 || line <= start || !/\{\s*$/.test(lines[start])) continue;
+      // Do not steal a click from this entity for a same-named label outside
+      // its body, including in another class.
+      if (previousClose[line] > start) continue;
+    }
+    register(el, '', line, label);
   }
   return { hits, byId, byLine };
 }

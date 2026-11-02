@@ -79,15 +79,15 @@ public sealed partial class MainPage
 
     void OpenDocument(string name, string source)
     {
-        ResetRenderer();
         changeTimer.Stop();
+        ResetRenderer();
         doc = new(source); fileName = name; selected = null; revision++; dirty = false; outlineLimit = 40;
         Refresh(); _ = RenderPageAsync();
     }
 
-    void SaveFile()
+    async void SaveFile()
     {
-        try { BrowserFiles.Save(fileName, doc.Source); dirty = false; SaveDraft(); Status($"Downloaded {fileName}"); }
+        try { await BrowserFiles.SaveAsync(fileName, doc.Source); dirty = false; SaveDraft(); Status($"Downloaded {fileName}"); }
         catch (Exception ex) { Status(ex.Message, true); }
     }
 
@@ -127,6 +127,7 @@ public sealed partial class MainPage
     void ShowLibraryMenu()
     {
         var menu = new MenuFlyout();
+        MenuAction(menu, "Browse standard library…", () => _ = BrowseStandardLibraryAsync());
         MenuAction(menu, "Create reusable snippet…", () => _ = AddSnippetAsync());
         MenuAction(menu, "Import snippet library…", () => _ = ImportLibraryAsync());
         MenuAction(menu, "Export snippet library", ExportLibrary);
@@ -185,9 +186,9 @@ public sealed partial class MainPage
         catch (Exception ex) { Status(ex.Message, true); }
     }
 
-    void ExportLibrary()
+    async void ExportLibrary()
     {
-        try { BrowserFiles.Save("unouml-library.json", JsonSerializer.Serialize(snippets, StudioJson.Default.ListLibrarySnippet), "application/json"); Status("Exported snippet library"); }
+        try { await BrowserFiles.SaveAsync("unouml-library.json", JsonSerializer.Serialize(snippets, StudioJson.Default.ListLibrarySnippet), "application/json"); Status("Exported snippet library"); }
         catch (Exception ex) { Status(ex.Message, true); }
     }
 }

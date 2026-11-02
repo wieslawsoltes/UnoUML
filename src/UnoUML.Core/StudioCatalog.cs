@@ -1,7 +1,10 @@
 namespace UnoUML.Core;
 
 public sealed record ToolItem(string Group, string Name, string Snippet, string Families = "UML");
-public sealed record DiagramTemplate(string Family, string Name, string Source);
+public sealed record DiagramTemplate(string Family, string Name, string Source)
+{
+    public bool RequiresServer => Family is "Chen" or "Ditaa" or "Math" or "LaTeX";
+}
 
 /// <summary>Catalog entries contain ordinary PlantUML. Only the {id} marker is expanded on insertion.</summary>
 public static class StudioCatalog
@@ -38,7 +41,8 @@ public static class StudioCatalog
         yield return new("Sequence", "Note", "note over {id}\nA note\nend note", "Sequence");
         yield return new("States", "State", "state \"State\" as {id}", "State");
         foreach (var (name, type) in new[] { ("Choice", "choice"), ("Fork", "fork"), ("Join", "join"), ("Entry point", "entryPoint"), ("Exit point", "exitPoint"), ("Input pin", "inputPin"), ("Output pin", "outputPin") })
-            yield return new("States", name, "state {id} <<" + type + ">>", "State");
+            yield return new("States", name, type is "choice" or "fork" or "join" ? "state {id} <<" + type + ">>" :
+                "state {id} {\n  state {id}Port <<" + type + ">>\n}", "State");
         yield return new("States", "Composite state", "state {id} {\n  [*] --> Idle\n}", "State");
         yield return new("Activities", "Action", ":New action;", "Activity");
         yield return new("Activities", "Decision", "if (Condition?) then (yes)\n  :Action;\nelse (no)\n  :Alternative;\nendif", "Activity");
@@ -46,7 +50,7 @@ public static class StudioCatalog
         yield return new("Activities", "Repeat", "repeat\n  :Action;\nrepeat while (Again?) is (yes)", "Activity");
         yield return new("Activities", "Loop", "while (Continue?) is (yes)\n  :Action;\nendwhile (no)", "Activity");
         yield return new("Activities", "Partition", "partition {id} {\n  :Action;\n}", "Activity");
-        yield return new("Activities", "Swimlane", "|{id}|\n:Action;", "Activity");
+        yield return new("Activities", "Swimlane", "|{id}|", "Activity");
         foreach (var name in new[] { "Robust", "Concise", "Binary", "Analog" })
             yield return new("Timing", name, name.ToLowerInvariant() + " \"" + name + "\" as {id}", "Timing");
         yield return new("Timing", "Clock", "clock \"Clock\" as {id} with period 10", "Timing");
@@ -54,12 +58,15 @@ public static class StudioCatalog
         yield return new("Outline", "Subtopic", "*** Subtopic", "Mind map|WBS");
         yield return new("Planning", "Task", "[{id}] lasts 3 days", "Gantt");
         yield return new("Planning", "Milestone", "[{id}] happens 2026-01-06", "Gantt");
-        yield return new("Planning", "Event", "[{id}] happens 2026-01-06", "Chronology");
+        yield return new("Charts", "Bar series", "bar \"{id}\" [30, 45, 62, 56] #7464CF", "Chart");
+        yield return new("Charts", "Line series", "line \"{id}\" [35, 40, 60, 75] #267E69", "Chart");
+        yield return new("Files", "File", "/src/{id}.cs", "Files");
+        yield return new("Data", "Value", "value", "JSON");
         yield return new("Grammar", "Production", "{id} = \"value\";", "EBNF");
         yield return new("Grammar", "Alternatives", "{id} = \"first\" | \"second\";", "EBNF");
         yield return new("Network", "Network", "network {id} {\n    server [address = \"192.0.2.1\"];\n  }", "Network");
-        yield return new("Topology", "Node", "{id} [label=\"Node\"];", "DOT");
-        yield return new("Topology", "Edge", "client -> {id};", "DOT");
+        yield return new("Topology", "Node", "\"{id}\" [label=\"Node\"];", "DOT");
+        yield return new("Topology", "Edge", "client -> \"{id}\";", "DOT");
         yield return new("Wireframe", "Button", "[Button]", "Wireframe");
         yield return new("Wireframe", "Text field", "\"Text field                \"", "Wireframe");
         yield return new("Wireframe", "Checkbox", "[X] Checkbox", "Wireframe");
@@ -69,6 +76,8 @@ public static class StudioCatalog
         yield return new("C4", "Person", "Person({id}, \"Person\", \"Description\")", "C4");
         yield return new("C4", "Software system", "System({id}, \"System\", \"Description\")", "C4");
         yield return new("C4", "External system", "System_Ext({id}, \"External system\", \"Description\")", "C4");
+        foreach (var (name, macro) in new[] { ("Business actor", "Business_Actor"), ("Business role", "Business_Role"), ("Business service", "Business_Service"), ("Business process", "Business_Process"), ("Application component", "Application_Component"), ("Data object", "Application_DataObject"), ("Technology node", "Technology_Node") })
+            yield return new("ArchiMate", name, macro + "({id}, \"" + name + "\")", "ArchiMate");
         yield return new("Annotations", "Floating note", "note \"New note\" as {id}", structural + "|State");
         yield return new("Annotations", "Legend", "legend right\n  Diagram key\nendlegend", structural + "|Sequence|State|Activity|Timing");
         yield return new("Annotations", "Comment", "' Comment", structural + "|Sequence|State|Activity|Timing|Gantt|Mind map|WBS");
@@ -119,7 +128,9 @@ public static class StudioCatalog
         Template("Mind map", "Discovery map", "mindmap", "* Product\n** Research\n*** Interviews\n** Design\n*** Prototypes"),
         Template("WBS", "Delivery breakdown", "wbs", "* Delivery\n** Plan\n*** Estimate\n** Implement\n*** Validate"),
         Template("Gantt", "Release plan", "gantt", "Project starts 2026-01-05\n[Design] lasts 3 days\n[Build] starts at [Design]'s end\n[Build] lasts 5 days"),
-        Template("Chronology", "Release milestones", "chronology", "[Kickoff] happens 2026-01-05\n[Release] happens 2026-01-12"),
+        Template("Chart", "Weekly throughput", "chart", "h-axis [W1, W2, W3, W4]\nv-axis 0 --> 100\nbar \"Completed\" [32, 51, 60, 75] #7464CF\nlegend right"),
+        Template("Files", "Solution tree", "files", "/src/Application.cs\n/src/Models/Order.cs\n/tests/OrderTests.cs"),
+        Template("Packet", "Packet header", "packetdiag", "{\n  colwidth = 32\n  0-7: Version\n  8-15: Flags\n  16-31: Length\n}"),
         Template("JSON", "JSON structure", "json", "{\n  \"service\": \"store\",\n  \"regions\": [\"eu\", \"us\"],\n  \"online\": true\n}"),
         Template("YAML", "Service configuration", "yaml", "service: checkout\nregions:\n  - Europe\n  - America"),
         Template("Wireframe", "Sign-in panel", "salt", "{\n  Sign in\n  User | \"Username      \"\n  () Remember me\n  [Submit]\n}"),
@@ -141,6 +152,6 @@ public static class StudioCatalog
         "mindmap" => "Mind map", "wbs" => "WBS", "gantt" => "Gantt", "chronology" => "Chronology",
         "json" => "JSON", "yaml" => "YAML", "salt" => "Wireframe", "nwdiag" => "Network",
         "ebnf" => "EBNF", "regex" => "Regex", "dot" => "DOT", "chen" => "Chen", "ditaa" => "Ditaa",
-        "math" => "Math", "latex" => "LaTeX", "creole" => "Creole", _ => dialect
+        "chart" => "Chart", "files" => "Files", "packetdiag" => "Packet", "math" => "Math", "latex" => "LaTeX", "creole" => "Creole", _ => dialect
     };
 }

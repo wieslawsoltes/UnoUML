@@ -65,6 +65,20 @@ var symbols = new StudioDocument("@startuml\nparticipant Alice\nparticipant Bob\
 Check(symbols.Rename(symbols.Objects.Last(), "Hi") && symbols.Source.Contains("Alice -> Bob : Hi"), "unlabeled message");
 var escaped = new StudioDocument("@startuml\nclass \"Thing\" as Object #blue ' display\n@enduml");
 Check(escaped.Rename(escaped.Find("Object")!, "quote \"A\"") && escaped.Find("Object")!.Label == "quote \"A\"", "quoted label");
+var styled = new StudioDocument("@startuml\nclass A #red {\n  +id\n}\nclass B ' keep this\nA \"1\" -- \"many\" B : dependencies\n@enduml");
+Check(styled.SetFill(styled.Find("A")!, "#3271ff") && styled.Source.Contains("A #3271ff {"), "replace color");
+Check(styled.SetFill(styled.Find("B")!, "#3271ff") && styled.Source.Contains("B #3271ff ' keep this"), "insert color");
+Check(!styled.SetFill(styled.Find("A")!, "red"), "reject invalid color");
+Check(styled.InsertMember(styled.Find("B")!, "+save()") && styled.Source.Contains("class B #3271ff { ' keep this\n  +save()\n}"), "add first member");
+Check(styled.InsertMember(styled.Find("A")!, "+cancel()") && styled.Source.Contains("  +id\n  +cancel()\n}"), "append member");
+Check(styled.SetArrow(styled.Objects.Last(), "*--"), "change arrow");
+Check(styled.Retarget(styled.Objects.Last(), styled.Find("B")!, styled.Find("A")!) && styled.Source.Contains("B \"1\" *-- \"many\" A : dependencies"), "retarget with multiplicity");
+var origin = new StudioDocument(source);
+Check(origin.FindAtOffset(source.IndexOf("Alpha"), out int pIndex)?.Label == "Alpha" && pIndex == 1 && origin.ActivePage == 0, "offset lookup across diagrams");
+var guarded = new StudioDocument("@startuml\n!if $enabled\n!if $nested\nclass Hidden\n!endif\nclass Hidden2\n!endif\nclass Visible\n@enduml");
+Check(guarded.Find("Hidden") == null && guarded.Find("Hidden2") == null && guarded.Find("Visible") != null, "nested preprocessing is opaque");
+var branches = new StudioDocument("@startuml\nstart\nif (OK?) then (yes)\n:Accept;\nelse (no)\n:Decline;\nendif\nstop\n@enduml");
+Check(!branches.MoveBefore(branches.Objects.First(o => o.Label == "Decline"), branches.Objects.First(o => o.Label == "Accept")), "move cannot cross branches");
 foreach (var template in StudioCatalog.Templates)
 {
     var sample = new StudioDocument(template.Source);

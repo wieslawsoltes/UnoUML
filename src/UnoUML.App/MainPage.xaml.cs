@@ -33,6 +33,7 @@ public sealed partial class MainPage : Page
         InitializeComponent();
         BuildCommands();
         ViewportHost.Children.Add(viewport);
+        SourceEditor.SelectionChanged += (_, _) => OnSourceSelection();
         viewport.Hit += (_, hit) => OnHit(hit);
         viewport.Gesture += (_, gesture) => OnGesture(gesture);
         viewport.DropSnippet += (_, payload) => DropTool(payload);
@@ -222,6 +223,22 @@ public sealed partial class MainPage : Page
         undoButton.IsEnabled = doc.CanUndo; redoButton.IsEnabled = doc.CanRedo;
         Status("Editing source…");
         changeTimer.Stop(); changeTimer.Start();
+    }
+
+    void OnSourceSelection()
+    {
+        if (!ready || syncing || mode == "Design" || changeTimer.IsEnabled || SourceEditor.Text != doc.Source) return;
+        var item = doc.FindAtOffset(SourceEditor.SelectionStart, out int page);
+        if (page < 0) return;
+        if (page != doc.ActivePage)
+        {
+            doc.ActivePage = page; selected = item; revision++;
+            Refresh(); _ = RenderPageAsync();
+        }
+        else if (selected != item)
+        {
+            selected = item; ShowInspector(); SyncCanvasSelection();
+        }
     }
 
     void OnSearchChanged(object sender, TextChangedEventArgs e) { if (ready) ShowLibrary(); }

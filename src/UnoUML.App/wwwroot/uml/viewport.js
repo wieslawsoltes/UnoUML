@@ -156,7 +156,7 @@ class Viewport {
       if (text.startsWith('unouml:tool:')) { e.preventDefault(); e.stopPropagation(); this.emit('drop', { text }); }
     });
     s.addEventListener('click', e => e.preventDefault());
-    s.addEventListener('dblclick', e => { const el = this.pick(e.target); if (el) this.hit(el,'edit'); });
+    s.addEventListener('dblclick', e => { const el = this.pick(this.host.shadowRoot.elementFromPoint(e.clientX, e.clientY)); if (el) this.hit(el,'edit'); });
     s.addEventListener('keydown', e => {
       if (e.key === 'Escape') { this.linkStart = null; this.clearGuide(); this.hit(null); }
       else if (e.key === '+' || e.key === '=') this.zoom(1.2);

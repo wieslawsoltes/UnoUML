@@ -113,6 +113,35 @@ public sealed class StudioDocument
         return string.IsNullOrEmpty(alias) ? null : Objects.FirstOrDefault(o => !o.Ambiguous && o.Alias == alias);
     }
 
+    public DiagramObject? FindAtOffset(int offset, out int pageIndex)
+    {
+        pageIndex = -1;
+        if (offset < 0 || offset > Source.Length) return null;
+        var lines = Index.Lines;
+        int low = 0, high = lines.Count - 1;
+        while (low < high)
+        {
+            int mid = low + ((high - low + 1) / 2);
+            if (lines[mid].Start <= offset) low = mid;
+            else high = mid - 1;
+        }
+        int line = low;
+        for (int i = 0; i < Pages.Count; i++)
+        {
+            var page = Pages[i];
+            if (line < page.StartLine || line > page.EndLine) continue;
+            pageIndex = i;
+            DiagramObject? best = null;
+            foreach (var item in Index.Objects(i))
+            {
+                if (item.Line > line) break;
+                if (item.EndLine >= line) best = item;
+            }
+            return best;
+        }
+        return null;
+    }
+
     private bool Current(DiagramObject item) => Objects.Contains(item) && !item.Unclosed;
     private string LocalNewLines(string text) => text.ReplaceLineEndings(Index.NewLine);
 
@@ -126,16 +155,83 @@ public sealed class StudioDocument
         return Patch(end.End, end.End, (end.Start == end.End ? "" : Index.NewLine) + text);
     }
 
+    public bool Include(string path)
+    {
+        if (string.IsNullOrEmpty(path) || path.StartsWith('/') || path.Split('/').Any(s => s is "" or "." or "..") ||
+            path.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('/' or '.' or '_' or '-'))) return false;
+        string directive = "!include <" + path + ">";
+        for (int i = Page.StartLine; i <= Page.EndLine; i++)
+            if (Index.Lines[i].Code.Trim().Equals(directive, StringComparison.OrdinalIgnoreCase)) return false;
+        var first = Index.Lines[Page.StartLine];
+        if (!first.Code.TrimStart(' ', '\t', '\uFEFF').StartsWith("@start", StringComparison.OrdinalIgnoreCase)) return InsertAt(Page.StartLine, directive);
+        if (first.Next == first.End) return Patch(first.End, first.End, Index.NewLine + directive);
+        return Patch(first.Next, first.Next, directive + Index.NewLine);
+    }
+
     public bool Add(ToolItem tool)
     {
         if (!StudioCatalog.Accepts(tool, Page)) return false;
+        if (Page.Family == "JSON" && tool.Group == "Data") return AppendJsonValue();
         string expanded = tool.Snippet;
         if (expanded.Contains("{id}", StringComparison.Ordinal))
         {
             string id = NewAlias(string.Concat(tool.Name.Where(char.IsLetterOrDigit)));
             expanded = expanded.Replace("{id}", id, StringComparison.Ordinal);
         }
+        if (tool.Group is "Topology" or "Wireframe" or "Network")
+        {
+            // These languages require children inside the outer graph/table container.
+            for (int i = Page.EndLine; i >= Page.StartLine; i--)
+                if (Index.Lines[i].Code.Trim() == "}") return InsertAt(i, "  " + expanded);
+            return false;
+        }
+        if (tool.Group == "Activities")
+        {
+            if (tool.Name == "Swimlane")
+            {
+                for (int i = Page.StartLine; i <= Page.EndLine; i++)
+                    if (Index.Lines[i].Code.Trim() == "start") return InsertAt(i, expanded);
+            }
+            for (int i = Page.EndLine; i >= Page.StartLine; i--)
+                if (Index.Lines[i].Code.Trim() is "stop" or "end" or "kill" or "detach") return InsertAt(i, expanded);
+        }
+        if (tool.Group is "Lifelines" or "Timing")
+        {
+            var first = Objects.FirstOrDefault(o => o.Kind == "Relationship" || (tool.Group == "Timing" && Index.Lines[o.Line].Code.TrimStart().StartsWith('@')));
+            if (first != null) return InsertAt(first.Line, expanded);
+        }
         return Insert(expanded);
+    }
+
+    private bool AppendJsonValue()
+    {
+        int start = Index.Lines[Page.StartLine].Next;
+        int end = Index.Lines[Page.EndLine].Start;
+        if (end <= start) return false;
+        string json = Source[start..end];
+        try
+        {
+            using var parsed = System.Text.Json.JsonDocument.Parse(json);
+            var root = parsed.RootElement;
+            bool map = root.ValueKind == System.Text.Json.JsonValueKind.Object;
+            if (!map && root.ValueKind != System.Text.Json.JsonValueKind.Array) return false;
+            bool empty = map ? !root.EnumerateObject().Any() : root.GetArrayLength() == 0;
+            int close = json.LastIndexOf(map ? '}' : ']');
+            int insert = close;
+            while (insert > 0 && char.IsWhiteSpace(json[insert - 1])) insert--;
+            string key = "property";
+            if (map)
+                for (int n = 2; root.TryGetProperty(key, out _); n++) key = "property" + n;
+            string value = map ? "\"" + key + "\": \"value\"" : "\"value\"";
+            return Patch(start + insert, start + insert, (empty ? "" : ",") + Index.NewLine + "  " + value);
+        }
+        catch (System.Text.Json.JsonException) { return false; }
+    }
+
+    private bool InsertAt(int line, string snippet)
+    {
+        int at = Index.Lines[line].Start;
+        return Patch(at, at, LocalNewLines(snippet) + Index.NewLine);
     }
 
     private string NewAlias(string stem)
@@ -164,8 +260,54 @@ public sealed class StudioDocument
     public bool Connect(DiagramObject from, DiagramObject to, string arrow = "-->", string label = "")
     {
         if (!Current(from) || !Current(to) || !from.IsConnectable || !to.IsConnectable || !OneLine(label)) return false;
-        if (arrow is not ("-->" or "->" or "<-" or "<--" or "--" or ".." or "..>" or "<|--" or "--|>" or "*--" or "o--" or "<|.." or "..|>" or "->>" or "-->>" or "<->" or "<-->")) return false;
+        if (!ValidArrow(arrow)) return false;
         return Insert($"{from.Alias} {arrow} {to.Alias}" + (label.Length == 0 ? "" : " : " + label));
+    }
+
+    private static bool ValidArrow(string arrow) =>
+        arrow is "-->" or "->" or "<-" or "<--" or "--" or ".." or "..>" or "<|--" or "--|>" or "*--" or "o--" or "<|.." or "..|>" or "->>" or "-->>" or "<->" or "<-->";
+
+    public bool SetArrow(DiagramObject item, string arrow) => UpdateConnection(item, null, null, arrow);
+
+    public bool Retarget(DiagramObject item, DiagramObject from, DiagramObject to) => UpdateConnection(item, from, to, item.Arrow);
+
+    /// <summary>Change endpoints, appearance and caption of one relationship as a single undo operation.</summary>
+    public bool UpdateConnection(DiagramObject item, DiagramObject? from, DiagramObject? to, string arrow, string? label = null)
+    {
+        if (!Current(item) || item.Kind != "Relationship" || (arrow != item.Arrow && !ValidArrow(arrow))
+            || (from != null && (!Current(from) || !from.IsConnectable)) || (to != null && (!Current(to) || !to.IsConnectable))
+            || (label != null && !OneLine(label))) return false;
+        var raw = new System.Text.StringBuilder(item.Statement);
+        // Work right-to-left, keeping caller-supplied escape text, whitespace, cardinalities and comments verbatim.
+        if (label != null && label != item.Label)
+        {
+            bool missingColon = item.LabelLength == 0 && !Index.Lines[item.Line].Code.TrimEnd().EndsWith(':');
+            raw.Remove(item.LabelAt, item.LabelLength).Insert(item.LabelAt, (missingColon ? " : " : "") + label);
+        }
+        if (to != null) raw.Remove(item.ToAt, item.To.Length).Insert(item.ToAt, to.Alias);
+        raw.Remove(item.ArrowAt, item.Arrow.Length).Insert(item.ArrowAt, arrow);
+        if (from != null) raw.Remove(item.FromAt, item.From.Length).Insert(item.FromAt, from.Alias);
+        return Patch(item.Offset, item.End, raw.ToString());
+    }
+
+    public bool SetFill(DiagramObject item, string colorHex)
+    {
+        if (!Current(item) || !item.CanSetFill || colorHex.Length != 7 || colorHex[0] != '#' || colorHex.AsSpan(1).IndexOfAnyExcept("0123456789ABCDEFabcdef") >= 0) return false;
+        int at = item.Offset + item.ColorAt;
+        return Patch(at, at + item.ColorLength, item.ColorLength > 0 ? colorHex : " " + colorHex);
+    }
+
+    public bool InsertMember(DiagramObject item, string member)
+    {
+        if (!Current(item) || !item.CanInsertMember || !OneLine(member) || string.IsNullOrWhiteSpace(member) || member.Trim() is "{" or "}") return false;
+        string decl = Index.Lines[item.Line].Code;
+        string indent = decl[..(decl.Length - decl.TrimStart().Length)];
+        if (item.EndLine > item.Line)
+            return InsertAt(item.EndLine, indent + "  " + member.Trim());
+        // Insert the opening brace before any trailing comment; preserve the comment on the declaration line.
+        int at = item.Offset + decl.TrimEnd().Length;
+        string originalTail = Source[at..item.End];
+        return Patch(at, item.End, " {" + originalTail + Index.NewLine + indent + "  " + member.Trim() + Index.NewLine + indent + "}");
     }
 
     public bool Rename(DiagramObject item, string label)

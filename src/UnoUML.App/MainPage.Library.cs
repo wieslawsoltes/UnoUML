@@ -8,6 +8,7 @@ namespace UnoUML.App;
 public sealed partial class MainPage
 {
     string? libraryFamily;
+    bool includeSourceInOutline;
 
     void ShowLibrary()
     {
@@ -43,6 +44,7 @@ public sealed partial class MainPage
                 LibraryItems.Children.Add(button);
                 count++;
             }
+            LibraryFooter.Children.Add(Item("Standard library…", "library", () => _ = BrowseStandardLibraryAsync()));
             LibraryFooter.Children.Add(Item("Add custom PlantUML…", "source", () => _ = InsertCustomAsync()));
         }
         else if (tab == "Diagrams")
@@ -51,7 +53,7 @@ public sealed partial class MainPage
             foreach (var template in StudioCatalog.Templates.Where(t => Matches(t.Name) || Matches(t.Family)))
             {
                 Group(template.Family);
-                LibraryItems.Children.Add(Item(template.Name, "theme", () => AppendPage(template), true)); count++;
+                LibraryItems.Children.Add(Item(template.Name + (template.RequiresServer ? " · JVM" : ""), "theme", () => AppendPage(template), true)); count++;
             }
             LibraryFooter.Children.Add(Caption("Choose a template to add a page to this document."));
         }
@@ -154,16 +156,20 @@ public sealed partial class MainPage
             actions.Children.Add(Command("Delete object", "delete", () => Edit(() => doc.Remove(item))));
             Properties.Children.Add(actions);
         }
-        ObjectCount.Text = doc.Objects.Count.ToString();
-        foreach (var obj in doc.Objects.Take(outlineLimit))
+        var visualObjects = doc.Objects.Where(o => o.Kind is not ("Source" or "Style" or "Caption" or "Library")).ToList();
+        var outline = includeSourceInOutline || visualObjects.Count == 0 ? doc.Objects : visualObjects;
+        ObjectCount.Text = outline.Count.ToString();
+        foreach (var obj in outline.Take(outlineLimit))
         {
             var b = Item(string.IsNullOrEmpty(obj.Label) ? obj.Statement : obj.Label, ShapeIcon(obj.Kind), () => Select(obj));
             if (obj == item) Highlight(b, true);
             ToolTipService.SetToolTip(b, $"{obj.Kind} · line {obj.Line + 1}");
             OutlineItems.Children.Add(b);
         }
-        if (doc.Objects.Count > outlineLimit)
-            OutlineItems.Children.Add(Item($"Show next {Math.Min(40, doc.Objects.Count - outlineLimit)}", "down", () => { outlineLimit += 40; ShowInspector(); }));
+        if (outline.Count > outlineLimit)
+            OutlineItems.Children.Add(Item($"Show next {Math.Min(40, outline.Count - outlineLimit)}", "down", () => { outlineLimit += 40; ShowInspector(); }));
+        if (visualObjects.Count != 0 && visualObjects.Count != doc.Objects.Count)
+            OutlineItems.Children.Add(Item(includeSourceInOutline ? "Show visual objects" : "Include source statements", "list", () => { includeSourceInOutline = !includeSourceInOutline; ShowInspector(); }));
     }
 
     void EditProperty(DiagramObject item, Func<bool> edit)
@@ -194,17 +200,10 @@ public sealed partial class MainPage
         var fields = new StackPanel { Spacing = 8 };
         fields.Children.Add(from); fields.Children.Add(to); fields.Children.Add(arrow);
         if (await AskAsync("Edit connection", fields, "Apply") != ContentDialogResult.Primary) return;
-        bool changed = false;
-        if (from.SelectedIndex >= 0 && to.SelectedIndex >= 0 && 
-            (endpoints[from.SelectedIndex].Alias != item.From || endpoints[to.SelectedIndex].Alias != item.To))
-            changed = doc.Retarget(item, endpoints[from.SelectedIndex], endpoints[to.SelectedIndex]);
-        var current = changed ? doc.Find(null, item.Line) : item;
-        if (current != null && arrow.SelectedIndex >= 0 && arrows[arrow.SelectedIndex] != item.Arrow)
-            changed |= doc.SetArrow(current, arrows[arrow.SelectedIndex]);
-        if (changed)
-        {
-            selected = doc.Find(null, item.Line); dirty = true; revision++; Refresh(); _ = RenderPageAsync();
-        }
+        var source = from.SelectedIndex < 0 ? null : endpoints[from.SelectedIndex];
+        var destination = to.SelectedIndex < 0 ? null : endpoints[to.SelectedIndex];
+        string connector = arrow.SelectedIndex < 0 ? item.Arrow : arrows[arrow.SelectedIndex];
+        EditProperty(item, () => doc.UpdateConnection(item, source, destination, connector));
     }
 
     async Task<ContentDialogResult> AskAsync(string title, UIElement content, string accept)

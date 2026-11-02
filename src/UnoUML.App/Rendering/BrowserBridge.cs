@@ -10,6 +10,8 @@ internal static partial class BrowserBridge
 
     internal static async Task ReadyAsync()
     {
+        if (!OperatingSystem.IsBrowser()) throw new PlatformNotSupportedException("The diagram viewport requires a browser.");
+        if (import is not null) { await import; return; }
         using var doc = JSHost.GlobalThis.GetPropertyAsJSObject("document")!;
         var url = new Uri(new Uri(doc.GetPropertyAsString("baseURI")!), "uml/viewport.js");
         var attempt = import ??= JSHost.ImportAsync(Module, url.AbsoluteUri);
@@ -48,8 +50,11 @@ public static class BrowserFiles
         return new(data.RootElement.GetProperty("name").GetString()!, data.RootElement.GetProperty("text").GetString()!);
     }
 
-    public static void Save(string fileName, string text, string mime = "text/plain;charset=utf-8") =>
+    public static async Task SaveAsync(string fileName, string text, string mime = "text/plain;charset=utf-8")
+    {
+        await BrowserBridge.ReadyAsync();
         BrowserBridge.Save(fileName, text, mime);
+    }
     public static string? ReadDraft(string key) => BrowserBridge.StorageGet("UnoUML:" + key);
     public static void WriteDraft(string key, string value) => BrowserBridge.StorageSet("UnoUML:" + key, value);
     public static void RemoveDraft(string key) => BrowserBridge.StorageRemove("UnoUML:" + key);
