@@ -53,6 +53,9 @@ internal static partial class SequenceRenderer
         internal readonly Dictionary<string, int> Names = new(StringComparer.Ordinal);
         internal readonly Dictionary<string, string> Colors = new(StringComparer.OrdinalIgnoreCase);
         internal string? Title;
+        internal string[]? Legend;
+        internal string LegendAlignment = "right";
+        internal int LegendLine, LegendWidth;
         internal int TitleLine, Width, Height, HeadBottom, LifelineEnd, HeaderHeight, MaxNest;
         internal bool Footbox = true;
         internal string Style(string name, string fallback) => Colors.GetValueOrDefault(name, fallback);
@@ -75,7 +78,7 @@ internal static partial class SequenceRenderer
     internal static string? TryRender(string source)
     {
         if (source.Length > 512_000) return null;
-        var lines = source.ReplaceLineEndings("\n").Split('\n');
+        var lines = source.Split('\n');
         var diagram = new Diagram();
         var frames = new Stack<int>();
         bool started = false, ended = false, skin = false, auto = false;
@@ -99,6 +102,20 @@ internal static partial class SequenceRenderer
             {
                 if (diagram.Title != null || !Plain(line[6..])) return null;
                 diagram.Title = line[6..]; diagram.TitleLine = i;
+                continue;
+            }
+            if (line.Equals("legend", StringComparison.OrdinalIgnoreCase) || line.StartsWith("legend ", StringComparison.OrdinalIgnoreCase))
+            {
+                if (diagram.Legend != null) return null;
+                var alignment = line.Length > 6 ? line[6..].Trim().ToLowerInvariant() : "center";
+                if (alignment is not ("left" or "right" or "center")) return null;
+                diagram.LegendAlignment = alignment; diagram.LegendLine = i;
+                int first = i + 1;
+                while (++i < lines.Length && !lines[i].Trim().Equals("endlegend", StringComparison.OrdinalIgnoreCase))
+                    if (lines[i].TrimStart().StartsWith('!') || !Plain(lines[i])) return null;
+                if (i >= lines.Length || i == first || i - first > 128) return null;
+                diagram.Legend = Dedent(lines[first..i]);
+                diagram.LegendWidth = Math.Max(50, diagram.Legend.Max(row => SvgText.Measure(row, 13)) + 20);
                 continue;
             }
             if (line.Equals("hide footbox", StringComparison.OrdinalIgnoreCase)) { diagram.Footbox = false; continue; }
@@ -183,9 +200,7 @@ internal static partial class SequenceRenderer
                     while (++i < lines.Length && !lines[i].Trim().Equals("end note", StringComparison.OrdinalIgnoreCase))
                         if (lines[i].TrimStart().StartsWith('!')) return null;
                     if (i >= lines.Length) return null;
-                    var rows = lines[first..i];
-                    int indent = rows.Where(r => r.Trim().Length > 0).Select(r => r.Length - r.TrimStart().Length).DefaultIfEmpty(0).Min();
-                    body = string.Join('\n', rows.Select(row => row.Length >= indent ? row[indent..] : ""));
+                    body = string.Join('\n', Dedent(lines[first..i]));
                 }
                 if (!Plain(body)) return null;
                 diagram.Steps.Add(new(Op.Note, lineIndex, a, b, body, side, color)); continue;
@@ -230,8 +245,16 @@ internal static partial class SequenceRenderer
         return WriteSvg(diagram);
     }
 
+    private static string[] Dedent(string[] rows)
+    {
+        int indent = rows.Where(r => r.Trim().Length > 0).Select(r => r.Length - r.TrimStart().Length).DefaultIfEmpty(0).Min();
+        if (indent != 0)
+            for (int i = 0; i < rows.Length; i++) rows[i] = rows[i].Length >= indent ? rows[i][indent..] : "";
+        return rows;
+    }
+
     private static string Unquote(string value) => value.Length >= 2 && value[0] == '"' ? value[1..^1] : value;
-    private static bool Plain(string text) => text.Length <= 8192 && SvgText.IsPlain(text) && !text.Contains('%');
+    private static bool Plain(string text) => text.Length <= 8192 && SvgText.IsPlain(text);
 
     private static string? ParseColor(string text)
     {

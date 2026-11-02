@@ -53,16 +53,16 @@ internal static class PacketRenderer
         if (width > 32768) return null;
         var svg = TreeDiagram.Canvas(width, (fields[^1].Last / columns + 1) * 48 + 38);
         for (int bit = 0; bit < columns; bit++)
-            svg.Append($"<text x=\"{16+bit*cell+cell/2}\" y=\"19\" text-anchor=\"middle\" font-size=\"11\">{bit}</text>");
+            svg.Append(CultureInfo.InvariantCulture, $"<text x=\"{16+bit*cell+cell/2}\" y=\"19\" text-anchor=\"middle\" font-size=\"11\">{bit}</text>");
         foreach (var f in fields)
         {
-            svg.Append($"<g data-source-line=\"{f.Line}\"><title>{SvgText.Escape(f.Name)}</title>");
+            svg.Append(CultureInfo.InvariantCulture, $"<g data-source-line=\"{f.Line}\"><title>{SvgText.Escape(f.Name)}</title>");
             for (int start = f.First; start <= f.Last;)
             {
                 int row = start / columns, stop = Math.Min(f.Last + 1, (row + 1) * columns);
                 int x = 16 + start % columns * cell, y = 26 + row * 48, w = (stop - start) * cell;
-                svg.Append($"<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"48\" fill=\"#f5f5fa\" stroke=\"#68687d\"/>");
-                if (start == f.First) svg.Append($"<text x=\"{x+w/2}\" y=\"{y+29}\" text-anchor=\"middle\">{SvgText.Escape(f.Name)}</text>");
+                svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"48\" fill=\"#f5f5fa\" stroke=\"#68687d\"/>");
+                if (start == f.First) svg.Append(CultureInfo.InvariantCulture, $"<text x=\"{x+w/2}\" y=\"{y+29}\" text-anchor=\"middle\">{SvgText.Escape(f.Name)}</text>");
                 start = stop;
             }
             svg.Append("</g>");

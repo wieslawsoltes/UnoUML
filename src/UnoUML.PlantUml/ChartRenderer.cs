@@ -119,7 +119,7 @@ internal static partial class ChartRenderer
         double Y(double value) => bottom - (value - v.Min) / (v.Max - v.Min) * 300;
         double zero = Y(Math.Clamp(0, v.Min, v.Max));
 
-        s.Append($"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\" font-size=\"14\" font-family=\"sans-serif\">");
+        s.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\" font-size=\"14\" font-family=\"sans-serif\">");
         if (chart.Title.Length > 0)
         {
             Open(s, "title", chart.TitleLine);
@@ -137,7 +137,7 @@ internal static partial class ChartRenderer
         if (v.Label.Length > 0)
         {
             int x = left - marginLeft + 17, y = top + 150;
-            s.Append($"<g transform=\"rotate(-90 {x} {y})\">");
+            s.Append(CultureInfo.InvariantCulture, $"<g transform=\"rotate(-90 {x} {y})\">");
             Text(s, x, y, v.Label); s.Append("</g>");
         }
         s.Append("</g>");
@@ -170,15 +170,15 @@ internal static partial class ChartRenderer
             else if (series.Kind == "scatter")
             {
                 for (int i = 0; i < categories.Length; i++)
-                    s.Append($"<circle data-point-index=\"{i}\" cx=\"{F(X(i))}\" cy=\"{F(Y(series.Values[i]))}\" r=\"4\" fill=\"{color}\"/>");
+                    s.Append(CultureInfo.InvariantCulture, $"<circle data-point-index=\"{i}\" cx=\"{F(X(i))}\" cy=\"{F(Y(series.Values[i]))}\" r=\"4\" fill=\"{color}\"/>");
             }
             else
             {
                 bool area = series.Kind == "area";
-                if (area) s.Append($"<polygon fill=\"{color}\" stroke=\"{color}\" points=\"{F(X(0))},{F(zero)} ");
-                else s.Append($"<polyline fill=\"none\" stroke=\"{color}\" stroke-width=\"2\" points=\"");
-                for (int i = 0; i < categories.Length; i++) s.Append($"{F(X(i))},{F(Y(series.Values[i]))} ");
-                if (area) s.Append($"{F(X(categories.Length - 1))},{F(zero)}");
+                if (area) s.Append(CultureInfo.InvariantCulture, $"<polygon fill=\"{color}\" stroke=\"{color}\" points=\"{F(X(0))},{F(zero)} ");
+                else s.Append(CultureInfo.InvariantCulture, $"<polyline fill=\"none\" stroke=\"{color}\" stroke-width=\"2\" points=\"");
+                for (int i = 0; i < categories.Length; i++) s.Append(CultureInfo.InvariantCulture, $"{F(X(i))},{F(Y(series.Values[i]))} ");
+                if (area) s.Append(CultureInfo.InvariantCulture, $"{F(X(categories.Length - 1))},{F(zero)}");
                 s.Append("\"/>");
             }
             s.Append("</g>");
@@ -201,15 +201,15 @@ internal static partial class ChartRenderer
         return s.Append("</svg>").ToString();
     }
 
-    private static void Open(StringBuilder s, string kind, int line) => s.Append($"<g class=\"{kind}\" data-source-line=\"{line}\">");
+    private static void Open(StringBuilder s, string kind, int line) => s.Append(CultureInfo.InvariantCulture, $"<g class=\"{kind}\" data-source-line=\"{line}\">");
     private static void Text(StringBuilder s, double x, double y, string text, string anchor = "middle", int size = 14) =>
-        s.Append($"<text x=\"{F(x)}\" y=\"{F(y)}\" text-anchor=\"{anchor}\" font-size=\"{size}\">{SvgText.Escape(text)}</text>");
+        s.Append(CultureInfo.InvariantCulture, $"<text x=\"{F(x)}\" y=\"{F(y)}\" text-anchor=\"{anchor}\" font-size=\"{size}\">{SvgText.Escape(text)}</text>");
     private static void Line(StringBuilder s, double x1, double y1, double x2, double y2, string color = "#181818", double weight = .5) =>
-        s.Append($"<line x1=\"{F(x1)}\" y1=\"{F(y1)}\" x2=\"{F(x2)}\" y2=\"{F(y2)}\" stroke=\"{color}\" stroke-width=\"{F(weight)}\"/>");
+        s.Append(CultureInfo.InvariantCulture, $"<line x1=\"{F(x1)}\" y1=\"{F(y1)}\" x2=\"{F(x2)}\" y2=\"{F(y2)}\" stroke=\"{color}\" stroke-width=\"{F(weight)}\"/>");
     private static void Rect(StringBuilder s, double x, double y, double w, double h, string color, string stroke, int index = -1)
     {
-        s.Append($"<rect x=\"{F(x)}\" y=\"{F(y)}\" width=\"{F(w)}\" height=\"{F(h)}\" fill=\"{color}\" stroke=\"{stroke}\" stroke-width=\"0.5\"");
-        if (index >= 0) s.Append($" data-point-index=\"{index}\"");
+        s.Append(CultureInfo.InvariantCulture, $"<rect x=\"{F(x)}\" y=\"{F(y)}\" width=\"{F(w)}\" height=\"{F(h)}\" fill=\"{color}\" stroke=\"{stroke}\" stroke-width=\"0.5\"");
+        if (index >= 0) s.Append(CultureInfo.InvariantCulture, $" data-point-index=\"{index}\"");
         s.Append("/>");
     }
 }

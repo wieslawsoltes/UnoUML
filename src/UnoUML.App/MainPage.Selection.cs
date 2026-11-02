@@ -32,6 +32,11 @@ public sealed partial class MainPage
     private void OnCanvasCommand(string action, string text)
     {
         if (renderedRevision != revision) return;
+        if (JsonSelection != null)
+        {
+            Status("Double-click to edit this JSON field or use Source to change its structure.");
+            return;
+        }
         var items = SelectionItems();
         switch (action)
         {

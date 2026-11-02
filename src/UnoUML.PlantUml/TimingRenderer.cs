@@ -96,6 +96,7 @@ internal static partial class TimingRenderer
             if (declaration.Success)
             {
                 string kind = declaration.Groups[1].Value.ToLowerInvariant(), name = declaration.Groups[2].Value, alias = declaration.Groups[3].Value;
+                if (kind == "analog" && alias.Length == 0) return null;
                 if (alias.StartsWith('"') && !name.StartsWith('"')) (alias, name) = (name, alias);
                 var track = new Track(kind, alias.Length == 0 ? Unquote(name) : Unquote(alias), Unquote(name), sourceLine);
                 if (!SvgText.IsPlain(track.Label) || tracks.Count >= 128 || !tracks.TryAdd(track.Id, track)) return null;
@@ -144,6 +145,7 @@ internal static partial class TimingRenderer
             }
             t.Top = height;
             int spaceForLabels = t.States.Keys.Select(label => SvgText.Measure(label, 12)).DefaultIfEmpty(0).Max();
+            if (t.Kind == "analog") spaceForLabels = Math.Max(spaceForLabels, Math.Max(SvgText.Measure(t.Low.ToString("0.0##########", CultureInfo.InvariantCulture), 12), SvgText.Measure(t.High.ToString("0.0##########", CultureInfo.InvariantCulture), 12)));
             gutter = Math.Max(gutter, Math.Max(SvgText.Measure(t.Label) + 24, spaceForLabels + 28));
             t.Height = t.Kind switch { "robust" => Math.Max(68, 39 + t.States.Count * 18), "analog" => 86, _ => 60 };
             height += t.Height;
@@ -153,7 +155,7 @@ internal static partial class TimingRenderer
         double X(double time) => gutter + (time - first) / (last - first) * plotWidth;
         var s = new StringBuilder(512 + ticks.Count * 70 + tracks.Count * 200);
         height += showAxis ? 34 : 12;
-        s.Append($"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\" font-family=\"sans-serif\">");
+        s.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\" font-family=\"sans-serif\">");
         if (titleLine >= 0)
         {
             Group(s, "title", titleLine); Text(s, width / 2, 25, title, "middle", 18); s.Append("</g>");
@@ -162,13 +164,18 @@ internal static partial class TimingRenderer
         foreach (var (time, row) in ticks)
         {
             double x = X(time);
-            s.Append($"<line x1=\"{F(x)}\" x2=\"{F(x)}\" y1=\"{top}\" y2=\"{axisY}\" stroke=\"#B8B8B8\" stroke-dasharray=\"2 3\"/>");
+            s.Append(CultureInfo.InvariantCulture, $"<line x1=\"{F(x)}\" x2=\"{F(x)}\" y1=\"{top}\" y2=\"{axisY}\" stroke=\"#B8B8B8\" stroke-dasharray=\"2 3\"/>");
         }
         foreach (var t in tracks.Values)
         {
             Group(s, "timing-track", t.Line, t.Id);
-            s.Append($"<line x1=\"8\" x2=\"{width-10}\" y1=\"{t.Top}\" y2=\"{t.Top}\" stroke=\"#999\"/>");
+            s.Append(CultureInfo.InvariantCulture, $"<line x1=\"8\" x2=\"{width-10}\" y1=\"{t.Top}\" y2=\"{t.Top}\" stroke=\"#999\"/>");
             Text(s, 10, t.Top + 16, t.Label);
+            if (t.Kind == "analog" && t.Changes.Count > 0)
+            {
+                Text(s, gutter - 9, Level(t, "", t.Low) + 4, t.Low.ToString("0.0##########", CultureInfo.InvariantCulture), "end", 12);
+                if (t.High != t.Low) Text(s, gutter - 9, Level(t, "", t.High) + 4, t.High.ToString("0.0##########", CultureInfo.InvariantCulture), "end", 12);
+            }
             foreach (var (state, _) in t.States) Text(s, gutter - 9, Level(t, state, 0) + 4, state, "end", 12);
             if (t.Kind == "clock") DrawClock(s, t, first, last, X);
             s.Append("</g>");
@@ -187,7 +194,7 @@ internal static partial class TimingRenderer
                 if (t.Kind == "concise")
                 {
                     double notch = Math.Min(4, (endX - x) / 3);
-                    s.Append($"<path d=\"M{F(x)} {F(y)}l{F(notch)} -9H{F(endX-notch)}L{F(endX)} {F(y)}l-{F(notch)} 9H{F(x+notch)}z\" fill=\"#EEEEEE\" stroke=\"#333\"/>");
+                    s.Append(CultureInfo.InvariantCulture, $"<path d=\"M{F(x)} {F(y)}l{F(notch)} -9H{F(endX-notch)}L{F(endX)} {F(y)}l-{F(notch)} 9H{F(x+notch)}z\" fill=\"#EEEEEE\" stroke=\"#333\"/>");
                     Text(s, (x + endX) / 2, y + 4, c.State, "middle", 12);
                 }
                 else
@@ -208,7 +215,7 @@ internal static partial class TimingRenderer
             double angle = Math.Atan2(y2-y1, x2-x1);
             Group(s, "timing-message", link.Line);
             Stroke(s, x1,y1,x2,y2);
-            s.Append($"<path d=\"M{F(x2)} {F(y2)}l{F(-8*Math.Cos(angle-.45))} {F(-8*Math.Sin(angle-.45))}L{F(x2-8*Math.Cos(angle+.45))} {F(y2-8*Math.Sin(angle+.45))}z\" fill=\"#333\"/>");
+            s.Append(CultureInfo.InvariantCulture, $"<path d=\"M{F(x2)} {F(y2)}l{F(-8*Math.Cos(angle-.45))} {F(-8*Math.Sin(angle-.45))}L{F(x2-8*Math.Cos(angle+.45))} {F(y2-8*Math.Sin(angle+.45))}z\" fill=\"#333\"/>");
             Text(s,(x1+x2)/2+5,(y1+y2)/2,link.Label,size:12);
             s.Append("</g>");
         }
@@ -264,26 +271,26 @@ internal static partial class TimingRenderer
         double phase = Phase(first, t);
         bool high = phase < t.Pulse;
         double y = Level(t, "", high ? 1 : 0);
-        s.Append($"<path d=\"M{F(xAt(first))} {F(y)}");
+        s.Append(CultureInfo.InvariantCulture, $"<path d=\"M{F(xAt(first))} {F(y)}");
         double edge = first + (high ? t.Pulse - phase : t.Period - phase);
         for (int n = 0; edge <= last && n <= 4098; n++)
         {
             high = !high;
-            s.Append($"H{F(xAt(edge))}V{F(Level(t, "", high ? 1 : 0))}");
+            s.Append(CultureInfo.InvariantCulture, $"H{F(xAt(edge))}V{F(Level(t, "", high ? 1 : 0))}");
             edge += high ? t.Pulse : t.Period - t.Pulse;
         }
-        s.Append($"H{F(xAt(last) + 16)}\" fill=\"none\" stroke=\"#333\" stroke-width=\"1.5\"/>");
+        s.Append(CultureInfo.InvariantCulture, $"H{F(xAt(last) + 16)}\" fill=\"none\" stroke=\"#333\" stroke-width=\"1.5\"/>");
     }
 
     private static string F(double number) => number.ToString("0.###", CultureInfo.InvariantCulture);
     private static void Group(StringBuilder s, string kind, int line, string? alias = null)
     {
-        s.Append($"<g class=\"{kind}\" data-source-line=\"{line}\"");
-        if (alias != null) s.Append($" data-qualified-name=\"{SvgText.Escape(alias)}\"");
+        s.Append(CultureInfo.InvariantCulture, $"<g class=\"{kind}\" data-source-line=\"{line}\"");
+        if (alias != null) s.Append(CultureInfo.InvariantCulture, $" data-qualified-name=\"{SvgText.Escape(alias)}\"");
         s.Append('>');
     }
     private static void Stroke(StringBuilder s, double x, double y, double endX, double endY) =>
-        s.Append($"<line x1=\"{F(x)}\" y1=\"{F(y)}\" x2=\"{F(endX)}\" y2=\"{F(endY)}\" stroke=\"#333\" stroke-width=\"1.5\"/>");
+        s.Append(CultureInfo.InvariantCulture, $"<line x1=\"{F(x)}\" y1=\"{F(y)}\" x2=\"{F(endX)}\" y2=\"{F(endY)}\" stroke=\"#333\" stroke-width=\"1.5\"/>");
     private static void Text(StringBuilder s, double x, double y, string text, string anchor = "start", int size = 14) =>
-        s.Append($"<text x=\"{F(x)}\" y=\"{F(y)}\" text-anchor=\"{anchor}\" font-size=\"{size}\">{SvgText.Escape(text)}</text>");
+        s.Append(CultureInfo.InvariantCulture, $"<text x=\"{F(x)}\" y=\"{F(y)}\" text-anchor=\"{anchor}\" font-size=\"{size}\">{SvgText.Escape(text)}</text>");
 }

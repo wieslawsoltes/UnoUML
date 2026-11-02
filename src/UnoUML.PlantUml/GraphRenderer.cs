@@ -18,8 +18,9 @@ internal static partial class GraphRenderer
         public List<Node> Children { get; } = [];
         public List<Arc> Arcs { get; } = [];
         public int X, Y, Width, Height;
+        public bool Implicit, DeploymentGlyph;
         public bool IsSpecial => Kind == "state" && Stereotype is "choice" or "fork" or "join" or "history" or "history*" or "start" or "end";
-        public bool IsType => Kind is "class" or "abstract class" or "abstract" or "interface" or "annotation" or "enum" or "entity" or "object";
+        public bool IsType => !DeploymentGlyph && Kind is ("class" or "abstract class" or "abstract" or "interface" or "annotation" or "enum" or "entity" or "object" or "struct" or "exception" or "protocol" or "metaclass" or "stereotype" or "map");
     }
 
     private sealed record Edge(Node From, Node To, string Arrow, string Caption, string Tail, string Head, int Line, string Direction, bool Hidden);
@@ -30,14 +31,17 @@ internal static partial class GraphRenderer
         public readonly Node Root = new("root", "", "", -1);
         public readonly List<Edge> Edges = [];
         public readonly List<Node> Nodes = [];
-        public string Title = "";
+        public string Title = "", LegendAlign = "center";
+        public int LegendLine = -1;
+        public List<string> Legend = [];
         public bool Horizontal, HideCircle, IsState;
     }
 
+    private static readonly string[] DirectionNames = ["left", "right", "up", "down"];
     private const string Identifier = @"[\p{L}_$][\p{L}\p{N}_$]*";
     private const string Name = "(?:\"[^\"\\r\\n]+\"|" + Identifier + ")";
     private const string Terminal = "(?:" + Name + "|\\[\\*\\]|" + Identifier + @"(?:\." + Identifier + ")+)";
-    private const string Kinds = "abstract class|abstract|class|object|interface|annotation|enum|entity|component|database|rectangle|actor|usecase|state|package|node|artifact|folder";
+    private const string Kinds = "abstract class|abstract|class|struct|exception|protocol|metaclass|stereotype|object|interface|annotation|enum|entity|map|component|database|rectangle|actor/|actor|usecase/|usecase|state|package|namespace|node|artifact|folder|action|agent|boundary|card|circle|cloud|collections|control|file|frame|hexagon|label|person|process|queue|stack|storage|note";
 
     [GeneratedRegex("^(" + Kinds + @")\s+(" + Name + @")(?:\s+as\s+(" + Name + @"))?(?:\s*<<([^<>]+)>>)?(?:\s+(#[\da-fA-F]{6}|#[\da-fA-F]{3}))?\s*(\{)?$", RegexOptions.CultureInvariant)]
     private static partial Regex DeclarationPattern();
@@ -67,7 +71,7 @@ internal static partial class GraphRenderer
         var descriptions = new List<(Node Scope, string Id, string Text, int Line)>();
         var parent = graph.Root;
         Node? body = null;
-        bool opened = false, closed = false, structural = false;
+        bool opened = false, closed = false, structural = false, inLegend = false;
         int depth = 0, line = -1;
         foreach (var span in source.AsSpan().EnumerateLines())
         {
@@ -81,6 +85,13 @@ internal static partial class GraphRenderer
                 if (!trimmed.SequenceEqual("@startuml")) return null;
                 opened = true; continue;
             }
+            if (inLegend)
+            {
+                if (trimmed.SequenceEqual("endlegend")) { inLegend = false; continue; }
+                string legendLine = trimmed.ToString();
+                if (!Plain(legendLine) || graph.Legend.Count >= 32 || legendLine[0] == '@') return null;
+                graph.Legend.Add(legendLine); continue;
+            }
             if (trimmed.SequenceEqual("@enduml")) { closed = true; continue; }
             if (trimmed.SequenceEqual("}"))
             {
@@ -92,7 +103,13 @@ internal static partial class GraphRenderer
             var text = trimmed.ToString();
             if (body is not null)
             {
-                if (body.Members.Count >= 256 || !PlainMember(text)) return null;
+                if (body.Members.Count >= 256) return null;
+                if (body.Kind == "map")
+                {
+                    var parts = text.Split("=>", StringSplitOptions.TrimEntries);
+                    if (parts.Length != 2 || parts.Any(p => p.Length == 0 || !Plain(p))) return null;
+                }
+                else if (!PlainMember(text)) return null;
                 body.Members.Add((line, text));
                 continue;
             }
@@ -101,6 +118,12 @@ internal static partial class GraphRenderer
                 graph.Title = text[6..].Trim();
                 if (!Plain(graph.Title)) return null;
                 continue;
+            }
+            if (text is "legend" or "legend left" or "legend right" or "legend center")
+            {
+                if (graph.LegendLine >= 0) return null;
+                graph.LegendLine = line; graph.LegendAlign = text.Length > 7 ? text[7..] : "center";
+                inLegend = true; continue;
             }
             if (text == "left to right direction") { graph.Horizontal = true; continue; }
             if (text == "top to bottom direction") { graph.Horizontal = false; continue; }
@@ -115,6 +138,7 @@ internal static partial class GraphRenderer
                 if (!Plain(label) || !Plain(stereo) || !Plain(alias) || alias.Contains('.') || graph.Nodes.Count >= 1800) return null;
                 var node = new Node(kind, alias, label, line, parent) { Stereotype = stereo };
                 if (!aliases.TryAdd(alias, node)) return null;
+                if (kind == "note") node.Fill = "#fff6bd";
                 if (kind == "state")
                 {
                     graph.IsState = true;
@@ -127,7 +151,7 @@ internal static partial class GraphRenderer
                 if (declaration.Groups[6].Success)
                 {
                     if (node.IsType) body = node;
-                    else if (!node.IsSpecial && kind is ("package" or "node" or "rectangle" or "folder" or "state")) { if (++depth > 12) return null; parent = node; }
+                    else if (!node.IsSpecial && kind is ("package" or "namespace" or "node" or "rectangle" or "folder" or "frame" or "state")) { if (++depth > 12) return null; parent = node; }
                     else return null;
                 }
                 // actor, entity and database are legal sequence participants as well.
@@ -144,7 +168,7 @@ internal static partial class GraphRenderer
             }
             if (pending.Count >= 6000) return null;
             var rawArrow = edge.Groups[3].Value;
-            var direction = new[] { "left", "right", "up", "down" }.FirstOrDefault(rawArrow.Contains) ?? "";
+            var direction = DirectionNames.FirstOrDefault(rawArrow.Contains) ?? "";
             bool hidden = rawArrow.Contains("[hidden]", StringComparison.Ordinal);
             var arrow = rawArrow.Replace("[hidden]", "");
             if (direction.Length != 0) arrow = arrow.Replace(direction, "");
@@ -154,8 +178,13 @@ internal static partial class GraphRenderer
             if (edge.Groups[1].Value == "[*]" || edge.Groups[5].Value == "[*]") graph.IsState = true;
             pending.Add(new(parent, Unquote(edge.Groups[1].Value), Unquote(edge.Groups[5].Value), arrow, caption, tail, head, line, direction, hidden));
         }
-        if (!opened || !closed || depth != 0 || body is not null || (!structural && !graph.IsState)) return null;
-        if (graph.IsState && graph.Nodes.Any(n => n.Kind is not ("state" or "package"))) return null;
+        if (!opened || !closed || inLegend || depth != 0 || body is not null || (!structural && !graph.IsState)) return null;
+        bool architecture = graph.Nodes.Any(n => !n.IsType && n.Kind is not ("package" or "namespace" or "note"))
+            && !graph.Nodes.Any(n => n.IsType && n.Kind is not ("interface" or "entity"));
+        if (architecture)
+            foreach (var node in graph.Nodes.Where(n => n.Kind is "interface" or "entity" && n.Members.Count == 0))
+                node.DeploymentGlyph = true;
+        if (graph.IsState && graph.Nodes.Any(n => n.Kind is not ("state" or "package" or "note"))) return null;
         if (!graph.IsState && descriptions.Count != 0) return null;
 
         Node? Resolve(string id, Node scope, bool start, int sourceLine)
@@ -164,7 +193,7 @@ internal static partial class GraphRenderer
             string key = pseudo ? scope.Qualified + (start ? "\0initial" : "\0final") : id;
             if (aliases.TryGetValue(key, out var found)) return found;
             if (!graph.IsState || graph.Nodes.Count >= 1800 || (!pseudo && (id.Contains('.') || !Plain(id)))) return null;
-            var node = new Node(pseudo ? (start ? "initial" : "final") : "state", pseudo ? "" : id, pseudo ? "" : id, sourceLine, scope);
+            var node = new Node(pseudo ? (start ? "initial" : "final") : "state", pseudo ? "" : id, pseudo ? "" : id, sourceLine, scope) { Implicit = true };
             aliases[key] = node;
             if (!pseudo && node.Qualified != id && !aliases.TryAdd(node.Qualified, node)) return null;
             scope.Children.Add(node); graph.Nodes.Add(node);

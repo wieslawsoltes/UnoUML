@@ -66,11 +66,21 @@ export function indexHits(svg, source, exactSourceMap = false) {
     const macro = /^\w+\(\s*([\w.$]+)\s*,/.exec(t);
     if (macro) macroAliases.set(macro[1], macroAliases.has(macro[1]) ? -1 : i);
   }
-  const hits = new Map(), byId = new Map(), byLine = new Map();
+  const hits = new Map(), byId = new Map(), byLine = new Map(), byToken = new Map();
   const inferred = label => repeated.has(label) ? -1 : labels.get(label) ?? -1;
   function register(el, id, line, label) {
     el.setAttribute('data-uml-hit', '');
     const hit = { id, line, label };
+    if (exactSourceMap && el.hasAttribute('data-json-start')) {
+      const start = Number(el.getAttribute('data-json-start')), length = Number(el.getAttribute('data-json-length'));
+      const kind = el.getAttribute('data-json-kind');
+      if (Number.isSafeInteger(start) && Number.isSafeInteger(length) && start >= 0 && length > 0 &&
+          start <= source.length - length && ['key','string','scalar'].includes(kind)) {
+        hit.token = {start, length, kind};
+        byToken.set(start, el);
+      }
+    }
+    if (el.matches('.participant-lifeline,.participant-head,.participant-tail')) hit.participant = true;
     hits.set(el, hit);
     // Use the visible header as the representative of a sequence participant.
     // The engine emits lifelines first and may repeat the same source line on
@@ -79,9 +89,9 @@ export function indexHits(svg, source, exactSourceMap = false) {
     if (line >= 0 && (!byLine.has(line) || el.matches('.participant-head, .message'))) byLine.set(line, el);
   }
   for (const el of svg.querySelectorAll('[data-source-line],[data-qualified-name]')) {
-    if (!el.children.length) continue;
+    if (!el.children.length && !(exactSourceMap && el.localName === 'text' && el.hasAttribute('data-json-start'))) continue;
     const id = el.getAttribute('data-qualified-name') || '';
-    const label = el.querySelector('title')?.textContent || el.querySelector('text:last-of-type')?.textContent || id;
+    const label = (el.localName === 'text' ? el.textContent : null) || el.querySelector('title')?.textContent || el.querySelector('text:last-of-type')?.textContent || id;
     const n = el.getAttribute('data-source-line');
     let line = n !== null && /^\d+$/.test(n) ? Number(n) : -1;
     if (!exactSourceMap && line >= lines.length) line = -1;
@@ -91,7 +101,7 @@ export function indexHits(svg, source, exactSourceMap = false) {
     if (line < 0) line = inferred(label);
     if (id || line >= 0) register(el, id, line, label);
   }
-  if (exactSourceMap) return { hits, byId, byLine };
+  if (exactSourceMap) return { hits, byId, byLine, byToken };
   for (const el of svg.querySelectorAll('text')) {
     const label = el.textContent.trim(), line = inferred(label);
     if (line < 0) continue;
@@ -105,5 +115,5 @@ export function indexHits(svg, source, exactSourceMap = false) {
     }
     register(el, '', line, label);
   }
-  return { hits, byId, byLine };
+  return { hits, byId, byLine, byToken };
 }

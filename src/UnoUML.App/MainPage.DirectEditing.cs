@@ -6,11 +6,27 @@ namespace UnoUML.App;
 public sealed partial class MainPage
 {
     private DiagramObject? editingLabel;
+    private JsonFieldEdit? selectedJsonField, editingJsonField;
+    private int jsonRevision = -1, jsonStart;
+    private JsonFieldEdit? JsonSelection => jsonRevision == revision ? selectedJsonField : null;
 
-    private void BeginCanvasEdit(DiagramObject item)
+    private void SelectJsonField(JsonHit? token)
     {
-        editingLabel = null;
+        selectedJsonField = token == null ? null : doc.OpenJsonField(token.Start, token.Length, token.Kind);
+        jsonStart = token?.Start ?? -1;
+        jsonRevision = revision;
+    }
+
+    private void BeginCanvasEdit(DiagramObject? item)
+    {
+        editingLabel = null; editingJsonField = null;
         if (renderedRevision != revision) return;
+        if (JsonSelection is { } json && mode != "Source")
+        {
+            if (viewport.BeginLabelEdit(json.Text, revision)) editingJsonField = json;
+            return;
+        }
+        if (item == null) return;
         if (mode != "Source" && item.CanRename && viewport.BeginLabelEdit(item.EditableLabel, revision))
             editingLabel = item;
         else
@@ -19,6 +35,13 @@ public sealed partial class MainPage
 
     private void CommitCanvasLabel(int startRevision, string label)
     {
+        if (editingJsonField is { } json)
+        {
+            editingJsonField = null;
+            if (startRevision != revision || renderedRevision != revision || json != JsonSelection || label == json.Text) return;
+            Edit(() => doc.ApplyJsonField(json, label), "Enter a valid JSON scalar. String values and keys accept ordinary text.");
+            return;
+        }
         var item = editingLabel;
         editingLabel = null;
         if (item == null || startRevision != revision || renderedRevision != revision || item != selected || item.EditableLabel == label) return;
@@ -29,6 +52,7 @@ public sealed partial class MainPage
     private void SelectCanvasRegion(DiagramHit[] hits, bool add)
     {
         if (renderedRevision != revision) return;
+        selectedJsonField = null;
         if (add && selected != null) additionalSelection.Add(selected);
         else if (!add) additionalSelection.Clear();
         foreach (var hit in hits)

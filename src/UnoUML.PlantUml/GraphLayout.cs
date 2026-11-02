@@ -22,6 +22,14 @@ internal static partial class GraphRenderer
                 edge.Arrow is "-" or "->" or "<-" or "<->" ? "right" : "down";
             a.Parent!.Arcs.Add(new(slots[a], slots[b], direction, edge.Hidden));
         }
+        foreach (var container in graph.Nodes.Prepend(graph.Root))
+        {
+            // A visual placement command adds a hidden ordering relation. Keep connectors visible
+            // but do not let their default rank fight an explicit constraint on the same pair.
+            if (!container.Arcs.Any(arc => arc.Hidden)) continue;
+            var constrained = container.Arcs.Where(arc => arc.Hidden).Select(arc => (Math.Min(arc.A, arc.B), Math.Max(arc.A, arc.B))).ToHashSet();
+            container.Arcs.RemoveAll(arc => !arc.Hidden && constrained.Contains((Math.Min(arc.A, arc.B), Math.Max(arc.A, arc.B))));
+        }
         MeasureNode(graph.Root, graph);
         OffsetChildren(graph.Root, 32, graph.Title.Length == 0 ? 24 : 64);
         return graph.Root.Width < 32000 && graph.Root.Height < 32000;
@@ -45,20 +53,37 @@ internal static partial class GraphRenderer
 
     private static void MeasureNode(Node node, Graph graph)
     {
+        // Library renderers measure their own card contents and reserve room for relationship labels.
+        if (node.Kind == "measured-card") return;
         int textWidth = SvgText.Measure(node.Label);
         int labelWidth = Math.Max(textWidth, node.Stereotype.Length == 0 ? 0 : SvgText.Measure("«" + node.Stereotype + "»", 12));
         node.Width = Math.Max(68, labelWidth + 34);
         node.Height = node.Stereotype.Length == 0 ? 40 : 58;
         if (node.IsType || node.Kind == "state" && node.Members.Count > 0)
         {
-            if (!graph.HideCircle && node.Kind != "object") node.Width += 24;
+            if (!graph.HideCircle && node.Kind is not ("object" or "map") && node.IsType) node.Width += 24;
             foreach (var member in node.Members) node.Width = Math.Max(node.Width, SvgText.Measure(member.Text, 13) + 28);
             if (node.Members.Count != 0) node.Height += 10 + 20 * node.Members.Count;
         }
-        else if (node.Kind == "actor") node.Height += 44;
+        else if (node.Kind is "actor" or "actor/") node.Height += 44;
         else if (node.Kind is "database" or "artifact" or "package" or "folder" or "node") node.Height += 12;
         else if (node.Kind is "initial" or "final") node.Width = node.Height = 20;
-        else if (node.Kind == "usecase") node.Width += 20;
+        else if (node.Kind is "usecase" or "usecase/" or "hexagon" or "process") node.Width += 28;
+        if (node.Kind is "cloud" or "person" or "stack" or "frame") { node.Height += 14; node.Width += 12; }
+        if (node.Kind is "boundary" or "control" or "circle" || node.DeploymentGlyph) node.Height += 18;
+        if (node.Kind == "card") node.Height -= 14;
+        if (node.Kind == "label") node.Height -= 12;
+        if (node.Kind == "map" && node.Members.Count != 0)
+        {
+            int keyWidth = 0, valueWidth = 0;
+            foreach (var (_, text) in node.Members)
+            {
+                var properties = text.Split("=>", StringSplitOptions.TrimEntries);
+                keyWidth = Math.Max(keyWidth, SvgText.Measure(properties[0], 13));
+                valueWidth = Math.Max(valueWidth, SvgText.Measure(properties[1], 13));
+            }
+            node.Width = Math.Max(node.Width, keyWidth + valueWidth + 44);
+        }
         if (node.IsSpecial)
         {
             (node.Width, node.Height) = node.Stereotype switch
@@ -149,7 +174,7 @@ internal static partial class GraphRenderer
         {
             var order = Ranks(n, lateral);
             foreach (var row in layers)
-                row.Sort((a,b) => order[a] == order[b] ? position[a].CompareTo(position[b]) : order[a].CompareTo(order[b]));
+                row.Sort((a, b) => order[a] == order[b] ? position[a].CompareTo(position[b]) : order[a].CompareTo(order[b]));
         }
 
         int Primary(Node v) => horizontal ? v.Width : v.Height;
@@ -175,7 +200,7 @@ internal static partial class GraphRenderer
     {
         var next = Enumerable.Range(0, n).Select(_ => new List<int>()).ToArray();
         var indegree = new int[n]; var ranks = new int[n];
-        foreach (var (a,b) in arcs) if (a != b) { next[a].Add(b); indegree[b]++; }
+        foreach (var (a, b) in arcs) if (a != b) { next[a].Add(b); indegree[b]++; }
         // The smallest outstanding indegree picks a stable cycle break without rescanning all vertices.
         var queue = new PriorityQueue<int, (int Degree, int SourceOrder)>();
         for (int i = 0; i < n; i++) queue.Enqueue(i, (indegree[i], i));

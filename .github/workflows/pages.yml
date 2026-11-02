@@ -25,6 +25,12 @@ jobs:
         run: |
           dotnet run --project tests/UnoUML.Core.Tests -c Release
           dotnet run --project tests/UnoUML.PlantUml.Tests -c Release
+      - name: Pack the portable C# library
+        run: dotnet pack src/UnoUML.PlantUml -c Release --no-build -o "$RUNNER_TEMP/packages"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UnoUML.PlantUml
+          path: ${{ runner.temp }}/packages/*.nupkg
       - name: Prepare the offline PlantUML engine and standard library
         run: |
           npm ci --ignore-scripts
@@ -43,6 +49,8 @@ jobs:
           test -s uml/viewport.js
           test -s uml/vendor/plantuml.js
           test -s uml/vendor/viz-global.js
+          mkdir -p packages
+          cp "$RUNNER_TEMP/packages/"*.nupkg packages/
       - name: Exercise the published desktop and mobile workspace
         run: CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/workspace.mjs "$RUNNER_TEMP/site/wwwroot"
       - uses: actions/upload-pages-artifact@v3

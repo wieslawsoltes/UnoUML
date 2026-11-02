@@ -243,7 +243,7 @@ public sealed partial class MainPage : Page
         }
         else if (selected != item)
         {
-            additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
+            selectedJsonField = null; additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
         }
     }
 
@@ -329,26 +329,38 @@ public sealed partial class MainPage : Page
         catch (Exception ex) { Status(ex.Message, true); }
     }
 
-    DiagramObject? Resolve(DiagramHit hit) => doc.Find(hit.Id, hit.Line >= 0 ? hit.Line + doc.Page.StartLine : null);
+    DiagramObject? Resolve(DiagramHit hit)
+    {
+        var item = doc.Find(hit.Id, hit.Line >= 0 ? hit.Line + doc.Page.StartLine : null);
+        // An implicit lifeline may carry the source line of its first message. Its
+        // header cannot safely be treated as that message's editable label.
+        return hit.Participant && item?.IsConnectable != true ? doc.Find(hit.Id) : item;
+    }
 
     void OnHit(DiagramHit hit)
     {
         if (renderedRevision != revision) return;
-        if (hit.Kind == "toggle") { ToggleSelection(Resolve(hit)); return; }
+        SelectJsonField(hit.Token);
+        if (hit.Kind == "toggle" && JsonSelection == null) { ToggleSelection(Resolve(hit)); return; }
         additionalSelection.Clear();
         selected = Resolve(hit);
         ShowInspector(); SyncCanvasSelection();
-        if (mode == "Split" && selected != null) SelectSource(selected);
-        if (hit.Kind == "edit" && selected != null) BeginCanvasEdit(selected);
+        if (mode == "Split" && JsonSelection is { } json) SourceEditor.Select(json.Offset, json.Length);
+        else if (mode == "Split" && selected != null) SelectSource(selected);
+        if (hit.Kind == "edit") BeginCanvasEdit(selected);
     }
 
     void SyncCanvasSelection()
     {
         viewport.SetSelection(selected?.Alias ?? "", selected == null ? -1 : selected.Line - doc.Page.StartLine);
+        if (JsonSelection != null) viewport.SelectJsonToken(jsonStart);
         viewport.SetConnectable(selected?.IsConnectable == true && additionalSelection.Count == 0);
+        var edge = additionalSelection.Count == 0 && selected?.Kind == "Relationship" ? selected : null;
+        if (edge != null && (doc.Find(edge.From)?.IsConnectable != true || doc.Find(edge.To)?.IsConnectable != true)) edge = null;
+        viewport.SetEndpoints(edge?.From ?? "", edge?.To ?? "");
         var items = SelectionItems();
         viewport.SetAdditionalSelection(string.Join(",", additionalSelection.Select(o => o.Line - doc.Page.StartLine)),
-            items.Length == 0 ? "" : doc.CopySelection(items) ?? (items.Length == 1 ? items[0].Statement : ""));
+            JsonSelection is { } json ? doc.Source.Substring(json.Offset,json.Length) : items.Length == 0 ? "" : doc.CopySelection(items) ?? (items.Length == 1 ? items[0].Statement : ""));
     }
 
     void OnGesture(DiagramGesture gesture)
@@ -356,6 +368,13 @@ public sealed partial class MainPage : Page
         if (renderedRevision != revision) return;
         var from = Resolve(gesture.From); var to = Resolve(gesture.To);
         if (from == null || to == null) { Status("Choose two source-backed objects.", true); return; }
+        if (gesture.Kind is "retargetFrom" or "retargetTo")
+        {
+            if (from.Kind != "Relationship" || !to.IsConnectable) { Status("Choose a declared object as the new endpoint.", true); return; }
+            EditProperty(from, () => doc.UpdateConnection(from, gesture.Kind == "retargetFrom" ? to : null,
+                gesture.Kind == "retargetTo" ? to : null, from.Arrow));
+            return;
+        }
         if (gesture.Kind == "connect") Edit(() => doc.Connect(from, to), "These objects cannot be connected with the current diagram syntax.");
         if (gesture.Kind is "moveBefore" or "place")
         {
@@ -367,7 +386,7 @@ public sealed partial class MainPage : Page
 
     void Select(DiagramObject item)
     {
-        additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
+        selectedJsonField = null; additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
         if (mode != "Design") SelectSource(item);
     }
 

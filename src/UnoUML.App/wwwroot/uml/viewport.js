@@ -117,7 +117,7 @@ class Viewport {
     this.objects = [...this.index.hits].filter(([el, hit]) => {
       // Lifelines and tails refer to the same participant as its header.
       if (el.matches('.participant-lifeline,.participant-tail')) return false;
-      const key = hit.id ? 'id:' + hit.id : 'line:' + hit.line;
+      const key = hit.token ? 'token:' + hit.token.start : hit.id ? 'id:' + hit.id : 'line:' + hit.line;
       if (visited.has(key)) return false;
       visited.add(key); return true;
     }).map(([el]) => el);
@@ -150,6 +150,7 @@ class Viewport {
     this.paper.style.transform = 'translate(' + this.x + 'px,' + this.y + 'px) scale(' + this.z + ')';
     this.outline(this.selection, this.marked);
     this.direct.positionField();
+    this.direct.positionEnds();
   }
   outline(box, el) {
     box.hidden = !el;
@@ -243,7 +244,7 @@ class Viewport {
       }
       if ((e.key === 'Enter' || e.key === 'F2') && this.marked) {
         if (this.linkStart && e.key === 'Enter') {
-          this.emit('gesture', {action:'connect', from:this.linkStart, to:this.index.hits.get(this.marked)});
+          this.emit('gesture', {action:this.linkStart.action, from:this.linkStart.hit, to:this.index.hits.get(this.marked)});
           this.linkStart = null;
         } else this.hit(this.marked, 'edit');
         e.preventDefault(); e.stopPropagation(); return;
@@ -263,14 +264,15 @@ class Viewport {
     }, { passive:false });
     s.addEventListener('pointerdown', e => {
       if (e.button !== 0 && e.button !== 1) return;
-      const port = e.target === this.direct.port;
+      const port = e.target.dataset?.wire;
       const el = port ? this.marked : this.pick(e.target);
       s.focus({preventScroll:true}); s.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
       if (pointers.size === 2) { this.drag=null; this.pinch=distance(); this.clearGuide(); return; }
       let tool = s.dataset.tool;
       if (e.button === 1) tool = 'pan';
-      else if (port || (this.linkStart && el)) tool = 'connect';
+      else if (port) tool = port;
+      else if (this.linkStart && el) tool = this.linkStart.action;
       else if (!el && e.shiftKey && tool === 'select') tool = 'marquee';
       else if (!el && tool !== 'marquee') tool = 'pan';
       this.drag = { el, tool, port, add:e.shiftKey || e.ctrlKey || e.metaKey, id:e.pointerId, x:e.clientX, y:e.clientY, ox:this.x, oy:this.y, moved:false };
@@ -289,7 +291,7 @@ class Viewport {
       if (!drag.moved) return;
       if (drag.tool==='marquee') { this.direct.marquee(drag, e.clientX, e.clientY); return; }
       if (drag.tool==='pan') { this.autoFit=false; this.x=drag.ox+dx; this.y=drag.oy+dy; s.dataset.panning=''; this.position(); return; }
-      if (drag.tool === 'connect' || drag.tool === 'move' || drag.tool === 'place') {
+      if (drag.port || drag.tool === 'connect' || drag.tool === 'move' || drag.tool === 'place') {
         const r=this.rect(); this.guide.removeAttribute('hidden');
         for (const [name,value] of [['x1',drag.x-r.left],['y1',drag.y-r.top],['x2',e.clientX-r.left],['y2',e.clientY-r.top]]) this.line.setAttribute(name,value);
         const target = this.pick(this.host.shadowRoot.elementFromPoint(e.clientX,e.clientY));
@@ -303,17 +305,17 @@ class Viewport {
       if (!d || cancelled || d.id!==e.pointerId) return;
       const el=this.pick(this.host.shadowRoot.elementFromPoint(e.clientX,e.clientY));
       if (d.tool === 'marquee' && d.moved) { this.direct.selectRegion(d,e.clientX,e.clientY); return; }
-      if (d.port && !d.moved) { this.direct.startConnection(); return; }
+      if (d.port && !d.moved) { this.direct.startConnection(d.port); return; }
       if (d.moved) {
         this.linkStart = null;
-        if (d.el && el && el!==d.el && (d.tool==='connect' || d.tool==='move' || d.tool==='place')) {
+        if (d.el && el && el!==d.el && (d.port || d.tool==='connect' || d.tool==='move' || d.tool==='place')) {
           this.emit('gesture', { action:d.tool==='move' ? 'moveBefore' : d.tool,
             from:this.index.hits.get(d.el), to:this.index.hits.get(el), direction:this.direction(el,e.clientX,e.clientY,d) });
         }
-      } else if (d.tool==='connect' && el) {
+      } else if ((d.tool==='connect' || d.tool==='retargetFrom' || d.tool==='retargetTo') && el) {
         const to=this.hit(el);
-        if (this.linkStart) { this.emit('gesture',{action:'connect',from:this.linkStart,to}); this.linkStart=null; }
-        else this.linkStart=to;
+        if (this.linkStart) { this.emit('gesture',{action:this.linkStart.action,from:this.linkStart.hit,to}); this.linkStart=null; }
+        else this.linkStart={action:'connect',hit:to};
       } else {
         this.linkStart=null;
         // A short second tap on the same object is an edit gesture on touch
@@ -376,3 +378,7 @@ export function beginLabelEdit(id, label, revision) { return views.get(id)?.dire
 export function setConnectable(id, value) { const v = views.get(id); if (v) v.direct.port.hidden = !value; }
 
 export function setLocalMode(id, nativeEnabled) { const view = views.get(id); if (view) view.localMode = nativeEnabled ? 'auto' : 'reference'; }
+
+export function setEndpoints(id, from, to) { views.get(id)?.direct.setEndpoints(from, to); }
+
+export function selectJsonToken(id, start) { const v = views.get(id), el = v?.index?.byToken.get(start); if (el) { v.marked = el; v.outline(v.selection, el); } }

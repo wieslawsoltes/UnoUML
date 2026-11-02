@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace UnoUML.PlantUml;
@@ -5,6 +6,14 @@ namespace UnoUML.PlantUml;
 /// <summary>Ordered subtree packing in two iterative passes. Depth and width are independent of the call stack.</summary>
 internal static class TreeDiagram
 {
+    private static readonly HashSet<string> NamedFills = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "black", "white", "gray", "grey", "silver", "red", "maroon", "orange", "yellow",
+        "olive", "green", "lime", "lightgreen", "teal", "aqua", "cyan", "blue", "navy",
+        "lightblue", "purple", "violet", "magenta", "pink", "brown", "gold", "lightgray",
+        "darkgreen", "darkblue", "darkred", "salmon", "khaki", "lavender", "transparent"
+    };
+
     private sealed class Node(string label, int parent, int depth, int line)
     {
         internal readonly string Label = label;
@@ -75,7 +84,7 @@ internal static class TreeDiagram
                 if (close < 0) return null;
                 var value = s[2..close];
                 if (value.Length is 3 or 6 && !value.ContainsAnyExcept("0123456789abcdefABCDEF")) color = "#" + value.ToString();
-                else if (value.Length is > 0 and < 22 && !value.ContainsAnyExcept("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) color = value.ToString();
+                else if (value.Length is > 0 and < 22 && NamedFills.TryGetValue(value.ToString(), out var named)) color = named;
                 else return null;
                 s = s[(close + 1)..];
             }
@@ -140,7 +149,7 @@ internal static class TreeDiagram
         int width = maxX - minX + 2 * margin, totalHeight = maxY - minY + 2 * margin;
         if (width > 32768 || totalHeight > 32768) return null;
         var svg = Canvas(width, totalHeight);
-        svg.Append($"<g transform=\"translate({margin - minX} {margin - minY})\">");
+        svg.Append(CultureInfo.InvariantCulture, $"<g transform=\"translate({margin - minX} {margin - minY})\">");
         foreach (var n in nodes)
         {
             if (n.Parent < 0) continue;
@@ -148,14 +157,15 @@ internal static class TreeDiagram
             int x1 = vertical ? p.X + p.Width / 2 : n.West ? p.X : p.X + p.Width;
             int x2 = vertical ? n.X + n.Width / 2 : n.West ? n.X + n.Width : n.X;
             int y1 = p.Y + (vertical ? height : height / 2), y2 = n.Y + (vertical ? 0 : height / 2);
-            string route = vertical ? $"V{(y1 + y2) / 2} H{x2} V{y2}" : $"C{(x1+x2)/2} {y1} {(x1+x2)/2} {y2} {x2} {y2}";
-            svg.Append($"<path d=\"M{x1} {y1} {route}\" fill=\"none\" stroke=\"#77778e\"/>");
+            string route = vertical ? FormattableString.Invariant($"V{(y1 + y2) / 2} H{x2} V{y2}") :
+                FormattableString.Invariant($"C{(x1+x2)/2} {y1} {(x1+x2)/2} {y2} {x2} {y2}");
+            svg.Append(CultureInfo.InvariantCulture, $"<path d=\"M{x1} {y1} {route}\" fill=\"none\" stroke=\"#77778e\"/>");
         }
         foreach (var n in nodes)
         {
-            svg.Append($"<g data-source-line=\"{n.Line}\">");
-            if (!n.Boxless) svg.Append($"<rect x=\"{n.X}\" y=\"{n.Y}\" width=\"{n.Width}\" height=\"32\" rx=\"{(vertical ? 2 : 9)}\" fill=\"{n.Fill ?? (n.Level == 0 ? "#e6e5ff" : "#f3f3f8")}\" stroke=\"#73738b\"/>");
-            svg.Append($"<text x=\"{n.X+12}\" y=\"{n.Y+21}\">{SvgText.Escape(n.Label)}</text></g>");
+            svg.Append(CultureInfo.InvariantCulture, $"<g data-source-line=\"{n.Line}\">");
+            if (!n.Boxless) svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{n.X}\" y=\"{n.Y}\" width=\"{n.Width}\" height=\"32\" rx=\"{(vertical ? 2 : 9)}\" fill=\"{n.Fill ?? (n.Level == 0 ? "#e6e5ff" : "#f3f3f8")}\" stroke=\"#73738b\"/>");
+            svg.Append(CultureInfo.InvariantCulture, $"<text x=\"{n.X+12}\" y=\"{n.Y+21}\">{SvgText.Escape(n.Label)}</text></g>");
         }
         return svg.Append("</g></svg>").ToString();
     }
@@ -183,12 +193,12 @@ internal static class TreeDiagram
             int x = n.Level * 18 - 5, y = 11 + row++ * 24;
             svg.Append(n.Line < 0 ? "<g>" : $"<g data-source-line=\"{n.Line}\">");
             string path = n.Directory ? "M0 4h6l2 2h8v10H0z" : "M3 1h7l4 4v12H3z";
-            svg.Append($"<path transform=\"translate({x} {y})\" d=\"{path}\" stroke=\"#73738b\" fill=\"{(n.Directory ? "#efdb9e" : "#eeeefa")}\"/><text x=\"{x+23}\" y=\"{y+15}\">{SvgText.Escape(n.Label)}</text></g>");
+            svg.Append(CultureInfo.InvariantCulture, $"<path transform=\"translate({x} {y})\" d=\"{path}\" stroke=\"#73738b\" fill=\"{(n.Directory ? "#efdb9e" : "#eeeefa")}\"/><text x=\"{x+23}\" y=\"{y+15}\">{SvgText.Escape(n.Label)}</text></g>");
             Push(children[index + 1]);
         }
         return svg.Append("</svg>").ToString();
     }
 
     internal static StringBuilder Canvas(int width, int height) =>
-        new StringBuilder().Append($"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\" font-family=\"sans-serif\" font-size=\"14\" fill=\"#27273a\">");
+        new StringBuilder().Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\" font-family=\"sans-serif\" font-size=\"14\" fill=\"#27273a\">");
 }

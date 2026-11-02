@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -129,7 +130,7 @@ internal static partial class ActivityRenderer
         int y = title.Length == 0 ? 22 : 54, height = y + root.Height + 22;
         if (width > 32768 || height > 32768) return null;
         var svg = new StringBuilder();
-        svg.Append($"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">");
+        svg.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">");
         if (title.Length > 0) Text(svg, width / 2, 30, title, 18, true);
         DrawLane(svg, root, width / 2, y);
         return svg.Append("</svg>").ToString();
@@ -213,14 +214,14 @@ internal static partial class ActivityRenderer
         switch (step.Kind)
         {
             case Kind.Action:
-                svg.Append($"<rect x=\"{x - step.Width / 2}\" y=\"{y}\" width=\"{step.Width}\" height=\"36\" rx=\"11\" fill=\"#f1f1f1\" stroke=\"#242424\"/>");
+                svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x - step.Width / 2}\" y=\"{y}\" width=\"{step.Width}\" height=\"36\" rx=\"11\" fill=\"#f1f1f1\" stroke=\"#242424\"/>");
                 Text(svg,x,y+23,step.Label); break;
             case Kind.Start:
-                svg.Append($"<circle cx=\"{x}\" cy=\"{y+11}\" r=\"10\" fill=\"#222\"/>"); break;
+                svg.Append(CultureInfo.InvariantCulture, $"<circle cx=\"{x}\" cy=\"{y+11}\" r=\"10\" fill=\"#222\"/>"); break;
             case Kind.Stop:
-                svg.Append($"<circle cx=\"{x}\" cy=\"{y+11}\" r=\"10\" fill=\"white\" stroke=\"#222\"/><circle cx=\"{x}\" cy=\"{y+11}\" r=\"7\" fill=\"#222\"/>"); break;
+                svg.Append(CultureInfo.InvariantCulture, $"<circle cx=\"{x}\" cy=\"{y+11}\" r=\"10\" fill=\"white\" stroke=\"#222\"/><circle cx=\"{x}\" cy=\"{y+11}\" r=\"7\" fill=\"#222\"/>"); break;
             case Kind.End:
-                svg.Append($"<circle cx=\"{x}\" cy=\"{y+11}\" r=\"10\" fill=\"white\" stroke=\"#222\"/><path d=\"M{x-6},{y+5}l12,12m0,-12l-12,12\" stroke=\"#222\"/>"); break;
+                svg.Append(CultureInfo.InvariantCulture, $"<circle cx=\"{x}\" cy=\"{y+11}\" r=\"10\" fill=\"white\" stroke=\"#222\"/><path d=\"M{x-6},{y+5}l12,12m0,-12l-12,12\" stroke=\"#222\"/>"); break;
         }
         svg.Append("</g>");
     }
@@ -298,15 +299,15 @@ internal static partial class ActivityRenderer
     {
         int half = height == 16 ? 14 : Math.Max(44,SvgText.Measure(label)+48)/2;
         int corner = height == 16 ? half : height/2;
-        svg.Append($"<path d=\"M{x-half+corner},{y}H{x+half-corner}l{corner},{height/2}l-{corner},{height/2}H{x-half+corner}l-{corner},-{height/2}z\" fill=\"#f1f1f1\" stroke=\"#242424\"/>");
+        svg.Append(CultureInfo.InvariantCulture, $"<path d=\"M{x-half+corner},{y}H{x+half-corner}l{corner},{height/2}l-{corner},{height/2}H{x-half+corner}l-{corner},-{height/2}z\" fill=\"#f1f1f1\" stroke=\"#242424\"/>");
         if (label.Length > 0) Text(svg,x,y+height/2+5,label);
     }
-    private static void Bar(StringBuilder svg,int x,int y,int w,int h) => svg.Append($"<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"3\" fill=\"#333\"/>");
-    private static void Path(StringBuilder svg,string d) => svg.Append($"<path d=\"{d}\" fill=\"none\" stroke=\"#333\"/>");
-    private static void Head(StringBuilder svg,int x,int y) => svg.Append($"<path d=\"M{x-4},{y-7}L{x},{y}l4,-7z\" fill=\"#333\"/>");
-    private static void LeftToRightHead(StringBuilder svg,int x,int y) => svg.Append($"<path d=\"M{x-7},{y-4}L{x},{y}l-7,4z\" fill=\"#333\"/>");
+    private static void Bar(StringBuilder svg,int x,int y,int w,int h) => svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"3\" fill=\"#333\"/>");
+    private static void Path(StringBuilder svg,string d) => svg.Append(CultureInfo.InvariantCulture, $"<path d=\"{d}\" fill=\"none\" stroke=\"#333\"/>");
+    private static void Head(StringBuilder svg,int x,int y) => svg.Append(CultureInfo.InvariantCulture, $"<path d=\"M{x-4},{y-7}L{x},{y}l4,-7z\" fill=\"#333\"/>");
+    private static void LeftToRightHead(StringBuilder svg,int x,int y) => svg.Append(CultureInfo.InvariantCulture, $"<path d=\"M{x-7},{y-4}L{x},{y}l-7,4z\" fill=\"#333\"/>");
     private static void Arrow(StringBuilder svg,int x1,int y1,int x2,int y2) { Path(svg,$"M{x1},{y1}L{x2},{y2}"); Head(svg,x2,y2); }
-    private static void Open(StringBuilder svg,string kind,int line) => svg.Append($"<g class=\"activity-{kind}\" data-source-line=\"{line}\">");
+    private static void Open(StringBuilder svg,string kind,int line) => svg.Append(CultureInfo.InvariantCulture, $"<g class=\"activity-{kind}\" data-source-line=\"{line}\">");
     private static void Text(StringBuilder svg,int x,int y,string value,int size=14,bool bold=false,bool halo=false)
     {
         if (value.Length == 0) return;
@@ -314,9 +315,9 @@ internal static partial class ActivityRenderer
         if (halo)
         {
             int w=SvgText.Measure(value,size)+6;
-            svg.Append($"<rect x=\"{x-w/2}\" y=\"{y-size}\" width=\"{w}\" height=\"{size+2}\" rx=\"2\" fill=\"white\"/>");
+            svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x-w/2}\" y=\"{y-size}\" width=\"{w}\" height=\"{size+2}\" rx=\"2\" fill=\"white\"/>");
         }
-        svg.Append($"<text x=\"{x}\" y=\"{y}\" text-anchor=\"middle\" font-family=\"sans-serif\" font-size=\"{size}\" fill=\"#161616\"");
+        svg.Append(CultureInfo.InvariantCulture, $"<text x=\"{x}\" y=\"{y}\" text-anchor=\"middle\" font-family=\"sans-serif\" font-size=\"{size}\" fill=\"#161616\"");
         if (bold) svg.Append(" font-weight=\"bold\"");
         svg.Append('>').Append(SvgText.Escape(value)).Append("</text>");
     }

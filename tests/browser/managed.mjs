@@ -13,8 +13,9 @@ export async function compareRenderers(page) {
     const sequence = iteration => '@startuml\n' +
       Array.from({length:6}, (_, i) => 'participant P' + i).join('\n') + '\n' +
       Array.from({length:25}, (_, i) => 'P' + (i%6) + ' -> P' + ((i+1)%6) + ' : ' + (i === 8 ? 'transfer' + iteration : 'Message ' + i)).join('\n') + '\n@enduml';
+    const c4 = iteration => '@startuml\n!include <C4/C4_Context>\nPerson(customer,"Customer","Places an order")\nSystem(store,"Storefront","Accepts orders")\nSystem_Ext(bank,"Bank","Handles transfers")\nRel(customer,store,"Checkout")\nRel(store,bank,"transfer' + iteration + '","HTTPS")\n@enduml';
     const reports = [];
-    for (const [family, sample] of [['20 classes / 19 edges',graph], ['6 lifelines / 25 messages',sequence]]) {
+    for (const [family, sample] of [['20 classes / 19 edges',graph], ['6 lifelines / 25 messages',sequence], ['3 C4 systems and people',c4]]) {
       const measurements = { managed: [], javascript: [] };
       for (let i = -2; i < 9; i++) {
         const input = sample(i);
@@ -33,7 +34,7 @@ export async function compareRenderers(page) {
       reports.push({family, managed:median(measurements.managed), javascript:median(measurements.javascript)});
     }
     ui.setLocalMode(host.id, true);
-    await ui.render(host.id, '@startuml\n!include <C4/C4_Context>\nPerson(user,"Reviewer")\n@enduml');
+    await ui.render(host.id, '@startuml\n!include <C4/C4_Context>\n!$personName = "Reviewer"\nPerson(user,$personName)\n@enduml');
     if (paper.dataset.renderer !== 'javascript' || !paper.textContent.includes('Reviewer')) throw Error('Official library fallback failed');
     for (const [tag, body] of [
       ['files','/src/Editor.cs\n/tests/EditorTests.cs'],

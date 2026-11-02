@@ -3,30 +3,78 @@
 export class DirectEditing {
   constructor(view) {
     this.view = view;
-    this.port = document.createElement('button');
-    this.port.type = 'button';
-    this.port.className = 'connection-port';
-    this.port.title = 'Drag to connect, or activate and choose a target';
-    this.port.setAttribute('aria-label', 'Connect selected object');
-    view.selection.append(this.port);
-    this.port.hidden = true;
-    this.port.addEventListener('keydown', e => {
-      if (e.key !== ' ' && e.key !== 'Enter') return;
-      e.preventDefault(); e.stopPropagation();
-      this.startConnection();
-      view.surface.focus({preventScroll: true});
-    });
+    const handle = (kind, label, parent) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'connection-port ' + kind;
+      button.dataset.wire = kind;
+      button.title = label + ' — drag or activate and choose a target';
+      button.setAttribute('aria-label', label);
+      button.hidden = true;
+      button.addEventListener('keydown', e => {
+        if (e.key !== ' ' && e.key !== 'Enter') return;
+        e.preventDefault(); e.stopPropagation();
+        this.startConnection(kind);
+        view.surface.focus({preventScroll: true});
+      });
+      parent.append(button);
+      return button;
+    };
+    this.port = handle('connect', 'Connect selected object', view.selection);
+    this.from = handle('retargetFrom', 'Reattach source endpoint', view.surface);
+    this.to = handle('retargetTo', 'Reattach target endpoint', view.surface);
     this.box = document.createElement('div');
     this.box.className = 'marquee';
     this.box.hidden = true;
     view.surface.append(this.box);
   }
 
-  startConnection() {
+  startConnection(action) {
     const hit = this.view.index?.hits.get(this.view.marked);
     if (!hit) return;
-    this.view.linkStart = hit;
+    this.view.linkStart = {hit, action};
     this.view.announcement.textContent = 'Choose the target object. Press Escape to cancel.';
+  }
+
+  setEndpoints(from, to) {
+    const v = this.view;
+    this.endpoints = null;
+    this.from.hidden = this.to.hidden = true;
+    if (!from || !to || from === to || !v.marked?.matches('.link,.message')) return;
+    const a = v.index?.byId.get(from), b = v.index?.byId.get(to);
+    if (!a || !b) return;
+    // Both engines can emit separate marker paths and larger transparent hit
+    // strokes. Select the longest connector and map its ends to lexical aliases;
+    // reverse arrows and nested transforms therefore keep their original syntax.
+    let stroke, length = 0;
+    for (const shape of v.marked.querySelectorAll('line,polyline,path')) {
+      if (shape.localName === 'path' && /z\s*$/i.test(shape.getAttribute('d') || '')) continue;
+      const size = shape.getTotalLength();
+      if (size > length) { stroke = shape; length = size; }
+    }
+    if (!stroke || length < 2) return;
+    const transform = stroke.getScreenCTM();
+    if (!transform) return;
+    let start = stroke.getPointAtLength(0).matrixTransform(transform);
+    let end = stroke.getPointAtLength(length).matrixTransform(transform);
+    const cost = (point, rect) => (point.x - (rect.left + rect.width / 2)) ** 2 +
+      (point.y - (rect.top + rect.height / 2)) ** 2;
+    const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect();
+    if (cost(start, ar) + cost(end, br) > cost(start, br) + cost(end, ar)) [start, end] = [end, start];
+    const r = v.rect();
+    this.endpoints = [start, end].map(p => ({x: (p.x - r.left - v.x) / v.z, y: (p.y - r.top - v.y) / v.z}));
+    this.from.hidden = this.to.hidden = false;
+    this.positionEnds();
+  }
+
+  positionEnds() {
+    if (!this.endpoints) return;
+    const v = this.view;
+    for (const [i, button] of [this.from, this.to].entries()) {
+      const p = this.endpoints[i];
+      button.style.left = (p.x * v.z + v.x) + 'px';
+      button.style.top = (p.y * v.z + v.y) + 'px';
+    }
   }
 
   beginLabel(label, revision) {

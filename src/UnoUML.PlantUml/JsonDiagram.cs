@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -16,40 +17,57 @@ internal static partial class DataDiagram
         internal int Height => 22 + Fields.Count * 24;
     }
 
-    private readonly record struct Field(string Key, string Value, int SourceLine);
+    private readonly record struct TokenSpan(int Start, int Length, int Line, string Kind);
+    private readonly record struct Field(string Key, string Value, int SourceLine, TokenSpan KeyToken = default, TokenSpan ValueToken = default);
 
     internal static string? RenderJson(string source)
     {
-        int first = source.IndexOf("@startjson", StringComparison.Ordinal);
-        int begin = source.IndexOf('\n', first);
+        int header = source.IndexOf("@startjson", StringComparison.Ordinal);
+        int firstBreak = source.AsSpan(header).IndexOfAny('\r', '\n');
+        if (firstBreak < 0) return null;
+        int begin = header + firstBreak + 1;
+        if (source[begin-1] == '\r' && begin < source.Length && source[begin] == '\n') begin++;
         int end = source.LastIndexOf("@endjson", StringComparison.Ordinal);
-        if (begin < 0 || end <= begin || !source.AsSpan(end + 8).Trim().IsEmpty) return null;
-        int lastLine = source.LastIndexOf('\n', end) + 1;
-        if (!source.AsSpan(lastLine, end - lastLine).Trim().IsEmpty) return null;
-        var bytes = Encoding.UTF8.GetBytes(source[(begin+1)..end]);
+        if (end < begin || !source.AsSpan(end + 8).Trim().IsEmpty) return null;
+        int lastLine = source.AsSpan(0,end).LastIndexOfAny('\r','\n') + 1;
+        if (!source.AsSpan(lastLine, end-lastLine).Trim().IsEmpty) return null;
+        var bytes = Encoding.UTF8.GetBytes(source[begin..end]);
         var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { MaxDepth = 64 });
         var tables = new List<Table>();
         var stack = new Stack<int>();
-        int line = source.AsSpan(0, begin + 1).Count('\n'), mark = 0, tokens = 0, keyLine = -1;
+        int line = 0, mark = 0, offset = begin, tokens = 0;
+        foreach (var unused in source.AsSpan(0,begin).EnumerateLines()) line++;
+        line--; // the header slice ends in a newline
         string? key = null;
+        TokenSpan keyToken = default;
         try
         {
             while (reader.Read())
             {
-                if (++tokens > 12000) return null;
-                int pos = checked((int)reader.TokenStartIndex);
-                line += bytes.AsSpan(mark, pos - mark).Count((byte)'\n'); mark = pos;
+                if (++tokens > 12000 || reader.ValueSpan.Length > 6 * 2048) return null;
+                int pos = (int)reader.TokenStartIndex;
+                var consumed = bytes.AsSpan(mark,pos-mark);
+                int chars = Encoding.UTF8.GetCharCount(consumed);
+                var segment = source.AsSpan(offset,chars);
+                line += segment.Count('\n') + segment.Count('\r') - segment.Count("\r\n");
+                offset += chars; mark = pos;
                 var type = reader.TokenType;
-                if (type == JsonTokenType.PropertyName) { key = Printable(reader.GetString()!); keyLine = line; continue; }
+                if (type == JsonTokenType.PropertyName)
+                {
+                    key = reader.GetString()!;
+                    if (!ValidDataText(key)) return null;
+                    keyToken = new(offset,Encoding.UTF8.GetCharCount(reader.ValueSpan)+2,line,"key");
+                    continue;
+                }
                 if (type is JsonTokenType.EndArray or JsonTokenType.EndObject) { stack.Pop(); continue; }
                 bool container = type is JsonTokenType.StartArray or JsonTokenType.StartObject;
                 int parent = stack.TryPeek(out int current) ? current : -1;
                 string value = type switch {
                     JsonTokenType.StartObject => "{}", JsonTokenType.StartArray => "[]",
-                    JsonTokenType.String => Printable(reader.GetString()!),
+                    JsonTokenType.String => reader.GetString()!,
                     _ => Encoding.UTF8.GetString(reader.ValueSpan)
                 };
-                if (value.Length > 2048 || key?.Length > 2048 || !SvgText.IsPlain(value) || key != null && !SvgText.IsPlain(key)) return null;
+                if (!ValidDataText(value)) return null;
                 int row = 0;
                 if (parent >= 0 || !container)
                 {
@@ -57,7 +75,10 @@ internal static partial class DataDiagram
                     var owner = tables[parent < 0 ? 0 : parent];
                     row = owner.Fields.Count;
                     string name = key ?? (parent < 0 ? "value" : row.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    owner.Fields.Add(new(name, value, key != null ? keyLine : line));
+                    TokenSpan token = container ? default : type == JsonTokenType.String
+                        ? new(offset,Encoding.UTF8.GetCharCount(reader.ValueSpan)+2,line,"string")
+                        : new(offset,reader.ValueSpan.Length,line,"scalar");
+                    owner.Fields.Add(new(name, value, key != null ? keyToken.Line : line, keyToken, token));
                     owner.Keys = Math.Max(owner.Keys, SvgText.Measure(name));
                     owner.Values = Math.Max(owner.Values, SvgText.Measure(value));
                 }
@@ -67,20 +88,28 @@ internal static partial class DataDiagram
                     tables.Add(new(stack.Count, parent, row) { Caption = value });
                     stack.Push(index);
                 }
-                key = null;
+                key = null; keyToken = default;
             }
         }
         catch (JsonException) { return null; }
-        catch (InvalidOperationException) { return null; } // Invalid Unicode escape sequences.
+        catch (InvalidOperationException) { return null; }
         if (tables.Count == 0) return null;
         return Render(tables);
     }
 
-    private static string Printable(string text)
+    // Escapes can decode to XML-forbidden characters even when the original file is valid XML text.
+    private static bool ValidDataText(string text) => text.Length <= 2048 && !text.Any(char.IsControl) &&
+        text.AsSpan().IndexOfAny('\uFFFE','\uFFFF') < 0 && SvgText.IsPlain(text);
+
+    private static void Cell(StringBuilder svg, string value, TokenSpan token, int x, int y)
     {
-        if (!text.Any(char.IsControl)) return text;
-        return string.Concat(text.Select(c => c switch { '\n' => "\\n", '\r' => "\\r", '\t' => "\\t",
-            _ when char.IsControl(c) => "\\u" + ((int)c).ToString("X4"), _ => c.ToString() }));
+        svg.Append(CultureInfo.InvariantCulture, $"<text x=\"{x}\" y=\"{y}\"");
+        if (token.Length > 0)
+        {
+            svg.Append(CultureInfo.InvariantCulture, $" data-json-start=\"{token.Start}\" data-json-length=\"{token.Length}\" data-json-kind=\"{token.Kind}\" data-source-line=\"{token.Line}\"");
+        }
+        // Empty strings and keys still need a visible, keyboard/pointer-accessible edit target.
+        svg.Append('>').Append(value.Length == 0 && token.Length > 0 ? "&#34;&#34;" : SvgText.Escape(value)).Append("</text>");
     }
 
     private static string? Render(List<Table> tables)
@@ -116,16 +145,19 @@ internal static partial class DataDiagram
             {
                 var p = tables[t.Parent];
                 int x = p.X + p.Width, y = p.Y + 34 + t.Row * 24, dest = t.Y + 11;
-                svg.Append($"<path d=\"M{x} {y} C{x+26} {y} {t.X-20} {dest} {t.X} {dest}\" fill=\"none\" stroke=\"#77778e\"/>");
+                svg.Append(CultureInfo.InvariantCulture, $"<path d=\"M{x} {y} C{x+26} {y} {t.X-20} {dest} {t.X} {dest}\" fill=\"none\" stroke=\"#77778e\"/>");
             }
         }
         foreach (var t in tables)
         {
-            svg.Append($"<rect x=\"{t.X}\" y=\"{t.Y}\" width=\"{t.Width}\" height=\"{t.Height}\" rx=\"4\" fill=\"#fafaff\" stroke=\"#77778e\"/><text x=\"{t.X+8}\" y=\"{t.Y+16}\" font-weight=\"bold\">{t.Caption}</text>");
+            svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{t.X}\" y=\"{t.Y}\" width=\"{t.Width}\" height=\"{t.Height}\" rx=\"4\" fill=\"#fafaff\" stroke=\"#77778e\"/><text x=\"{t.X+8}\" y=\"{t.Y+16}\" font-weight=\"bold\">{t.Caption}</text>");
             int y = t.Y + 22;
             foreach (var f in t.Fields)
             {
-                svg.Append($"<g data-source-line=\"{f.SourceLine}\"><path d=\"M{t.X} {y}h{t.Width}\" stroke=\"#d8d8e1\"/><text x=\"{t.X+8}\" y=\"{y+17}\">{SvgText.Escape(f.Key)}</text><text x=\"{t.X+t.Keys+16}\" y=\"{y+17}\">{SvgText.Escape(f.Value)}</text></g>");
+                svg.Append(CultureInfo.InvariantCulture, $"<g data-source-line=\"{f.SourceLine}\"><path d=\"M{t.X} {y}h{t.Width}\" stroke=\"#d8d8e1\"/>");
+                Cell(svg,f.Key,f.KeyToken,t.X+8,y+17);
+                Cell(svg,f.Value,f.ValueToken,t.X+t.Keys+16,y+17);
+                svg.Append("</g>");
                 y += 24;
             }
         }

@@ -21,7 +21,8 @@ internal static partial class DataDiagram
             if (closed) return null;
             if (text.SequenceEqual("@endyaml")) { closed = true; continue; }
             if (++count > 4000 || raw.Length > 2048 || raw.Contains('\t')) return null;
-            int indent = raw.Length - raw.TrimStart().Length;
+            int indent = raw.Length - raw.TrimStart(' ').Length;
+            if (indent < raw.Length && char.IsWhiteSpace(raw[indent])) return null;
             bool array = text.SequenceEqual("-") || text.StartsWith("- ");
             if (scopes.Count == 0)
             {
@@ -87,6 +88,6 @@ internal static partial class DataDiagram
             int comment = text.IndexOf(" #", StringComparison.Ordinal);
             value = (comment >= 0 ? text[..comment].TrimEnd() : text).ToString();
         }
-        return !value.Any(char.IsControl) && SvgText.IsPlain(value) ? value : null;
+        return ValidDataText(value) ? value : null;
     }
 }

@@ -106,7 +106,14 @@ public sealed partial class MainPage
         var item = selected;
         SelectionType.Text = item == null ? "DIAGRAM" : item.Kind.ToUpperInvariant();
         SelectionTitle.Text = item?.Label ?? doc.Page.Title;
-        if (additionalSelection.Count > 0 && selected != null) ShowSelectionActions();
+        if (JsonSelection is { } field)
+        {
+            SelectionType.Text = "JSON " + field.Kind.ToUpperInvariant();
+            SelectionTitle.Text = field.Text;
+            Properties.Children.Add(Caption(field.Kind == "scalar" ? "Enter a JSON scalar such as 42, true, null or a quoted string." : "Enter text directly. Quotes and special characters are escaped when saved."));
+            Properties.Children.Add(Item("Edit field…", "edit", () => BeginCanvasEdit(item)));
+        }
+        else if (additionalSelection.Count > 0 && selected != null) ShowSelectionActions();
         else if (item == null)
         {
             var info = new Grid { ColumnSpacing = 6 };

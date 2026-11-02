@@ -89,7 +89,7 @@ internal static partial class SequenceRenderer
             if (lane.X > MaximumExtent) return false;
         }
         int lanesWidth = d.Lanes[^1].X + d.Lanes[^1].RightSpace + frameMargin;
-        d.Width = Math.Max(lanesWidth, minimumWidth);
+        d.Width = Math.Max(Math.Max(lanesWidth, minimumWidth), d.LegendWidth + 16);
         if (d.Width > lanesWidth)
             foreach (var lane in d.Lanes) lane.X += (d.Width - lanesWidth) / 2;
         d.LifelineEnd = y + 9;
@@ -97,6 +97,7 @@ internal static partial class SequenceRenderer
             while (activations[i].TryPop(out var bar))
                 d.Bars.Add(new(i, activations[i].Count, bar.Y, d.LifelineEnd, bar.Line, bar.Fill));
         d.Height = d.LifelineEnd + (d.Footbox ? d.HeaderHeight : 0) + 10;
+        if (d.Legend != null) d.Height += 22 + 17 * d.Legend.Length;
         return d.Width <= MaximumExtent && d.Height <= MaximumExtent;
     }
 }
