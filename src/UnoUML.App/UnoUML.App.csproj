@@ -17,6 +17,7 @@
   <ItemGroup>
     <Content Remove="wwwroot/uml/vendor/**/*" />
     <ProjectReference Include="../UnoUML.Core/UnoUML.Core.csproj" />
+    <ProjectReference Include="../UnoUML.PlantUml/UnoUML.PlantUml.csproj" />
     <UnoIcon Include="Assets/mark.svg" />
     <UnoSplashScreen Include="Assets/launch.svg" Color="#F8F8FC" BaseSize="64,64" />
   </ItemGroup>

@@ -12,11 +12,17 @@ public sealed partial class MainPage
     private async void ShowRendererSettings()
     {
         var useServer = new ToggleSwitch { Header = "Use a PlantUML server for this document", IsOn = serverEndpoint.Length > 0 };
+        var native = new CheckBox { Content = "Use the C# renderer for supported syntax", IsChecked = viewport.NativeEnabled, IsEnabled = !useServer.IsOn };
         var address = new TextBox { Header = "Server SVG endpoint", PlaceholderText = "https://your-server.example/plantuml/svg", Text = serverEndpoint, IsEnabled = useServer.IsOn };
         var transport = new CheckBox { Content = "Encode the diagram in the request URL (GET)", IsChecked = encodedServerUrl, IsEnabled = useServer.IsOn };
-        useServer.Toggled += (_, _) => address.IsEnabled = transport.IsEnabled = useServer.IsOn;
+        useServer.Toggled += (_, _) =>
+        {
+            address.IsEnabled = transport.IsEnabled = useServer.IsOn;
+            native.IsEnabled = !useServer.IsOn;
+        };
         var content = new StackPanel { Spacing = 12 };
-        content.Children.Add(Caption("The bundled engine renders diagrams on this device. A JVM server can render additional dialects such as Chen, Ditaa and LaTeX, depending on its configuration."));
+        content.Children.Add(Caption("The C# engine renders supported diagrams locally. Other syntax uses the bundled PlantUML JavaScript engine. A JVM server can render additional dialects such as Chen, Ditaa and LaTeX, depending on its configuration."));
+        content.Children.Add(native);
         content.Children.Add(useServer);
         content.Children.Add(address);
         content.Children.Add(transport);
@@ -36,6 +42,7 @@ public sealed partial class MainPage
             await BrowserBridge.ReadyAsync();
             encodedServerUrl = transport.IsChecked == true;
             BrowserBridge.SetServerEndpoint(endpoint, encodedServerUrl);
+            viewport.SetNativeEnabled(native.IsChecked == true);
             serverEndpoint = endpoint;
             revision++;
             await RenderPageAsync();

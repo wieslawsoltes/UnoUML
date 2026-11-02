@@ -26,6 +26,8 @@ GraphCases.Run();
 StateCases.Run();
 ActivityCases.Run();
 ChartCases.Run();
+GanttCases.Run();
+TimingCases.Run();
 var ns = XNamespace.Get("http://www.w3.org/2000/svg");
 XElement Render(string source, DiagramKind kind)
 {
@@ -44,10 +46,16 @@ foreach (var (kind, tag) in new[] { (DiagramKind.MindMap,"mindmap"), (DiagramKin
     Reject($"@start{tag}\n* Root\n*** Missing parent\n@end{tag}");
     Reject($"@start{tag}\n* Root\n** [[external]]\n@end{tag}");
 }
+var packet = Render("@startpacketdiag\n{\ncolwidth = 8\n0-3: Type\n4-10: Data\n}\n@endpacketdiag", DiagramKind.Packet);
+if (packet.Descendants(ns+"rect").Count() != 3) throw new Exception("Packet field crosses row boundary.");
+Reject("@startpacketdiag\n{\n0-7: First\n7-8: Overlap\n}\n@endpacketdiag");
 var files = Render("@startfiles\n/src/A.cs\n/tests/Tests.cs\n/src/B.cs\n@endfiles", DiagramKind.Files);
 if (string.Join(" ", files.Descendants(ns+"text").Select(t=>t.Value)) != "src A.cs B.cs tests Tests.cs") throw new Exception("Directory grouping lost order.");
 var json = Render("@startjson\n{\n \"Cost\": 12.5,\n \"Libraries\": [\"Uno\", true],\n \"描画\": null\n}\n@endjson", DiagramKind.Json);
 if (!json.Value.Contains("12.5") || !json.Value.Contains("描画") || !json.Descendants().Any(e => (string?)e.Attribute("data-source-line") == "4")) throw new Exception("JSON values or source spans missing.");
+var yaml = Render("@startyaml\nname: Studio\nformats:\n  - UML\n  - JSON\n@endyaml", DiagramKind.Yaml);
+if (!yaml.Value.Contains("JSON") || !yaml.Value.Contains("formats")) throw new Exception("YAML table lost a child.");
+Reject("@startyaml\nbase: &base editor\ncopy: *base\n@endyaml");
 Reject("@startjson\n{broken}\n@endjson");
 Reject("@startuml\n!include <C4/C4_Context>\nPerson(a,\"A\")\n@enduml");
 Reject("@startmindmap\n* root\n@endmindmap\n@startuml\nclass A\n@enduml");

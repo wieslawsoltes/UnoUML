@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace UnoUML.PlantUml;
 
 /// <summary>Streams JSON tokens into field tables while retaining each token's original document line.</summary>
-internal static class JsonDiagram
+internal static partial class DataDiagram
 {
     private sealed class Table(int depth, int parent, int row)
     {
@@ -18,13 +18,14 @@ internal static class JsonDiagram
 
     private readonly record struct Field(string Key, string Value, int SourceLine);
 
-    internal static string? TryRender(string source)
+    internal static string? RenderJson(string source)
     {
         int first = source.IndexOf("@startjson", StringComparison.Ordinal);
         int begin = source.IndexOf('\n', first);
         int end = source.LastIndexOf("@endjson", StringComparison.Ordinal);
-        if (begin < 0 || end <= begin || !source.AsSpan(end + 8).Trim().IsEmpty ||
-            !source.AsSpan(source.LastIndexOf('\n', end) + 1, end - source.LastIndexOf('\n', end) - 1).Trim().IsEmpty) return null;
+        if (begin < 0 || end <= begin || !source.AsSpan(end + 8).Trim().IsEmpty) return null;
+        int lastLine = source.LastIndexOf('\n', end) + 1;
+        if (!source.AsSpan(lastLine, end - lastLine).Trim().IsEmpty) return null;
         var bytes = Encoding.UTF8.GetBytes(source[(begin+1)..end]);
         var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { MaxDepth = 64 });
         var tables = new List<Table>();

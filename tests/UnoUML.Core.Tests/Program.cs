@@ -7,12 +7,12 @@ if (args.Contains("--catalog"))
     var fixtures = new List<object>();
     foreach (var template in StudioCatalog.Templates)
     {
-        fixtures.Add(new { template.Name, template.Family, template.RequiresServer, template.Source });
+        fixtures.Add(new { template.Name, template.Family, template.RequiresServer, template.RequiresReferenceServer, template.Source });
         foreach (var tool in StudioCatalog.ForPage(new StudioDocument(template.Source).Page))
         {
             var example = new StudioDocument(template.Source);
             example.Add(tool);
-            fixtures.Add(new { Name = template.Name + " / " + tool.Name, template.Family, template.RequiresServer, example.Source });
+            fixtures.Add(new { Name = template.Name + " / " + tool.Name, template.Family, template.RequiresServer, template.RequiresReferenceServer, example.Source });
         }
     }
     Console.WriteLine(JsonSerializer.Serialize(fixtures));
@@ -31,7 +31,7 @@ var doc = new StudioDocument(source);
 Check(doc.Pages.Count == 2 && doc.Page.Title == "first" && doc.Page.Family == "Class", "pages");
 var cart = doc.Find("Cart")!;
 Check(cart.Line == 2 && cart.EndLine == 4 && cart.Label == "Shopping cart", "declaration range");
-Check(doc.Find(null, 3)?.Kind == "Source", "innermost source line");
+Check(doc.Find(null, 3)?.Kind == "Member", "innermost member line");
 Check(doc.Rename(cart, "Basket"), "rename");
 Check(doc.Source == source.Replace("Shopping cart", "Basket"), "verbatim rename");
 Check(!doc.Remove(cart), "stale span");
@@ -118,4 +118,14 @@ foreach (var template in StudioCatalog.Templates)
         Check(sample.Add(tool) && sample.Undo() && sample.Source == template.Source, tool.Name + " insert/undo");
     }
 }
+var inline = new StudioDocument("@startuml\r\nclass Cart {\r\n  +{static} total() : Money   ' shown at checkout\r\n}\r\nclass User\r\nUser --> Cart\r\n@enduml");
+var member = inline.Find(null, 2)!;
+Check(member.Kind == "Member" && member.EditableLabel == "total() : Money", "member field exposes a precise editable span");
+string originalInline = inline.Source;
+Check(inline.Rename(member, "sum() : Money") && inline.Source == originalInline.Replace("total()", "sum()"), "member editing preserves visibility, modifiers, comments and newline spelling");
+Check(inline.Undo() && inline.Source == originalInline, "member edit undoes in one transaction");
+Check(inline.Find(null, 5)!.EditableLabel == "", "unlabeled relationship opens an empty label field");
+var controlFlow = new StudioDocument("@startuml\nstart\nif (Has capacity?) then (yes)\n  :Process;\nendif\nrepeat\n :Try;\nrepeat while (Retry?) is (yes) not (no)\nstop\n@enduml");
+Check(controlFlow.Rename(controlFlow.Find(null,2)!, "Available?") && controlFlow.Source.Contains("if (Available?) then (yes)"), "inline decision edit preserves outgoing condition labels");
+Check(controlFlow.Rename(controlFlow.Find(null,7)!, "Repeat?") && controlFlow.Source.Contains("repeat while (Repeat?) is (yes) not (no)"), "inline repeat label edits the closing condition span");
 Console.WriteLine($"PASS {assertions} assertions, {StudioCatalog.Templates.Count} templates, {StudioCatalog.Tools.Count} tools.");

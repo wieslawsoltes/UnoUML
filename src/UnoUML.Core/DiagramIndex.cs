@@ -28,7 +28,8 @@ public sealed class DiagramObject
     public int EndLine { get; }
     public string Statement => _document[Offset..End];
     public bool IsConnectable => Alias.Length > 0 && !Ambiguous;
-    public bool CanRename => LabelAt >= 0 && !Ambiguous;
+    public bool CanRename => LabelAt >= 0 && !Ambiguous && !Unclosed;
+    public string EditableLabel => Kind == "Relationship" && LabelLength == 0 ? "" : Label;
     internal bool Ambiguous { get; set; }
     internal bool PlainName { get; set; }
     internal bool Unclosed { get; set; }
@@ -96,6 +97,9 @@ internal sealed partial class DiagramIndex
 
     [GeneratedRegex(@"^\s*(?:<<[^<>]+>>\s*)*(?:(?<color>#[A-Za-z0-9]+)\s*)?(?<brace>\{)?\s*$", RegexOptions.CultureInvariant)]
     private static partial Regex DeclarationStyle();
+
+    [GeneratedRegex(@"^\s*(?<kind>if|switch|while|repeat while)\s+\((?<label>.*?)\)(?:\s+(?:then|is|not)(?:\s+\([^()]*\))?)*\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ActivityGate();
 
     internal const string LayoutMarker = "' @unouml:layout";
     [GeneratedRegex(@"^\s*(?<from>" + Token + @") -\[hidden\](?<direction>left|right|up|down)-> (?<to>" + Token + @")\s*$", RegexOptions.CultureInvariant)]
@@ -271,10 +275,12 @@ internal sealed partial class DiagramIndex
         }
         foreach (var pending in stack) unclosed.Add(pending.Line);
         var aliases = new Dictionary<string, DiagramObject>(StringComparer.Ordinal);
+        var memberOwners = new HashSet<int>();
         foreach (var (line, parent) in parents)
         {
             int end = ends.GetValueOrDefault(line, line);
-            var item = ParseObject(line, end, parent, page.Family);
+            var item = ParseObject(line, end, parent, page.Family, memberOwners.Contains(parent));
+            if (item.CanInsertMember && end > line) memberOwners.Add(line);
             item.Unclosed = unclosed.Contains(line);
             if (item.Alias.Length > 0 && !aliases.TryAdd(item.Alias, item))
             {
@@ -328,12 +334,33 @@ internal sealed partial class DiagramIndex
         return null;
     }
 
-    private DiagramObject ParseObject(int line, int end, int parent, string family)
+    private DiagramObject ParseObject(int line, int end, int parent, string family, bool inMemberBody)
     {
         var row = Lines[line];
         string code = row.Code.TrimEnd();
         string text = code.TrimStart();
         DiagramObject New(string kind, string label) => new(_source, row.Start, Lines[end].End, line, end, parent, kind, label);
+        if (inMemberBody && line == end && !text.StartsWith('!') && !text.StartsWith('@')
+            && !text.StartsWith("--") && !text.StartsWith("==") && !text.StartsWith("..") && !text.StartsWith("__"))
+        {
+            int at = 0;
+            // Keep visibility, modifiers and surrounding trivia outside the editable source span.
+            while (at < text.Length)
+            {
+                if (char.IsWhiteSpace(text[at]) || (at == 0 && text[at] is '+' or '-' or '#' or '~')) { at++; continue; }
+                if (text[at] != '{') break;
+                int close = text.IndexOf('}', at + 1);
+                if (close < 0 || text[(at + 1)..close].ToLowerInvariant() is not ("static" or "abstract" or "field" or "method")) break;
+                at = close + 1;
+            }
+            if (at < text.Length && text[at] != '{')
+            {
+                var member = New("Member", text[at..]);
+                member.LabelAt = code.Length - text.Length + at;
+                member.LabelLength = text.Length - at;
+                return member;
+            }
+        }
         if (line > 0 && _source.AsSpan(Lines[line - 1].Start, Lines[line - 1].End - Lines[line - 1].Start).Trim().SequenceEqual(LayoutMarker) &&
             ManagedLayout().Match(code) is { Success: true } layout)
         {
@@ -399,6 +426,19 @@ internal sealed partial class DiagramIndex
             return item;
         }
         int indent = code.Length - text.Length;
+        if (family == "Activity" && (text.StartsWith("if ", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("while ", StringComparison.OrdinalIgnoreCase) || text.StartsWith("switch ", StringComparison.OrdinalIgnoreCase) || text == "repeat"))
+        {
+            var gate = text == "repeat" ? Lines[end] : row;
+            if (ActivityGate().Match(gate.Code.TrimEnd()) is { Success: true } m)
+            {
+                var label = m.Groups["label"];
+                var item = New(text == "repeat" ? "Repeat" : m.Groups["kind"].Value, label.Value);
+                item.LabelAt = gate.Start - row.Start + label.Index;
+                item.LabelLength = label.Length;
+                return item;
+            }
+        }
         if (family == "Activity" && text.StartsWith(':') && text.EndsWith(';'))
         {
             var item = New("Activity", text[1..^1]);

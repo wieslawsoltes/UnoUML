@@ -123,7 +123,7 @@ public sealed partial class MainPage
             if (item.CanRename)
             {
                 Properties.Children.Add(Caption(item.Kind == "Relationship" ? "Relationship label" : "Display name"));
-                var rename = new TextBox { Text = item.Label, Style = (Style)Resources["Field"], PlaceholderText = "Display name" };
+                var rename = new TextBox { Text = item.EditableLabel, Style = (Style)Resources["Field"], PlaceholderText = "Display name" };
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(rename, "Object display name");
                 Properties.Children.Add(rename);
                 Properties.Children.Add(Item("Apply label", "edit", () => EditProperty(item, () => doc.Rename(item, rename.Text))));

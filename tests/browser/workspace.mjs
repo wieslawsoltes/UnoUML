@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { compareRenderers } from './managed.mjs';
+import { verifyStudioEditing } from './direct-editing.mjs';
 import { createReadStream } from 'node:fs';
 import { mkdir, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -47,6 +49,8 @@ try {
 
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await paper.waitFor({ state: 'visible', timeout: 120000 });
+  assert.equal(await page.locator('.paper').first().getAttribute('data-renderer'), 'managed', 'The starter diagram must render in C#');
+  assert.equal(page.frames().filter(f => f.url().includes('/uml/engine.html')).length, 0, 'The managed path must leave the JS engine unloaded');
   await screenshot('unouml-desktop');
   await click('Split');
   await page.locator('textarea:visible').first().waitFor();
@@ -56,6 +60,7 @@ try {
   const editor = await page.locator('textarea').evaluateAll(nodes => nodes.findIndex(node => node.value.startsWith('@startuml')));
   assert.ok(editor >= 0, 'Source editor is available in Split view');
   const textbox = page.locator('textarea').nth(editor);
+  await verifyStudioEditing(page, textbox);
   const modified = (await textbox.inputValue()).replace('Place order', 'Confirm basket');
   await textbox.fill(modified);
   await page.locator('.paper text').filter({ hasText: /Confirm basket/ }).first().waitFor({ timeout: 25000 });
@@ -112,6 +117,7 @@ try {
   await screenshot('unouml-mobile');
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('.paper [data-qualified-name="OrderCopy"]').first().waitFor({ timeout: 120000 });
+  await compareRenderers(page);
   assert.deepEqual(errors, []);
   console.log('Passed published workspace startup, native hit testing, source edit, toolbox insertion, zoom, template pages, multi-select, duplicate and group, standard library search and inclusion, source download, mobile layout and draft restoration.');
 } finally {

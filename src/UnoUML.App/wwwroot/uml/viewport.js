@@ -1,3 +1,4 @@
+import { DirectEditing } from './direct-editing.js';
 import { indexHits, parseSvg } from './svg.js';
 import { download, includeFiles, includeRevision } from './files.js';
 export { openFile, saveFile, importIncludes } from './files.js';
@@ -33,7 +34,9 @@ function html(tag, css, parent) {
   return el;
 }
 class Viewport {
-  constructor(host, emit) {
+  constructor(host, emit, renderManaged) {
+    this.renderManaged = renderManaged;
+    this.localMode = 'auto';
     this.host = host;
     this.emit = (kind, value) => emit(JSON.stringify({ kind, ...value }));
     this.z = 1; this.x = 0; this.y = 0; this.autoFit = true;
@@ -45,7 +48,7 @@ class Viewport {
     this.surface = html('div', 'surface', root);
     this.surface.tabIndex = 0; this.surface.dataset.tool = 'select';
     this.surface.setAttribute('role', 'region');
-    this.surface.setAttribute('aria-label', 'Diagram canvas. Arrow keys select objects, Enter edits. Drag the background to pan; control-wheel or pinch to zoom.');
+    this.surface.setAttribute('aria-label', 'Diagram canvas. Arrow keys select objects, Enter edits the label. Drag the background to pan or Shift-drag to box-select; control-wheel or pinch to zoom.');
     this.announcement = html('div', 'announcement', this.surface);
     this.announcement.setAttribute('role', 'status');
     this.announcement.setAttribute('aria-live', 'polite');
@@ -59,34 +62,40 @@ class Viewport {
     this.selection.hidden = this.target.hidden = true;
     this.placeholder = html('div', 'empty', this.surface);
     this.placeholder.textContent = 'Preparing diagram…';
+    this.direct = new DirectEditing(this);
     this.bindGestures();
     this.resize = new ResizeObserver(() => this.autoFit ? this.fit() : this.position());
     this.resize.observe(host);
   }
-  dispose() { this.resize.disconnect(); this.version++; this.host.shadowRoot.replaceChildren(); this.cache.clear(); }
+  dispose() { this.direct.finishLabel(false); this.resize.disconnect(); this.version++; this.host.shadowRoot.replaceChildren(); this.cache.clear(); }
   async render(source) {
+    this.direct.finishLabel(false);
     const version = ++this.version;
     this.fetchJob?.abort();
-    this.pristine = null;
     const endpoint = getServerEndpoint();
     const transport = getServerTransport();
-    const files = endpoint ? null : await includeFiles(), key = transport + endpoint + '\0' + includeRevision + '\0' + source;
-    if (version !== this.version) return;
+    const key = this.localMode + '\0' + transport + endpoint + '\0' + includeRevision + '\0' + source;
+    if (this.pristine && key === this.displayKey) return;
+    this.pristine = null;
     let svg = this.cache.get(key);
     if (!svg) {
-      const controller = endpoint ? new AbortController() : null;
-      this.fetchJob = controller;
-      const layout = endpoint ? s => layoutOnServer(endpoint, s, AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]), transport) : await loadEngine();
-      // Serialize the shared TeaVM renderer while dropping superseded requests
-      // before they reach expensive graph layout.
-      while (this.active) await this.active.catch(() => {});
-      if (version !== this.version) return;
-      const job = Promise.resolve().then(() => layout(source, files));
-      this.active = job;
-      let output;
-      try { output = await job; } finally { if (this.active === job) this.active = null; }
+      let output = !endpoint && this.localMode === 'auto' ? this.renderManaged?.(source) : null;
+      const backend = endpoint ? 'jvm' : output ? 'managed' : 'javascript';
+      if (!output) {
+        const controller = endpoint ? new AbortController() : null;
+        this.fetchJob = controller;
+        const files = endpoint ? null : await includeFiles();
+        if (version !== this.version) return;
+        const layout = endpoint ? s => layoutOnServer(endpoint, s, AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]), transport) : await loadEngine();
+        while (this.active) await this.active.catch(() => {});
+        if (version !== this.version) return;
+        const job = Promise.resolve().then(() => layout(source, files));
+        this.active = job;
+        try { output = await job; } finally { if (this.active === job) this.active = null; }
+      }
       if (version !== this.version) return;
       svg = parseSvg(output);
+      svg.backend = backend;
       const cost = output.length + key.length;
       if (cost < 3_000_000) {
         while (this.cache.size >= 8 || this.budget + cost > 3_000_000) {
@@ -99,8 +108,11 @@ class Viewport {
     }
     if (version !== this.version) return;
     this.pristine = svg;
+    this.displayKey = key;
+    this.paper.dataset.renderer = svg.backend;
+    this.emit('renderer', { backend: svg.backend });
     this.svg = document.importNode(svg, true);
-    this.index = indexHits(this.svg, source);
+    this.index = indexHits(this.svg, source, svg.backend === 'managed');
     const visited = new Set();
     this.objects = [...this.index.hits].filter(([el, hit]) => {
       // Lifelines and tails refer to the same participant as its header.
@@ -137,6 +149,7 @@ class Viewport {
   position() {
     this.paper.style.transform = 'translate(' + this.x + 'px,' + this.y + 'px) scale(' + this.z + ')';
     this.outline(this.selection, this.marked);
+    this.direct.positionField();
   }
   outline(box, el) {
     box.hidden = !el;
@@ -171,7 +184,7 @@ class Viewport {
     return Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down');
   }
   setTool(tool) { this.surface.dataset.tool = tool; this.linkStart = null; this.clearGuide(); }
-  clearGuide() { this.guide.setAttribute('hidden',''); this.target.hidden = true; }
+  clearGuide() { this.guide.setAttribute('hidden',''); this.target.hidden = true; this.direct.box.hidden = true; }
   bindGestures() {
     const s = this.surface, pointers = this.pointers;
     const distance = () => { const [a,b] = pointers.values(); return Math.hypot(b.x-a.x,b.y-a.y); };
@@ -228,7 +241,13 @@ class Viewport {
         }
         e.preventDefault(); return;
       }
-      if (e.key === 'Enter' && this.marked) { this.hit(this.marked, 'edit'); e.preventDefault(); return; }
+      if ((e.key === 'Enter' || e.key === 'F2') && this.marked) {
+        if (this.linkStart && e.key === 'Enter') {
+          this.emit('gesture', {action:'connect', from:this.linkStart, to:this.index.hits.get(this.marked)});
+          this.linkStart = null;
+        } else this.hit(this.marked, 'edit');
+        e.preventDefault(); e.stopPropagation(); return;
+      }
       if (e.key === 'Escape') { this.linkStart = null; this.clearGuide(); this.hit(null); }
       else if (e.key === '+' || e.key === '=') this.zoom(1.2);
       else if (e.key === '-') this.zoom(1 / 1.2);
@@ -244,13 +263,17 @@ class Viewport {
     }, { passive:false });
     s.addEventListener('pointerdown', e => {
       if (e.button !== 0 && e.button !== 1) return;
-      const el = this.pick(e.target);
+      const port = e.target === this.direct.port;
+      const el = port ? this.marked : this.pick(e.target);
       s.focus({preventScroll:true}); s.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
       if (pointers.size === 2) { this.drag=null; this.pinch=distance(); this.clearGuide(); return; }
       let tool = s.dataset.tool;
-      if (e.button===1 || !el) tool='pan';
-      this.drag = { el, tool, add:e.shiftKey || e.ctrlKey || e.metaKey, id:e.pointerId, x:e.clientX, y:e.clientY, ox:this.x, oy:this.y, moved:false };
+      if (e.button === 1) tool = 'pan';
+      else if (port || (this.linkStart && el)) tool = 'connect';
+      else if (!el && e.shiftKey && tool === 'select') tool = 'marquee';
+      else if (!el && tool !== 'marquee') tool = 'pan';
+      this.drag = { el, tool, port, add:e.shiftKey || e.ctrlKey || e.metaKey, id:e.pointerId, x:e.clientX, y:e.clientY, ox:this.x, oy:this.y, moved:false };
     });
     s.addEventListener('pointermove', e => {
       if (!pointers.has(e.pointerId)) return;
@@ -264,6 +287,7 @@ class Viewport {
       const dx=e.clientX-drag.x, dy=e.clientY-drag.y;
       drag.moved ||= Math.hypot(dx,dy)>4;
       if (!drag.moved) return;
+      if (drag.tool==='marquee') { this.direct.marquee(drag, e.clientX, e.clientY); return; }
       if (drag.tool==='pan') { this.autoFit=false; this.x=drag.ox+dx; this.y=drag.oy+dy; s.dataset.panning=''; this.position(); return; }
       if (drag.tool === 'connect' || drag.tool === 'move' || drag.tool === 'place') {
         const r=this.rect(); this.guide.removeAttribute('hidden');
@@ -278,7 +302,10 @@ class Viewport {
       const d=this.drag; this.drag=null; delete s.dataset.panning; this.clearGuide();
       if (!d || cancelled || d.id!==e.pointerId) return;
       const el=this.pick(this.host.shadowRoot.elementFromPoint(e.clientX,e.clientY));
+      if (d.tool === 'marquee' && d.moved) { this.direct.selectRegion(d,e.clientX,e.clientY); return; }
+      if (d.port && !d.moved) { this.direct.startConnection(); return; }
       if (d.moved) {
+        this.linkStart = null;
         if (d.el && el && el!==d.el && (d.tool==='connect' || d.tool==='move' || d.tool==='place')) {
           this.emit('gesture', { action:d.tool==='move' ? 'moveBefore' : d.tool,
             from:this.index.hits.get(d.el), to:this.index.hits.get(el), direction:this.direction(el,e.clientX,e.clientY,d) });
@@ -304,10 +331,10 @@ class Viewport {
     s.addEventListener('pointercancel',e=>finish(e,true));
   }
 }
-export function mount(id, emit) {
+export function mount(id, emit, renderManaged) {
   const host=document.getElementById(id);
   if (!host) throw new Error('Uno canvas host is unavailable.');
-  views.get(id)?.dispose(); views.set(id,new Viewport(host,emit));
+  views.get(id)?.dispose(); views.set(id,new Viewport(host,emit,renderManaged));
 }
 export function unmount(id) { views.get(id)?.dispose(); views.delete(id); }
 export function setTool(id, value) { views.get(id)?.setTool(value); }
@@ -344,3 +371,8 @@ export async function exportDiagram(id, format, fileName) {
 }
 
 export function setAdditionalSelection(id, lines, clipboard) { views.get(id)?.setAdditional(lines, clipboard); }
+
+export function beginLabelEdit(id, label, revision) { return views.get(id)?.direct.beginLabel(label, revision) ?? false; }
+export function setConnectable(id, value) { const v = views.get(id); if (v) v.direct.port.hidden = !value; }
+
+export function setLocalMode(id, nativeEnabled) { const view = views.get(id); if (view) view.localMode = nativeEnabled ? 'auto' : 'reference'; }

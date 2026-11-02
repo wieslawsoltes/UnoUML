@@ -48,7 +48,8 @@ public sealed partial class DiagramViewport : ContentControl
         {
             await BrowserBridge.ReadyAsync();
             if (generation != ready || mounted) return;
-            BrowserBridge.Mount(HostId, Receive);
+            BrowserBridge.Mount(HostId, Receive, RenderManaged);
+            BrowserBridge.SetLocalMode(HostId, NativeEnabled);
             mounted = true;
             BrowserBridge.SetTool(HostId, tool);
             generation.TrySetResult();
@@ -95,8 +96,23 @@ public sealed partial class DiagramViewport : ContentControl
         var data = payload.RootElement;
         switch (data.GetProperty("kind").GetString())
         {
+            case "label":
+                LabelCommitted?.Invoke(data.GetProperty("revision").GetInt32(), data.GetProperty("text").GetString() ?? "");
+                break;
+            case "region":
+                var hits = data.GetProperty("hits").EnumerateArray().Select(el => ReadHit(el, "select")).ToArray();
+                RegionSelected?.Invoke(hits, data.GetProperty("add").GetBoolean());
+                break;
             case "command":
                 CanvasCommand?.Invoke(data.GetProperty("action").GetString()!, data.GetProperty("text").GetString() ?? "");
+                break;
+            case "renderer":
+                ActiveRenderer = data.GetProperty("backend").GetString() switch
+                {
+                    "managed" => "C#",
+                    "jvm" => "JVM",
+                    _ => "PlantUML JS"
+                };
                 break;
             case "zoom":
                 Zoom = data.GetProperty("zoom").GetDouble();

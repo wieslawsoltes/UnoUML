@@ -37,3 +37,26 @@
 .target[data-side="down"] { border-bottom: 4px solid #168d88; }
 
 .paper .multi-mark { outline: 2px solid #7062cf; outline-offset: 3px; }
+
+.connection-port {
+  position: absolute; right: 0; top: 50%; transform: translate(55%, -50%);
+  width: 21px; height: 21px; display: grid; place-content: center; pointer-events: auto;
+  padding: 0; border: 1px solid #fff; border-radius: 50%; background: #6756ce; color: white;
+  box-shadow: 0 1px 4px #37297752; cursor: crosshair; font: 16px/1 system-ui;
+}
+.connection-port::before { content: '→'; }
+.connection-port:focus-visible { outline: 2px solid #35247b; outline-offset: 2px; }
+.connection-port[hidden], .surface:not([data-tool="select"]) .connection-port { display: none; }
+.marquee {
+  position: absolute; pointer-events: none; box-sizing: border-box;
+  border: 1px solid #7465cf; background: #7668da22; border-radius: 2px;
+}
+.marquee[hidden] { display: none; }
+.surface[data-tool="marquee"] { cursor: crosshair; }
+.canvas-label-editor {
+  position: absolute; z-index: 2; pointer-events: auto; box-sizing: border-box;
+  border: 2px solid #6554c6; border-radius: 5px; background: #fff; color: #29243d;
+  outline: none; padding: 3px 6px; margin: 0; text-align: center; user-select: text;
+  font: 16px/1.2 system-ui, sans-serif; box-shadow: 0 2px 10px #30284c22;
+}
+@media (pointer: coarse) { .connection-port { width: 30px; height: 30px; } }

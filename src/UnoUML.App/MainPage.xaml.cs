@@ -34,6 +34,8 @@ public sealed partial class MainPage : Page
         BuildCommands();
         ViewportHost.Children.Add(viewport);
         SourceEditor.SelectionChanged += (_, _) => OnSourceSelection();
+        viewport.LabelCommitted += CommitCanvasLabel;
+        viewport.RegionSelected += SelectCanvasRegion;
         viewport.CanvasCommand += OnCanvasCommand;
         viewport.Hit += (_, hit) => OnHit(hit);
         viewport.Gesture += (_, gesture) => OnGesture(gesture);
@@ -81,7 +83,7 @@ public sealed partial class MainPage : Page
         }
         undoButton = Command("Undo", "undo", () => History(false)); HistoryActions.Children.Add(undoButton);
         redoButton = Command("Redo", "redo", () => History(true)); HistoryActions.Children.Add(redoButton);
-        foreach (var (key, name) in new[] { ("select","Select"),("pan","Pan"),("connect","Connect two objects"),("move","Move or reorder objects") })
+        foreach (var (key, name) in new[] { ("select","Select"),("pan","Pan"),("connect","Connect two objects"),("move","Move or reorder objects"),("marquee","Box select") })
         {
             var b = Command(name, key, () => SetTool(key)); tools.Add(key, b); CanvasTools.Children.Add(b);
         }
@@ -119,7 +121,7 @@ public sealed partial class MainPage : Page
         var item = selected;
         switch (e.Key)
         {
-            case VirtualKey.F2: _ = EditStatementAsync(item); break;
+            case VirtualKey.F2: BeginCanvasEdit(item); break;
             case VirtualKey.Delete: Edit(() => doc.Remove(item)); break;
             case VirtualKey.Escape: additionalSelection.Clear(); selected = null; ShowInspector(); SyncCanvasSelection(); break;
             default: return;
@@ -213,6 +215,7 @@ public sealed partial class MainPage : Page
         tool = value; viewport.SetTool(value);
         foreach (var p in tools) Highlight(p.Value, p.Key == tool);
         if (value == "connect") Status("Drag between two objects or click the source and target.");
+        if (value == "marquee") Status("Drag a box around objects. Hold Shift to add to the selection.");
         if (value == "move") Status("Drop beside an object to guide graph layout, or onto a sibling to reorder its declaration.");
     }
 
@@ -295,7 +298,7 @@ public sealed partial class MainPage : Page
             renderedRevision = request;
             if (fitAfterRender) { viewport.Fit(); fitAfterRender = false; }
             SyncCanvasSelection();
-            if (draftSaved) Status(dirty ? "Draft saved in this browser" : "Ready");
+            if (draftSaved) Status((dirty ? "Draft saved in this browser" : "Ready") + " · " + viewport.ActiveRenderer);
             else Status("Browser draft unavailable. Use Save to download your changes.", true);
         }
         catch (Exception ex) { if (request == revision) Status(ex.Message, true); }
@@ -336,12 +339,13 @@ public sealed partial class MainPage : Page
         selected = Resolve(hit);
         ShowInspector(); SyncCanvasSelection();
         if (mode == "Split" && selected != null) SelectSource(selected);
-        if (hit.Kind == "edit" && selected != null) _ = EditStatementAsync(selected);
+        if (hit.Kind == "edit" && selected != null) BeginCanvasEdit(selected);
     }
 
     void SyncCanvasSelection()
     {
         viewport.SetSelection(selected?.Alias ?? "", selected == null ? -1 : selected.Line - doc.Page.StartLine);
+        viewport.SetConnectable(selected?.IsConnectable == true && additionalSelection.Count == 0);
         var items = SelectionItems();
         viewport.SetAdditionalSelection(string.Join(",", additionalSelection.Select(o => o.Line - doc.Page.StartLine)),
             items.Length == 0 ? "" : doc.CopySelection(items) ?? (items.Length == 1 ? items[0].Statement : ""));

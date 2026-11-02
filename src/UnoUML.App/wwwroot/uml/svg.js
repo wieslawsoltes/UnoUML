@@ -38,8 +38,8 @@ export function parseSvg(text) {
   return svg;
 }
 
-export function indexHits(svg, source) {
-  const lines = source.split(/\r\n|\r|\n/);
+export function indexHits(svg, source, exactSourceMap = false) {
+  const lines = exactSourceMap ? [] : source.split(/\r\n|\r|\n/);
   const labels = new Map(), repeated = new Set(), macroAliases = new Map();
   // Text-only diagrams may omit all semantic groups. Only associate a label
   // with a statement if its source line is unambiguous.
@@ -84,13 +84,14 @@ export function indexHits(svg, source) {
     const label = el.querySelector('title')?.textContent || el.querySelector('text:last-of-type')?.textContent || id;
     const n = el.getAttribute('data-source-line');
     let line = n !== null && /^\d+$/.test(n) ? Number(n) : -1;
-    if (line >= lines.length) line = -1;
+    if (!exactSourceMap && line >= lines.length) line = -1;
     // Preprocessing replaces lines. Prefer an original macro invocation over
     // a coincidentally in-bounds expanded line number.
     if ((macroAliases.get(id) ?? -1) >= 0) line = macroAliases.get(id);
     if (line < 0) line = inferred(label);
     if (id || line >= 0) register(el, id, line, label);
   }
+  if (exactSourceMap) return { hits, byId, byLine };
   for (const el of svg.querySelectorAll('text')) {
     const label = el.textContent.trim(), line = inferred(label);
     if (line < 0) continue;

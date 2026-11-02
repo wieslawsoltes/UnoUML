@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { verifyCanvasEvents } from './direct-editing.mjs';
 import { verifyServerRendering } from './server-cases.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -105,7 +106,7 @@ try {
   });
   if (process.env.UNOUML_CATALOG) {
     const fixtures = JSON.parse(await readFile(process.env.UNOUML_CATALOG, 'utf8'));
-    const local = fixtures.filter(f => !f.RequiresServer);
+    const local = fixtures.filter(f => !f.RequiresReferenceServer);
     for (const fixture of local) {
       try {
         await page.evaluate(async source => {
@@ -117,6 +118,7 @@ try {
     }
     console.log('Verified ' + local.length + ' local catalog fixtures.');
   }
+  await verifyCanvasEvents(page, render);
   await verifyServerRendering(page);
   assert.deepEqual(errors,[]);
   console.log('Renderer checks passed. Covered selection, editing, connect, zoom, SVG/PNG downloads, C4, DOT, local includes, syntax diagnostics, and SVG sanitization.');

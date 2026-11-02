@@ -3,7 +3,7 @@ using System.Xml;
 
 namespace UnoUML.PlantUml;
 
-public enum DiagramKind { Sequence, Graph, State, Activity, Chart, MindMap, WorkBreakdown, Files, Json }
+public enum DiagramKind { Sequence, Graph, State, Activity, Chart, MindMap, WorkBreakdown, Files, Json, Yaml, Gantt, Timing, Packet }
 
 public sealed record RenderedDiagram(DiagramKind Kind, string Svg);
 
@@ -29,6 +29,9 @@ public static class PlantUmlRenderer
             "@startwbs" => DiagramKind.WorkBreakdown,
             "@startfiles" => DiagramKind.Files,
             "@startchart" => DiagramKind.Chart,
+            "@startpacketdiag" => DiagramKind.Packet,
+            "@startgantt" => DiagramKind.Gantt,
+            "@startyaml" => DiagramKind.Yaml,
             "@startjson" => DiagramKind.Json,
             _ => (DiagramKind)(-1)
         };
@@ -48,9 +51,13 @@ public static class PlantUmlRenderer
                 kind = state ? DiagramKind.State : DiagramKind.Graph;
             }
             if (svg == null) { kind = DiagramKind.Activity; svg = ActivityRenderer.TryRender(source); }
+            if (svg == null) { kind = DiagramKind.Timing; svg = TimingRenderer.TryRender(source); }
         }
         else if (kind == DiagramKind.Chart) svg = ChartRenderer.TryRender(source);
-        else if (kind == DiagramKind.Json) svg = JsonDiagram.TryRender(source);
+        else if (kind == DiagramKind.Packet) svg = PacketRenderer.TryRender(source);
+        else if (kind == DiagramKind.Gantt) svg = GanttRenderer.TryRender(source);
+        else if (kind == DiagramKind.Json) svg = DataDiagram.RenderJson(source);
+        else if (kind == DiagramKind.Yaml) svg = DataDiagram.RenderYaml(source);
         else svg = TreeDiagram.TryRender(source, kind);
         if (svg == null) return false;
         diagram = new(kind, svg);
