@@ -1,0 +1,196 @@
+using System.Text.RegularExpressions;
+
+namespace UnoUML.PlantUml;
+
+/// <summary>A strict recognizer for structural UML. Unknown grammar is delegated before any SVG is emitted.</summary>
+internal static partial class GraphRenderer
+{
+    private sealed class Node(string kind, string alias, string label, int line, Node? parent = null)
+    {
+        public string Kind { get; } = kind;
+        public string Alias { get; } = alias;
+        public string Label { get; } = label;
+        public int Line { get; } = line;
+        public Node? Parent { get; } = parent;
+        public string Qualified { get; } = parent?.Parent is null ? alias : parent.Qualified + "." + alias;
+        public string Fill = "#f1f1f1", Stereotype = "";
+        public List<(int Line, string Text)> Members { get; } = [];
+        public List<Node> Children { get; } = [];
+        public List<Arc> Arcs { get; } = [];
+        public int X, Y, Width, Height;
+        public bool IsSpecial => Kind == "state" && Stereotype is "choice" or "fork" or "join" or "history" or "history*" or "start" or "end";
+        public bool IsType => Kind is "class" or "abstract class" or "abstract" or "interface" or "annotation" or "enum" or "entity" or "object";
+    }
+
+    private sealed record Edge(Node From, Node To, string Arrow, string Caption, string Tail, string Head, int Line, string Direction, bool Hidden);
+    private sealed record Arc(int A, int B, string Direction, bool Hidden);
+    private sealed record Pending(Node Scope, string From, string To, string Arrow, string Caption, string Tail, string Head, int Line, string Direction, bool Hidden);
+    private sealed class Graph
+    {
+        public readonly Node Root = new("root", "", "", -1);
+        public readonly List<Edge> Edges = [];
+        public readonly List<Node> Nodes = [];
+        public string Title = "";
+        public bool Horizontal, HideCircle, IsState;
+    }
+
+    private const string Identifier = @"[\p{L}_$][\p{L}\p{N}_$]*";
+    private const string Name = "(?:\"[^\"\\r\\n]+\"|" + Identifier + ")";
+    private const string Terminal = "(?:" + Name + "|\\[\\*\\]|" + Identifier + @"(?:\." + Identifier + ")+)";
+    private const string Kinds = "abstract class|abstract|class|object|interface|annotation|enum|entity|component|database|rectangle|actor|usecase|state|package|node|artifact|folder";
+
+    [GeneratedRegex("^(" + Kinds + @")\s+(" + Name + @")(?:\s+as\s+(" + Name + @"))?(?:\s*<<([^<>]+)>>)?(?:\s+(#[\da-fA-F]{6}|#[\da-fA-F]{3}))?\s*(\{)?$", RegexOptions.CultureInvariant)]
+    private static partial Regex DeclarationPattern();
+    [GeneratedRegex("^(" + Terminal + ")\\s*(?:\"([^\"]*)\"\\s*)?([<|o*]*(?>[-.]+)(?:\\[hidden\\])?(?:left|right|up|down)?[-.]*[>|o*]*)\\s*(?:\"([^\"]*)\"\\s*)?(" + Terminal + ")(?:\\s*:\\s*(.*))?$", RegexOptions.CultureInvariant)]
+    private static partial Regex EdgePattern();
+
+    [GeneratedRegex("^(" + Terminal + @")\s*:\s*(.+)$", RegexOptions.CultureInvariant)]
+    private static partial Regex DescriptionPattern();
+
+    internal static string? TryRender(string source) => TryRender(source, out _);
+
+    internal static string? TryRender(string source, out bool isState)
+    {
+        isState = false;
+        if (source.Length > 1_000_000) return null;
+        var graph = Parse(source);
+        if (graph is null || !Arrange(graph)) return null;
+        isState = graph.IsState;
+        return Draw(graph);
+    }
+
+    private static Graph? Parse(string source)
+    {
+        var graph = new Graph();
+        var aliases = new Dictionary<string, Node>(StringComparer.Ordinal);
+        var pending = new List<Pending>();
+        var descriptions = new List<(Node Scope, string Id, string Text, int Line)>();
+        var parent = graph.Root;
+        Node? body = null;
+        bool opened = false, closed = false, structural = false;
+        int depth = 0, line = -1;
+        foreach (var span in source.AsSpan().EnumerateLines())
+        {
+            line++;
+            var trimmed = span.Trim();
+            if (line == 0) trimmed = trimmed.TrimStart('\uFEFF');
+            if (trimmed.IsEmpty || trimmed[0] == '\'') continue;
+            if (trimmed.Length > 4096 || closed) return null;
+            if (!opened)
+            {
+                if (!trimmed.SequenceEqual("@startuml")) return null;
+                opened = true; continue;
+            }
+            if (trimmed.SequenceEqual("@enduml")) { closed = true; continue; }
+            if (trimmed.SequenceEqual("}"))
+            {
+                if (body is not null) body = null;
+                else if (parent != graph.Root) { parent = parent.Parent!; depth--; }
+                else return null;
+                continue;
+            }
+            var text = trimmed.ToString();
+            if (body is not null)
+            {
+                if (body.Members.Count >= 256 || !PlainMember(text)) return null;
+                body.Members.Add((line, text));
+                continue;
+            }
+            if (text.StartsWith("title ", StringComparison.Ordinal) && graph.Title.Length == 0)
+            {
+                graph.Title = text[6..].Trim();
+                if (!Plain(graph.Title)) return null;
+                continue;
+            }
+            if (text == "left to right direction") { graph.Horizontal = true; continue; }
+            if (text == "top to bottom direction") { graph.Horizontal = false; continue; }
+            if (text == "hide circle") { graph.HideCircle = true; continue; }
+            var declaration = DeclarationPattern().Match(text);
+            if (declaration.Success)
+            {
+                string kind = declaration.Groups[1].Value, name = declaration.Groups[2].Value, second = declaration.Groups[3].Value;
+                string label = Unquote(name), alias = second.Length > 0 ? Unquote(second) : label;
+                if (second.StartsWith('"') && !name.StartsWith('"')) (label, alias) = (Unquote(second), name);
+                string stereo = declaration.Groups[4].Value;
+                if (!Plain(label) || !Plain(stereo) || !Plain(alias) || alias.Contains('.') || graph.Nodes.Count >= 1800) return null;
+                var node = new Node(kind, alias, label, line, parent) { Stereotype = stereo };
+                if (!aliases.TryAdd(alias, node)) return null;
+                if (kind == "state")
+                {
+                    graph.IsState = true;
+                    if (stereo is "entryPoint" or "exitPoint" or "inputPin" or "outputPin" or "expansionInput" or "expansionOutput")
+                        return null; // A border port is attached to a particular composite state boundary.
+                }
+                if (node.Qualified != alias && !aliases.TryAdd(node.Qualified, node)) return null;
+                if (declaration.Groups[5].Success) node.Fill = declaration.Groups[5].Value;
+                graph.Nodes.Add(node); parent.Children.Add(node);
+                if (declaration.Groups[6].Success)
+                {
+                    if (node.IsType) body = node;
+                    else if (!node.IsSpecial && kind is ("package" or "node" or "rectangle" or "folder" or "state")) { if (++depth > 12) return null; parent = node; }
+                    else return null;
+                }
+                // actor, entity and database are legal sequence participants as well.
+                structural |= kind is not ("actor" or "database" or "entity");
+                continue;
+            }
+            var edge = EdgePattern().Match(text);
+            if (!edge.Success)
+            {
+                var description = DescriptionPattern().Match(text);
+                if (!description.Success || !Plain(description.Groups[2].Value)) return null;
+                descriptions.Add((parent, Unquote(description.Groups[1].Value), description.Groups[2].Value, line));
+                continue;
+            }
+            if (pending.Count >= 6000) return null;
+            var rawArrow = edge.Groups[3].Value;
+            var direction = new[] { "left", "right", "up", "down" }.FirstOrDefault(rawArrow.Contains) ?? "";
+            bool hidden = rawArrow.Contains("[hidden]", StringComparison.Ordinal);
+            var arrow = rawArrow.Replace("[hidden]", "");
+            if (direction.Length != 0) arrow = arrow.Replace(direction, "");
+            if (!SupportedArrow(arrow)) return null;
+            string tail = edge.Groups[2].Value, head = edge.Groups[4].Value, caption = edge.Groups[6].Value;
+            if (!Plain(tail) || !Plain(head) || !Plain(caption)) return null;
+            if (edge.Groups[1].Value == "[*]" || edge.Groups[5].Value == "[*]") graph.IsState = true;
+            pending.Add(new(parent, Unquote(edge.Groups[1].Value), Unquote(edge.Groups[5].Value), arrow, caption, tail, head, line, direction, hidden));
+        }
+        if (!opened || !closed || depth != 0 || body is not null || (!structural && !graph.IsState)) return null;
+        if (graph.IsState && graph.Nodes.Any(n => n.Kind is not ("state" or "package"))) return null;
+        if (!graph.IsState && descriptions.Count != 0) return null;
+
+        Node? Resolve(string id, Node scope, bool start, int sourceLine)
+        {
+            bool pseudo = id == "[*]";
+            string key = pseudo ? scope.Qualified + (start ? "\0initial" : "\0final") : id;
+            if (aliases.TryGetValue(key, out var found)) return found;
+            if (!graph.IsState || graph.Nodes.Count >= 1800 || (!pseudo && (id.Contains('.') || !Plain(id)))) return null;
+            var node = new Node(pseudo ? (start ? "initial" : "final") : "state", pseudo ? "" : id, pseudo ? "" : id, sourceLine, scope);
+            aliases[key] = node;
+            if (!pseudo && node.Qualified != id && !aliases.TryAdd(node.Qualified, node)) return null;
+            scope.Children.Add(node); graph.Nodes.Add(node);
+            return node;
+        }
+        foreach (var description in descriptions)
+        {
+            var node = Resolve(description.Id, description.Scope, true, description.Line);
+            if (node is null || node.Kind != "state" || node.IsSpecial || node.Children.Count > 0 || node.Members.Count >= 256) return null;
+            node.Members.Add((description.Line, description.Text));
+        }
+        foreach (var syntax in pending)
+        {
+            var from = Resolve(syntax.From, syntax.Scope, true, syntax.Line);
+            var to = Resolve(syntax.To, syntax.Scope, false, syntax.Line);
+            if (from is null || to is null) return null;
+            graph.Edges.Add(new(from, to, syntax.Arrow, syntax.Caption, syntax.Tail, syntax.Head, syntax.Line, syntax.Direction, syntax.Hidden));
+        }
+        return graph.Nodes.Count == 0 ? null : graph;
+    }
+
+    private static bool SupportedArrow(string token) => token is "--" or "-" or ".." or "-->" or "->" or "<--" or "<-" or "<-->" or "<->"
+        or "..>" or "<.." or "<..>" or "--|>" or "<|--" or "..|>" or "<|.." or "*--" or "--*" or "o--" or "--o";
+    private static string Unquote(string value) => value.StartsWith('"') ? value[1..^1] : value;
+    private static bool Plain(string text) => SvgText.IsPlain(text) && !text.Contains('\\') && !text.Any(char.IsControl);
+    private static bool PlainMember(string text) => Plain(text) && !text.StartsWith('!') && !text.StartsWith('@') && !text.Contains('{') && !text.Contains('}')
+        && !text.StartsWith("--", StringComparison.Ordinal) && !text.StartsWith("..", StringComparison.Ordinal) && !text.StartsWith("==", StringComparison.Ordinal)
+        && !text.StartsWith("__", StringComparison.Ordinal) && !text.StartsWith("/'", StringComparison.Ordinal);
+}
