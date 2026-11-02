@@ -15,6 +15,12 @@ internal static partial class GraphRenderer
         var routes = RouteEdges(graph);
         int left = 0, top = 0, right = graph.Root.Width + 64, bottom = graph.Root.Height + (graph.Title.Length == 0 ? 52 : 92);
         right = Math.Max(right, SvgText.Measure(graph.Title, 19) + 48);
+        foreach (var port in graph.Nodes.Where(n => n.IsStatePort))
+        {
+            int cx = port.X + 6, half = SvgText.Measure(port.Label) / 2 + 6;
+            left = Math.Min(left, cx - half); right = Math.Max(right, cx + half);
+            top = Math.Min(top, PortCaptionY(port) - 19); bottom = Math.Max(bottom, PortCaptionY(port) + 8);
+        }
         foreach (var n in graph.Nodes.Where(n => n.Children.Count != 0)) DrawNode(body, n, graph.HideCircle);
         foreach (var r in routes)
         {
@@ -48,6 +54,10 @@ internal static partial class GraphRenderer
         if (!n.Implicit) s.Append(CultureInfo.InvariantCulture, $" data-source-line=\"{n.Line}\"");
         if (n.Alias != "") s.Append(CultureInfo.InvariantCulture, $" data-qualified-name=\"{SvgText.Escape(n.Qualified)}\"");
         s.Append("><title>").Append(SvgText.Escape(n.Label)).Append("</title>");
+        if (n.IsStatePort)
+        {
+            DrawStatePort(s, n); s.Append("</g>"); return;
+        }
         var fill = n.Fill;
         int labelY = y + (n.Children.Count == 0 ? h : 40) / 2 + 5;
         int labelX = cx;

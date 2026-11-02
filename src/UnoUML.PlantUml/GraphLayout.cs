@@ -55,6 +55,7 @@ internal static partial class GraphRenderer
     {
         // Library renderers measure their own card contents and reserve room for relationship labels.
         if (node.Kind == "measured-card") return;
+        if (node.IsStatePort) { node.Width = node.Height = 12; return; }
         int textWidth = SvgText.Measure(node.Label);
         int labelWidth = Math.Max(textWidth, node.Stereotype.Length == 0 ? 0 : SvgText.Measure("«" + node.Stereotype + "»", 12));
         node.Width = Math.Max(68, labelWidth + 34);
@@ -97,11 +98,13 @@ internal static partial class GraphRenderer
         if (node.Children.Count == 0) return;
         foreach (var child in node.Children) MeasureNode(child, graph);
 
+        bool hasPorts = node.Kind == "state" && node.Children.Any(child => child.IsStatePort);
+        var idsToPlace = Enumerable.Range(0, node.Children.Count).Where(i => !hasPorts || !node.Children[i].IsStatePort);
+        var layoutArcs = hasPorts ? node.Arcs.Where(a => !node.Children[a.A].IsStatePort && !node.Children[a.B].IsStatePort) : node.Arcs;
         var connected = new Disjoint(node.Children.Count);
-        foreach (var arc in node.Arcs) connected.Merge(arc.A, arc.B);
-        var components = Enumerable.Range(0, node.Children.Count).GroupBy(connected.Root)
-            .Select(g => g.ToArray()).ToArray();
-        var arcs = node.Arcs.ToLookup(a => connected.Root(a.A));
+        foreach (var arc in layoutArcs) connected.Merge(arc.A, arc.B);
+        var components = idsToPlace.GroupBy(connected.Root).Select(g => g.ToArray()).ToArray();
+        var arcs = layoutArcs.ToLookup(a => connected.Root(a.A));
         var boxes = new List<(int[] Ids, int Width, int Height)>();
         long area = 0;
         foreach (int[] ids in components)
@@ -120,6 +123,7 @@ internal static partial class GraphRenderer
         }
         node.Width = Math.Max(node == graph.Root ? 0 : node.Width, 2 * pad + right);
         node.Height = top + y + row + pad;
+        if (hasPorts) AttachStatePorts(node, graph.Horizontal);
     }
 
     private static (int Width, int Height) Layer(List<Node> nodes, int[] ids, IEnumerable<Arc> arcs, bool horizontal)

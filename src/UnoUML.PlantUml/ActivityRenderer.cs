@@ -7,7 +7,7 @@ namespace UnoUML.PlantUml;
 /// <summary>Structured activity flow. Child extents are measured bottom-up, then connectors are emitted top-down.</summary>
 internal static partial class ActivityRenderer
 {
-    private enum Kind { Start, Stop, End, Action, Decision, Switch, Fork, While, Repeat }
+    private enum Kind { Start, Stop, End, Action, Decision, Switch, Fork, While, Repeat, Partition }
     private sealed class Lane(string label = "")
     {
         internal string Label = label;
@@ -18,7 +18,7 @@ internal static partial class ActivityRenderer
     private sealed class Step(Kind kind, int line, string label = "")
     {
         internal Kind Kind = kind;
-        internal int Line = line, CloseLine = -1, Width, Height, ContentWidth;
+        internal int Line = line, CloseLine = -1, Width, Height, ContentWidth, Swimlane = -1;
         internal string Label = label, Exit = "";
         internal List<Lane> Lanes = [];
         internal bool Continues = kind is not (Kind.Stop or Kind.End);
@@ -38,22 +38,62 @@ internal static partial class ActivityRenderer
         bool started = false, ended = false;
         int line = -1, count = 0;
         string title = "";
+        var swimlanes = new List<(string Name, int Line)>();
+        var swimIds = new Dictionary<string, int>(StringComparer.Ordinal);
+        int currentSwim = -1, legendLine = -1;
+        var legend = new List<string>();
+        string legendAlign = "center";
+        bool inLegend = false;
         foreach (var raw in source.AsSpan().EnumerateLines())
         {
             line++;
             var span = raw.Trim();
+            if (inLegend)
+            {
+                if (span.SequenceEqual("endlegend") || span.SequenceEqual("end legend")) { inLegend = false; continue; }
+                if (legend.Count >= 100 || span.Length > 2048) return null;
+                var caption = span.ToString();
+                if (!Plain(caption) || (caption.Length != 0 && caption[0] is '@' or '|' or '=' or '*' or '#')) return null;
+                legend.Add(caption);
+                continue;
+            }
             if (span.IsEmpty || span[0] == '\'') continue;
             if (!started) { if (!span.SequenceEqual("@startuml")) return null; started = true; continue; }
             if (ended) return null;
             if (span.SequenceEqual("@enduml")) { ended = true; continue; }
             if (++count > 4096 || span.Length > 2048 || frames.Count > 48) return null;
             string s = span.ToString();
+            if (s is "legend" or "legend right" or "legend left" or "legend center")
+            {
+                if (frames.Count != 0 || legendLine >= 0) return null;
+                legendLine = line; legendAlign = s.Length > 7 ? s[7..] : "center"; inLegend = true;
+                continue;
+            }
+            if (s[0] == '|')
+            {
+                // A transition between branches in different lanes requires a graph
+                // layout. Keep such diagrams with the reference renderer.
+                if (frames.Count != 0 || (swimlanes.Count == 0 && root.Steps.Count != 0) || s.Length < 3 || s[^1] != '|') return null;
+                string name = s[1..^1].Trim();
+                if (name.Length == 0 || name.Contains('|') || name[0] == '#' || !Plain(name)) return null;
+                if (!swimIds.TryGetValue(name,out currentSwim))
+                {
+                    if (swimlanes.Count >= 128) return null;
+                    currentSwim = swimlanes.Count; swimIds.Add(name,currentSwim); swimlanes.Add((name,line));
+                }
+                continue;
+            }
             if (s.StartsWith("title ", StringComparison.Ordinal))
             {
                 if (title.Length != 0 || root.Steps.Count != 0 || !Plain(title = s[6..].Trim())) return null;
                 continue;
             }
             var node = frames.Count != 0 ? frames.Peek().Node : null;
+            if (s == "}")
+            {
+                if (node?.Kind != Kind.Partition || current == null || current.Steps.Count == 0) return null;
+                node.CloseLine = line; current = frames.Pop().Parent; continue;
+            }
             if (s == "else" || s.StartsWith("else ", StringComparison.Ordinal))
             {
                 if (node?.Kind != Kind.Decision || node.Lanes.Count != 1 || !OptionalLabel(s, "else", out string label)) return null;
@@ -94,17 +134,25 @@ internal static partial class ActivityRenderer
             if (s is "start" or "stop" or "end")
             {
                 if (s == "start" && (frames.Count != 0 || current.Steps.Count != 0)) return null;
-                current.Steps.Add(new(s switch { "start" => Kind.Start, "stop" => Kind.Stop, _ => Kind.End }, line)); continue;
+                current.Steps.Add(new(s switch { "start" => Kind.Start, "stop" => Kind.Stop, _ => Kind.End }, line) { Swimlane = currentSwim }); continue;
             }
             if (s.StartsWith(':') && s.EndsWith(';'))
             {
                 string action = s[1..^1].Trim();
                 if (action.Length == 0 || action.Contains(';') || !Plain(action)) return null;
-                current.Steps.Add(new(Kind.Action, line, action)); continue;
+                current.Steps.Add(new(Kind.Action, line, action) { Swimlane = currentSwim }); continue;
             }
 
             Step next;
-            if (s == "fork" || s == "repeat") next = new(s == "fork" ? Kind.Fork : Kind.Repeat, line);
+            if (s.StartsWith("partition ",StringComparison.Ordinal) && s.EndsWith('{'))
+            {
+                var name = s[10..^1].Trim();
+                if (name.Length > 1 && name[0] == '"' && name[^1] == '"') name = name[1..^1];
+                else if (name.Any(char.IsWhiteSpace)) return null;
+                if (name.Length == 0 || !Plain(name) || name.IndexOfAny(['"','#','{','}']) >= 0) return null;
+                next = new(Kind.Partition, line, name);
+            }
+            else if (s == "fork" || s == "repeat") next = new(s == "fork" ? Kind.Fork : Kind.Repeat, line);
             else if (s.StartsWith("switch ", StringComparison.Ordinal) && OptionalLabel(s, "switch", out string subject)) next = new(Kind.Switch, line, subject);
             else
             {
@@ -117,7 +165,7 @@ internal static partial class ActivityRenderer
                 next = new(decision ? Kind.Decision : Kind.While, line, condition);
                 next.Lanes.Add(new(label));
             }
-            current.Steps.Add(next); frames.Push((next, current));
+            next.Swimlane = currentSwim; current.Steps.Add(next); frames.Push((next, current));
             if (next.Kind == Kind.Switch) current = null;
             else
             {
@@ -125,14 +173,62 @@ internal static partial class ActivityRenderer
                 current = next.Lanes[0];
             }
         }
-        if (!ended || frames.Count != 0 || root.Steps.Count == 0 || !Measure(root)) return null;
-        int width = Math.Max(root.Width, SvgText.Measure(title, 18)) + 48;
-        int y = title.Length == 0 ? 22 : 54, height = y + root.Height + 22;
+        if (!ended || inLegend || (legendLine >= 0 && legend.Count == 0) || frames.Count != 0 || root.Steps.Count == 0 || !Measure(root)) return null;
+        return DrawDocument(root,title,swimlanes,legend,legendLine,legendAlign);
+    }
+
+    private static string? DrawDocument(Lane root, string title, List<(string Name, int Line)> swimlanes,
+        List<string> legend, int legendLine, string legendAlign)
+    {
+        // Upstream elides the header and border when the document uses a single lane.
+        int[]? columns = null;
+        int bodyWidth = root.Width;
+        if (swimlanes.Count > 1)
+        {
+            columns = swimlanes.Select(l => Math.Max(70,SvgText.Measure(l.Name)+28)).ToArray();
+            foreach (var step in root.Steps) columns[step.Swimlane] = Math.Max(columns[step.Swimlane],step.Width+34);
+            bodyWidth = columns.Sum();
+        }
+        int legendWidth = legend.Count == 0 ? 0 : legend.Max(s=>SvgText.Measure(s))+24;
+        int legendHeight = legend.Count == 0 ? 0 : legend.Count * 20 + 16;
+        int width = Math.Max(Math.Max(bodyWidth,legendWidth),SvgText.Measure(title,18)) + 48;
+        int y = title.Length == 0 ? 22 : 54;
+        int bodyTop = y + (columns == null ? 0 : 52);
+        int bottom = bodyTop + root.Height + (columns == null ? 0 : 14);
+        int height = bottom + 22 + (legendHeight == 0 ? 0 : legendHeight+16);
         if (width > 32768 || height > 32768) return null;
         var svg = new StringBuilder();
-        svg.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">");
-        if (title.Length > 0) Text(svg, width / 2, 30, title, 18, true);
-        DrawLane(svg, root, width / 2, y);
+        svg.Append(CultureInfo.InvariantCulture,$"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">");
+        if (title.Length > 0) Text(svg,width/2,30,title,18,true);
+        if (columns != null)
+        {
+            int left = (width - bodyWidth)/2;
+            for (int i=0;i<columns.Length;i++)
+            {
+                int w = columns[i];
+                Open(svg,"Swimlane",swimlanes[i].Line);
+                svg.Append(CultureInfo.InvariantCulture,$"<rect x=\"{left}\" y=\"{y}\" width=\"{w}\" height=\"30\" fill=\"#f1f1f1\" stroke=\"#494949\"/>");
+                Text(svg,left+w/2,y+21,swimlanes[i].Name);
+                svg.Append("</g>");
+                Path(svg,$"M{left},{y+30}V{bottom}");
+                if (i == columns.Length-1) Path(svg,$"M{left+w},{y+30}V{bottom}");
+                columns[i] = left + w/2; left += w;
+            }
+        }
+        DrawLane(svg,root,width/2,bodyTop,columns);
+        if (legendHeight > 0)
+        {
+            int x = legendAlign switch { "left" => 24, "right" => width-24-legendWidth, _ => (width-legendWidth)/2 };
+            int top = bottom+16;
+            Open(svg,"Legend",legendLine);
+            svg.Append(CultureInfo.InvariantCulture,$"<rect x=\"{x}\" y=\"{top}\" width=\"{legendWidth}\" height=\"{legendHeight}\" rx=\"3\" fill=\"#fafafa\" stroke=\"#777\"/>");
+            foreach (string label in legend)
+            {
+                svg.Append(CultureInfo.InvariantCulture,$"<text x=\"{x+12}\" y=\"{top+23}\" font-family=\"sans-serif\" font-size=\"14\">{SvgText.Escape(label)}</text>");
+                top += 20;
+            }
+            svg.Append("</g>");
+        }
         return svg.Append("</svg>").ToString();
     }
 
@@ -174,7 +270,13 @@ internal static partial class ActivityRenderer
                 }
                 int diamond = Math.Max(44, SvgText.Measure(step.Label) + 48);
                 step.ContentWidth = contentWidth;
-                if (step.Kind is Kind.While or Kind.Repeat)
+                if (step.Kind == Kind.Partition)
+                {
+                    step.Width = Math.Max(contentWidth+32, 2*(SvgText.Measure(step.Label)+26)+12);
+                    step.Height = 42 + bodyHeight + 18;
+                    step.Continues = step.Lanes[0].Continues;
+                }
+                else if (step.Kind is Kind.While or Kind.Repeat)
                 {
                     if (!step.Lanes[0].Continues) return false;
                     step.Width = Math.Max(diamond,contentWidth) + 2 * (32 + Math.Max(SvgText.Measure(step.Exit, 12), SvgText.Measure(step.Lanes[0].Label, 12)));
@@ -195,13 +297,21 @@ internal static partial class ActivityRenderer
         return true;
     }
 
-    private static void DrawLane(StringBuilder svg, Lane lane, int x, int top)
+    private static void DrawLane(StringBuilder svg, Lane lane, int x, int top, int[]? columns = null)
     {
-        int y = top;
+        int y = top, previousX = x;
         foreach (var step in lane.Steps)
         {
-            if (y != top) { Arrow(svg, x, y, x, y + Gap); y += Gap; }
+            if (columns != null) x = columns[step.Swimlane];
+            if (y != top)
+            {
+                if (x == previousX) Arrow(svg,x,y,x,y+Gap);
+                else { Path(svg,$"M{previousX},{y}V{y+Gap/2}H{x}V{y+Gap}"); Head(svg,x,y+Gap); }
+                y += Gap;
+            }
+            previousX = x;
             if (step.Lanes.Count == 0) DrawSimple(svg, step, x, y);
+            else if (step.Kind == Kind.Partition) DrawPartition(svg,step,x,y);
             else if (step.Kind is Kind.While or Kind.Repeat) DrawLoop(svg, step, x, y);
             else DrawBranches(svg, step, x, y);
             y += step.Height;
@@ -224,6 +334,20 @@ internal static partial class ActivityRenderer
                 svg.Append(CultureInfo.InvariantCulture, $"<circle cx=\"{x}\" cy=\"{y+11}\" r=\"10\" fill=\"white\" stroke=\"#222\"/><path d=\"M{x-6},{y+5}l12,12m0,-12l-12,12\" stroke=\"#222\"/>"); break;
         }
         svg.Append("</g>");
+    }
+
+    private static void DrawPartition(StringBuilder svg, Step step, int x, int top)
+    {
+        int left = x-step.Width/2, tabWidth = SvgText.Measure(step.Label)+24;
+        Open(svg,"Partition",step.Line);
+        svg.Append(CultureInfo.InvariantCulture,$"<rect x=\"{left}\" y=\"{top}\" width=\"{step.Width}\" height=\"{step.Height}\" rx=\"4\" fill=\"#fff\" stroke=\"#555\"/>");
+        Path(svg,$"M{left+tabWidth},{top}v14l-10,10H{left}");
+        Text(svg,left+tabWidth/2-2,top+17,step.Label);
+        svg.Append("</g>");
+        Arrow(svg,x,top,x,top+42);
+        var body = step.Lanes[0];
+        DrawLane(svg,body,x,top+42);
+        if (body.Continues) Path(svg,$"M{x},{top+42+body.Height}V{top+step.Height}");
     }
 
     private static void DrawBranches(StringBuilder svg, Step step, int x, int y)

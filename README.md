@@ -28,7 +28,7 @@ A visual PlantUML editor for the browser, built with Uno Platform 6.7 and .NET 1
 
 The status bar shows the engine that produced the current preview. **Library → … → Rendering engine** can force the JavaScript implementation or select a CORS-enabled JVM endpoint for a document. The server receives the active page. Imported local include files remain on the device. Opening another file clears the server selection.
 
-The 29 templates, 118 tools and 34 standard-library bundles are covered by the repository's fixture and browser tests. The library index contains 27,780 include paths. Macro output and bitmap-only objects can be edited in source. Native output uses its own layout and font metrics. Native JSON fields can be edited individually even when a document is minified or contains identical values on one line.
+The catalog build checks 233 template and toolbox combinations. Of these, 228 produce native C# SVG. The sequence `newpage` fixture uses the reference JavaScript renderer. Chen, Ditaa, math and LaTeX use the optional JVM path. CI also exercises 600 partially edited inputs. The toolbox contains 118 entries across 29 templates and the browser can load 34 standard-library bundles. The library index contains 27,780 include paths. Macro output and bitmap-only objects can be edited in source. Native output uses its own layout and font metrics. Native JSON fields can be edited individually even when a document is minified or contains identical values on one line.
 
 ## Build and test
 
@@ -62,3 +62,14 @@ The initial checkout diagram renders with C# and downloads no PlantUML JavaScrip
 ## Reproducing browser timings
 
 After publishing, run `node tests/browser/workspace.mjs artifacts/site/wwwroot` with Playwright Chromium installed. The test runs both engines in the same Uno WebAssembly viewport, alternates their order, warms each implementation and times nine unique versions of each diagram. The reported medians include SVG generation, sanitization, source indexing and DOM installation. GPU painting and app startup are outside the timing window.
+
+
+Example medians on local headless Chromium with a Release WebAssembly build and trimming disabled
+
+| Uncached diagram | C# | PlantUML JavaScript |
+| --- | ---: | ---: |
+| 20 classes, 19 relationships | 14.0 ms | 37.2 ms |
+| 6 lifelines, 25 messages | 5.5 ms | 26.2 ms |
+| 3 C4 context elements | 3.4 ms | 185.0 ms |
+
+The C4 comparison uses the standard context library on both sides. The C# path recognizes the supported macro signatures directly. Each Pages build repeats the benchmark against the production artifact and prints its own results in the workspace test log.

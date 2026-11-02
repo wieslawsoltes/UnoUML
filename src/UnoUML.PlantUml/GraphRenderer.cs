@@ -18,7 +18,9 @@ internal static partial class GraphRenderer
         public List<Node> Children { get; } = [];
         public List<Arc> Arcs { get; } = [];
         public int X, Y, Width, Height;
-        public bool Implicit, DeploymentGlyph;
+        public bool Implicit, DeploymentGlyph, CaptionBelow;
+        public bool IsStatePort => Kind == "state" && Stereotype is ("entryPoint" or "exitPoint" or "inputPin" or "outputPin");
+        public bool IsInputPort => Stereotype is "entryPoint" or "inputPin";
         public bool IsSpecial => Kind == "state" && Stereotype is "choice" or "fork" or "join" or "history" or "history*" or "start" or "end";
         public bool IsType => !DeploymentGlyph && Kind is ("class" or "abstract class" or "abstract" or "interface" or "annotation" or "enum" or "entity" or "object" or "struct" or "exception" or "protocol" or "metaclass" or "stereotype" or "map");
     }
@@ -50,8 +52,6 @@ internal static partial class GraphRenderer
 
     [GeneratedRegex("^(" + Terminal + @")\s*:\s*(.+)$", RegexOptions.CultureInvariant)]
     private static partial Regex DescriptionPattern();
-
-    internal static string? TryRender(string source) => TryRender(source, out _);
 
     internal static string? TryRender(string source, out bool isState)
     {
@@ -142,8 +142,8 @@ internal static partial class GraphRenderer
                 if (kind == "state")
                 {
                     graph.IsState = true;
-                    if (stereo is "entryPoint" or "exitPoint" or "inputPin" or "outputPin" or "expansionInput" or "expansionOutput")
-                        return null; // A border port is attached to a particular composite state boundary.
+                    if (stereo is "expansionInput" or "expansionOutput" || node.IsStatePort && parent.Kind != "state")
+                        return null; // A root-level border port is invalid PlantUML.
                 }
                 if (node.Qualified != alias && !aliases.TryAdd(node.Qualified, node)) return null;
                 if (declaration.Groups[5].Success) node.Fill = declaration.Groups[5].Value;
@@ -151,7 +151,7 @@ internal static partial class GraphRenderer
                 if (declaration.Groups[6].Success)
                 {
                     if (node.IsType) body = node;
-                    else if (!node.IsSpecial && kind is ("package" or "namespace" or "node" or "rectangle" or "folder" or "frame" or "state")) { if (++depth > 12) return null; parent = node; }
+                    else if (!node.IsSpecial && !node.IsStatePort && kind is ("package" or "namespace" or "node" or "rectangle" or "folder" or "frame" or "state")) { if (++depth > 12) return null; parent = node; }
                     else return null;
                 }
                 // actor, entity and database are legal sequence participants as well.
@@ -202,7 +202,7 @@ internal static partial class GraphRenderer
         foreach (var description in descriptions)
         {
             var node = Resolve(description.Id, description.Scope, true, description.Line);
-            if (node is null || node.Kind != "state" || node.IsSpecial || node.Children.Count > 0 || node.Members.Count >= 256) return null;
+            if (node is null || node.Kind != "state" || node.IsSpecial || node.IsStatePort || node.Children.Count > 0 || node.Members.Count >= 256) return null;
             node.Members.Add((description.Line, description.Text));
         }
         foreach (var syntax in pending)

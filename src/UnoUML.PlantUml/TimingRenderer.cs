@@ -22,6 +22,23 @@ internal static partial class TimingRenderer
     private sealed record Change(double Time, string State, double Value, string Annotation, int Line);
     private sealed record Link(string From, string To, double Start, double End, string Label, int Line);
 
+    private sealed record Legend(bool Above, string Align, int Line)
+    {
+        internal readonly List<string> Rows = [];
+        internal int Width => Math.Max(48, Rows.Max(row => SvgText.Measure(row, 13)) + 18);
+        internal int Height => Rows.Count * 17 + 10;
+    }
+
+    private static Legend? ParseLegend(string line, int index)
+    {
+        var tokens = line.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        int i = 1;
+        bool above = i < tokens.Length && tokens[i] == "top";
+        if (above || (i < tokens.Length && tokens[i] == "bottom")) i++;
+        string align = i < tokens.Length ? tokens[i++] : "center";
+        return i == tokens.Length && align is ("left" or "center" or "right") ? new(above, align, index) : null;
+    }
+
     private sealed class Track(string kind, string id, string label, int line)
     {
         internal readonly string Kind = kind, Id = id, Label = label;
@@ -43,7 +60,8 @@ internal static partial class TimingRenderer
         var tracks = new Dictionary<string, Track>(StringComparer.Ordinal);
         var ticks = new SortedDictionary<double, int>();
         var links = new List<Link>();
-        bool opened = false, closed = false, showAxis = true;
+        Legend? legend = null;
+        bool opened = false, closed = false, showAxis = true, inLegend = false;
         int sourceLine = -1, titleLine = -1;
         string title = "";
         double now = 0;
@@ -52,6 +70,21 @@ internal static partial class TimingRenderer
             sourceLine++;
             string line = raw.Trim().ToString();
             if (line.Length > 4096) return null;
+            if (inLegend)
+            {
+                if (line.Equals("endlegend", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (legend!.Rows.Count == 0) return null;
+                    inLegend = false;
+                }
+                else
+                {
+                    if (legend!.Rows.Count >= 128 || !SvgText.IsPlain(line) ||
+                        (line.Length != 0 && line[0] is '!' or '@' or '|' or '*' or '#' or '=' or '~')) return null;
+                    legend.Rows.Add(line);
+                }
+                continue;
+            }
             if (line.Length == 0 || line[0] == '\'') continue;
             if (!opened) { if (line != "@startuml") return null; opened = true; continue; }
             if (closed) return null;
@@ -60,6 +93,12 @@ internal static partial class TimingRenderer
             {
                 if (titleLine >= 0 || !SvgText.IsPlain(title = line[6..].Trim())) return null;
                 titleLine = sourceLine; continue;
+            }
+            if (line.Equals("legend", StringComparison.OrdinalIgnoreCase) || line.StartsWith("legend ", StringComparison.OrdinalIgnoreCase))
+            {
+                if (legend != null || (legend = ParseLegend(line, sourceLine)) == null) return null;
+                inLegend = true;
+                continue;
             }
             if (line.Equals("hide time-axis", StringComparison.OrdinalIgnoreCase)) { showAxis = false; continue; }
             if (line[0] == '@')
@@ -122,15 +161,16 @@ internal static partial class TimingRenderer
             links.Add(new(message.Groups[1].Value, message.Groups[2].Value, now, end, message.Groups[4].Value, sourceLine));
             ticks.TryAdd(now, sourceLine); ticks.TryAdd(end, sourceLine);
         }
-        if (!closed || tracks.Count == 0) return null;
+        if (!closed || inLegend || tracks.Count == 0) return null;
         ticks.TryAdd(0, -1);
-        return Render(tracks, ticks, links, title, titleLine, showAxis);
+        return Render(tracks, ticks, links, title, titleLine, showAxis, legend);
     }
 
     private static string? Render(Dictionary<string, Track> tracks, SortedDictionary<double, int> ticks, List<Link> links,
-        string title, int titleLine, bool showAxis)
+        string title, int titleLine, bool showAxis, Legend? legend)
     {
-        int top = title.Length == 0 ? 12 : 42, height = top, gutter = 48;
+        int top = (title.Length == 0 ? 12 : 42) + (legend is { Above: true } ? legend.Height + 10 : 0);
+        int height = top, gutter = 48;
         double first = ticks.First().Key, last = ticks.Last().Key;
         if (last == first) last += tracks.Values.Where(t => t.Kind == "clock").Select(t => t.Period * 2).DefaultIfEmpty(1).Max();
         int plotWidth = Math.Max(300, Math.Min(16000, ticks.Count * 68));
@@ -151,16 +191,27 @@ internal static partial class TimingRenderer
             height += t.Height;
         }
         int width = Math.Max(gutter + plotWidth + 45, SvgText.Measure(title, 18) + 28);
-        if (width > 32768 || height > 32700) return null;
+        if (legend != null) width = Math.Max(width, legend.Width + 16);
         double X(double time) => gutter + (time - first) / (last - first) * plotWidth;
         var s = new StringBuilder(512 + ticks.Count * 70 + tracks.Count * 200);
         height += showAxis ? 34 : 12;
+        int axisY = height - (showAxis ? 31 : 10);
+        if (legend is { Above: false }) height += legend.Height + 10;
+        if (width > 32768 || height > 32768) return null;
         s.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\" font-family=\"sans-serif\">");
         if (titleLine >= 0)
         {
             Group(s, "title", titleLine); Text(s, width / 2, 25, title, "middle", 18); s.Append("</g>");
         }
-        int axisY = height - (showAxis ? 31 : 10);
+        if (legend != null)
+        {
+            int x = legend.Align switch { "left" => 8, "right" => width - legend.Width - 8, _ => (width - legend.Width) / 2 };
+            int y = legend.Above ? top - legend.Height - 10 : height - legend.Height - 8;
+            Group(s, "legend", legend.Line);
+            s.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x}\" y=\"{y}\" width=\"{legend.Width}\" height=\"{legend.Height}\" fill=\"#DDD\" stroke=\"#888\"/>");
+            foreach (var row in legend.Rows) { y += 17; Text(s, x + 8, y, row, size: 13); }
+            s.Append("</g>");
+        }
         foreach (var (time, row) in ticks)
         {
             double x = X(time);
