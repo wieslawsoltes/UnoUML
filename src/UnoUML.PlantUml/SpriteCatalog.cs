@@ -21,6 +21,8 @@ internal sealed partial class SpriteCatalog(Func<string, int, string?>? resolveR
     private static readonly ConditionalWeakTable<string, ImageAsset> Images = new();
     private readonly Dictionary<string, Definition> definitions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, RichText.Sprite?> decoded = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Path, int Line), RichText.Sprite?> imageResources = [];
+    private int imageResourceCharacters;
     private int instance;
 
     private sealed record Definition(string Body, int Line, int Width = 0, int Height = 0, int Levels = 16, bool Compressed = false, bool Pixels = false);
@@ -33,7 +35,7 @@ internal sealed partial class SpriteCatalog(Func<string, int, string?>? resolveR
         catalog = new(resolver);
         if (!declarations || !source.Contains("sprite", StringComparison.OrdinalIgnoreCase)) return true;
         char[]? mask = null;
-        string[] lines = source.Split('\n');
+        string[] lines = SourceLines.WithLineFeeds(source).Split('\n');
         int offset = 0;
         for (int line = 0; line < lines.Length; line++)
         {
@@ -107,6 +109,29 @@ internal sealed partial class SpriteCatalog(Func<string, int, string?>? resolveR
         var previous = Current.Value;
         Current.Value = this;
         return new Scope(previous, RichText.BeginSprites(Resolve));
+    }
+
+    internal static RichText.Sprite? ResolveImage(string path, int sourceLine)
+    {
+        if (path.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) return TryImage(path, out var embedded) ? embedded : null;
+        return Current.Value?.ResolveImageResource(path, sourceLine);
+    }
+
+    private RichText.Sprite? ResolveImageResource(string path, int sourceLine)
+    {
+        if (path.Length is 0 or > 65536) return null;
+        var key = (path, sourceLine);
+        if (imageResources.TryGetValue(key, out var cached)) return cached;
+        if (imageResources.Count >= 512) return null;
+        string? body = resolveResource?.Invoke(path, sourceLine)?.TrimStart('\uFEFF', ' ', '\t', '\r', '\n');
+        RichText.Sprite? image = null;
+        if (body is { Length: > 0 and <= MaximumAssetLength } && imageResourceCharacters + (long)body.Length <= 16_777_216)
+        {
+            imageResourceCharacters += body.Length;
+            image = body.StartsWith('<') ? DecodeSvg(body) : TryImage(body, out var raster) ? raster : null;
+        }
+        imageResources.Add(key, image);
+        return image;
     }
 
     private sealed class Scope(SpriteCatalog? previous, IDisposable richScope) : IDisposable

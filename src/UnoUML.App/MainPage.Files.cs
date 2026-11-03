@@ -81,6 +81,7 @@ public sealed partial class MainPage
     {
         changeTimer.Stop();
         ResetRenderer();
+        resourceHistory.Clear(); resourceCursor = 0;
         fitAfterRender = true; doc = new(source); fileName = name; additionalSelection.Clear(); selected = null; revision++; dirty = false; outlineLimit = 40;
         Refresh(); _ = RenderPageAsync();
     }
@@ -144,6 +145,7 @@ public sealed partial class MainPage
         MenuAction(menu, "Load include files…", () => _ = LoadIncludesAsync(false));
         MenuAction(menu, "Load include folder…", () => _ = LoadIncludesAsync(true));
         MenuAction(menu, "Load ZIP archive…", () => _ = LoadArchiveAsync());
+        MenuAction(menu, "Download imported archive…", () => _ = ExportArchiveAsync());
         MenuAction(menu, "Edit imported include…", () => _ = BrowseIncludesAsync());
         MenuAction(menu, "Rendering engine…", ShowRendererSettings);
         menu.ShowAt((FrameworkElement)LibraryActions.Children[0]);

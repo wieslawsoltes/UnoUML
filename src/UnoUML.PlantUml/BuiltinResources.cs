@@ -7,6 +7,8 @@ namespace UnoUML.PlantUml;
 internal static class BuiltinResources
 {
     private static readonly Lazy<JsonElement> Catalog = new(() => ReadCatalog("catalog.json.gz"));
+    private static readonly Lazy<FrozenDictionary<string, string>> NativeLibraries = new(() => ReadCatalog("libraries.json.gz")
+        .EnumerateObject().ToFrozenDictionary(property => property.Name, property => property.Value.GetString()!, StringComparer.Ordinal));
     private static readonly Lazy<Artwork> Icons = new(() =>
     {
         var document = ReadCatalog("artwork.json.gz");
@@ -51,8 +53,20 @@ internal static class BuiltinResources
 
     internal static string? Resolve(string path)
     {
-        if (!path.StartsWith("<theme/", StringComparison.Ordinal) || !path.EndsWith('>')) return null;
-        var name = path[7..^1];
-        return Themes.TryGetProperty(name, out var theme) ? theme.GetString() : null;
+        if (!path.EndsWith('>')) return null;
+        if (path.StartsWith("<theme/", StringComparison.Ordinal))
+        {
+            var name = path[7..^1];
+            return Themes.TryGetProperty(name, out var theme) ? theme.GetString() : null;
+        }
+        return NativeLibrary(path);
+    }
+
+    internal static string? NativeLibrary(string path)
+    {
+        if (!path.StartsWith("<c4/", StringComparison.Ordinal) && !path.StartsWith("<archimate/", StringComparison.Ordinal) || !path.EndsWith('>')) return null;
+        string key = path[1..^1];
+        if (key.EndsWith(".puml", StringComparison.Ordinal) || key.EndsWith(".iuml", StringComparison.Ordinal)) key = key[..key.LastIndexOf('.')];
+        return NativeLibraries.Value.GetValueOrDefault(key);
     }
 }

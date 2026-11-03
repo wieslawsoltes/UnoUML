@@ -128,6 +128,7 @@ export async function materializeResources(output, files, embeddedOutput) {
   const directory = new URL('resources/', output);
   await mkdir(directory, { recursive: true });
   const metadata = Object.create(null);
+  const nativeLibraries = Object.create(null);
   const property = '(?:\\.([\\w$]+)|\\["([^"\\\\]+)"\\])';
   const assignments = new RegExp('window\\.PLANTUML_(STDLIB|STDLIB_JSON)' + property + property + '=', 'g');
   const information = new RegExp('window\\.PLANTUML_STDLIB_INFO' + property + '=\\{', 'g');
@@ -144,6 +145,10 @@ export async function materializeResources(output, files, embeddedOutput) {
     for (const match of contents.matchAll(information))
       metadata[match[1] ?? match[2]] = literal(contents, match.index + match[0].length - 1).value;
     const name = filename.replace('.min.js', '');
+    if (name === 'c4' || name === 'archimate') {
+      for (const [key, value] of Object.entries(resources))
+        if (!key.includes('/_examples_/')) nativeLibraries[key] = value;
+    }
     count += Object.keys(resources).length;
     shards += await writeLibrary(directory, name, resources, metadata[name]?.link);
   }
@@ -165,6 +170,7 @@ export async function materializeResources(output, files, embeddedOutput) {
     await mkdir(embeddedOutput, { recursive: true });
     await writeFile(new URL('catalog.json.gz', embeddedOutput), gzipSync(JSON.stringify({ themes, libraries: metadata }), { level: 9 }));
     await writeFile(new URL('artwork.json.gz', embeddedOutput), gzipSync(JSON.stringify(await readArtwork(output, property)), { level: 9 }));
+    await writeFile(new URL('libraries.json.gz', embeddedOutput), gzipSync(JSON.stringify(nativeLibraries), { level: 9 }));
     await writeFile(new URL('PlantUML.LICENSE', embeddedOutput), await readFile(new URL('LICENSE', output)));
   }
   return { resources: count, themes: Object.keys(themes).length, libraries: Object.keys(metadata).length, shards };

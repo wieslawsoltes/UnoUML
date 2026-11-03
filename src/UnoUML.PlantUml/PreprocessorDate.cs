@@ -4,7 +4,7 @@ using System.Text;
 
 namespace UnoUML.PlantUml;
 
-internal static class PreprocessorDate
+internal static partial class PreprocessorDate
 {
     internal static string Format(DateTimeOffset instant, string? pattern, TimeZoneInfo zone, CultureInfo culture, string? zoneId = null)
     {
@@ -69,7 +69,7 @@ internal static class PreprocessorDate
                 case 'm': number = time.Minute; break;
                 case 's': number = time.Second; break;
                 case 'S': number = time.Millisecond; break;
-                case 'z': output.Append(ZoneName(time, zone, count >= 4, zoneId)); continue;
+                case 'z': output.Append(ZoneName(time, zone, count >= 4, zoneId, culture)); continue;
                 case 'Z': output.Append(Offset(time.Offset, false, false)); continue;
                 case 'X':
                     if (count > 3) throw new FormatException("Invalid ISO timezone pattern.");
@@ -121,7 +121,7 @@ internal static class PreprocessorDate
         return result;
     }
 
-    private static string ZoneName(DateTimeOffset time, TimeZoneInfo zone, bool full, string? zoneId)
+    private static string ZoneName(DateTimeOffset time, TimeZoneInfo zone, bool full, string? zoneId, CultureInfo? culture = null)
     {
         string identifier = zoneId ?? zone.Id;
         if (!ZoneNames.ContainsKey(identifier) && TimeZoneInfo.TryConvertWindowsIdToIanaId(identifier, out string? iana)) identifier = iana;
@@ -130,7 +130,10 @@ internal static class PreprocessorDate
         // summer time, so its display-name selection differs from CLR rules.
         if (identifier == "Africa/Windhoek") daylight = time.Offset == TimeSpan.FromHours(2);
         if (ZoneNames.TryGetValue(identifier, out var names))
+        {
+            if (culture != null) names = LocalizedNames(identifier, culture) ?? names;
             return full ? daylight ? names.DaylightFull : names.StandardFull : daylight ? names.Daylight : names.Standard;
+        }
         if (full) return daylight ? zone.DaylightName : zone.StandardName;
         return "GMT" + Offset(time.Offset, true, false);
     }

@@ -7,6 +7,27 @@ namespace UnoUML.PlantUml;
 internal sealed class StyleDocument(ManagedSkin skin, DiagramKind kind, string[] lines)
 {
     private static readonly HashSet<string> Metrics = new("fontsize padding margin maximumwidth minimumwidth width markersize barwidth".Split(' '), StringComparer.Ordinal);
+    private static readonly AsyncLocal<ManagedSkin?> Active = new();
+    private static readonly ManagedSkin Default = new();
+    internal static ManagedSkin Current => Active.Value ?? Default;
+
+    internal IDisposable Begin()
+    {
+        var previous = Active.Value;
+        Active.Value = skin;
+        return new Scope(previous);
+    }
+
+    private sealed class Scope(ManagedSkin? previous) : IDisposable
+    {
+        private bool disposed;
+        public void Dispose()
+        {
+            if (disposed) return;
+            Active.Value = previous;
+            disposed = true;
+        }
+    }
 
     internal static bool TryPrepare(string source, DiagramKind kind, out string cleaned, out StyleDocument document)
     {
@@ -44,7 +65,7 @@ internal sealed class StyleDocument(ManagedSkin skin, DiagramKind kind, string[]
         }
         if (block != null) return false;
         if (mask != null) cleaned = new(mask);
-        document = new(skin, kind, source.Split('\n'));
+        document = new(skin, kind, source.ReplaceLineEndings("\n").Split('\n'));
         return true;
     }
 
@@ -54,6 +75,7 @@ internal sealed class StyleDocument(ManagedSkin skin, DiagramKind kind, string[]
         var root = XElement.Parse(svg, LoadOptions.PreserveWhitespace);
         foreach (var group in root.Descendants().Where(e => e.Name.LocalName == "g"))
         {
+            if (group.AncestorsAndSelf().Any(e => (string?)e.Attribute("data-rich-paint") == "true")) continue;
             if (group.Attribute("data-style-name") != null) continue;
             string css = ((string?)group.Attribute("class") ?? "").ToLowerInvariant();
             string source = int.TryParse((string?)group.Attribute("data-source-line"), NumberStyles.None, CultureInfo.InvariantCulture, out int line) &&
@@ -68,6 +90,7 @@ internal sealed class StyleDocument(ManagedSkin skin, DiagramKind kind, string[]
         }
         foreach (var element in root.Descendants().Where(e => e.Name.LocalName is "text" or "path" or "line" or "polyline" or "polygon"))
         {
+            if (element.AncestorsAndSelf().Any(e => (string?)e.Attribute("data-rich-paint") == "true")) continue;
             if (element.Ancestors().Any(e => e.Attribute("data-style-name") != null)) continue;
             bool title = lines.Any(line => line.StartsWith("title ", StringComparison.OrdinalIgnoreCase) && line[6..].Trim() == element.Value);
             string name = element.Name.LocalName != "text" ? "arrow" : title ? "title" : kind switch
@@ -79,6 +102,7 @@ internal sealed class StyleDocument(ManagedSkin skin, DiagramKind kind, string[]
                 _ => "node"
             };
             element.SetAttributeValue("data-style-name", name);
+            if (name == "arrow" && element.Name.LocalName != "text") element.SetAttributeValue("data-style-metrics", "fontsize");
         }
         foreach (var scope in root.DescendantsAndSelf().Where(e => e.Attribute("data-style-name") != null))
         {
@@ -87,9 +111,10 @@ internal sealed class StyleDocument(ManagedSkin skin, DiagramKind kind, string[]
             // A painter must measure typography and spacing before it can accept these values.
             // Rejecting a matching rule keeps layout-sensitive input on the reference path.
             var style = skin.Query(name, stereotype);
-            if (style.Keys.Any(Metrics.Contains)) return null;
+            string[] measured = ((string?)scope.Attribute("data-style-metrics") ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (style.Keys.Any(property => Metrics.Contains(property) && !measured.Contains(property, StringComparer.Ordinal))) return null;
             // These painters do not expose the background used for each text run.
-            if (style.TryGetValue("fontcolor", out var font) && font.Text == "automatic") return null;
+            if (style.TryGetValue("fontcolor", out var font) && font.Text == "automatic" && measured.Length == 0) return null;
             if (kind == DiagramKind.Chart && name.Split(' ').Contains("scatter", StringComparer.Ordinal) &&
                 style.TryGetValue("markershape", out var marker) && marker.Text is not ("circle" or "square" or "triangle")) return null;
         }

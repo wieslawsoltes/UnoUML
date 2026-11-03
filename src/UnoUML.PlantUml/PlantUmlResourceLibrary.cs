@@ -10,7 +10,8 @@ public sealed class PlantUmlResourceLibrary
     private const int MaximumFileSize = 4_194_304;
     private const int MaximumArchiveSize = 67_108_864;
     private readonly FrozenDictionary<string, string> files;
-    private readonly FrozenDictionary<string, string?> standardFiles;
+    private readonly record struct StandardFile(string Path, string Text);
+    private readonly FrozenDictionary<string, StandardFile?> standardFiles;
 
     public PlantUmlResourceLibrary(IEnumerable<KeyValuePair<string, string>> files)
     {
@@ -25,10 +26,10 @@ public sealed class PlantUmlResourceLibrary
             if (!entries.TryAdd(Normalize(path), text)) throw new ArgumentException("Duplicate resource path.", nameof(files));
         }
         this.files = entries.ToFrozenDictionary(StringComparer.Ordinal);
-        var standard = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var standard = new Dictionary<string, StandardFile?>(StringComparer.OrdinalIgnoreCase);
         foreach (var (path, text) in entries)
         {
-            if (!standard.TryAdd(path, text) && standard[path] != text) standard[path] = null;
+            if (!standard.TryAdd(path, new(path, text)) && standard[path]?.Text != text) standard[path] = null;
         }
         standardFiles = standard.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
     }
@@ -40,11 +41,13 @@ public sealed class PlantUmlResourceLibrary
     {
         ArgumentNullException.ThrowIfNull(stream);
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+        if (archive.Entries.Count > 32768) throw new InvalidDataException("The resource archive exceeds its entry limit.");
         var entries = new List<KeyValuePair<string, string>>();
         long total = 0;
         foreach (var entry in archive.Entries)
         {
             if (entry.FullName.EndsWith('/')) continue;
+            string path = Normalize(entry.FullName);
             if (entry.Length > MaximumFileSize || (total += entry.Length) > MaximumArchiveSize || entries.Count >= 32768)
                 throw new InvalidDataException("The resource archive exceeds its size limit.");
             using var input = entry.Open();
@@ -68,34 +71,53 @@ public sealed class PlantUmlResourceLibrary
                 }
                 string uri = "data:" + mime + ";base64," + Convert.ToBase64String(bytes.ToArray());
                 if (!SpriteCatalog.TryImage(uri, out _)) throw new InvalidDataException("Invalid image resource.");
-                entries.Add(new(Normalize(entry.FullName), uri));
+                entries.Add(new(path, uri));
                 continue;
             }
             using var reader = new StreamReader(input, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true);
             var text = new StringBuilder();
             char[] buffer = new char[4096];
             int count;
-            while ((count = reader.Read(buffer, 0, buffer.Length)) > 0)
+            bool opaque = false;
+            try
             {
-                if (text.Length + count > MaximumFileSize) throw new InvalidDataException("The resource entry exceeds its size limit.");
-                text.Append(buffer, 0, count);
+                while ((count = reader.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    if (text.Length + count > MaximumFileSize) throw new InvalidDataException("The resource entry exceeds its size limit.");
+                    text.Append(buffer, 0, count);
+                }
             }
-            entries.Add(new(Normalize(entry.FullName), text.ToString()));
+            catch (DecoderFallbackException) when (!SourceExtension(path)) { opaque = true; }
+            if (opaque) continue;
+            string value = text.ToString();
+            if (!SourceExtension(path) && value.Any(c => char.IsControl(c) && c is not ('\t' or '\r' or '\n'))) continue;
+            entries.Add(new(path, value));
         }
         return new(entries);
     }
 
-    public string? Resolve(string path)
+    private static bool SourceExtension(string path) => Path.GetExtension(path).ToLowerInvariant() is
+        ".puml" or ".plantuml" or ".iuml" or ".uml" or ".pu" or ".inc" or ".txt" or ".iss" or
+        ".json" or ".yaml" or ".yml" or ".csv" or ".sprite" or ".svg";
+
+    public string? Resolve(string path) => Resolve(path, out _);
+
+    internal string? Resolve(string path, out string? member)
     {
         ArgumentNullException.ThrowIfNull(path);
+        member = null;
         if (path.Length == 0) return null;
         if (path[0] == '<' && path[^1] == '>')
         {
             var libraryPath = path[1..^1].ToLowerInvariant();
-            return standardFiles.GetValueOrDefault(libraryPath) ?? standardFiles.GetValueOrDefault(libraryPath + ".puml") ??
+            var file = standardFiles.GetValueOrDefault(libraryPath) ?? standardFiles.GetValueOrDefault(libraryPath + ".puml") ??
                 standardFiles.GetValueOrDefault(libraryPath + ".iuml");
+            member = file?.Path;
+            return file?.Text;
         }
-        return files.GetValueOrDefault(path);
+        if (!files.TryGetValue(path, out string? text)) return null;
+        member = path;
+        return text;
     }
 
     private static string Normalize(string path)

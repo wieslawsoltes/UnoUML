@@ -1135,8 +1135,19 @@ internal static class TimRuntimeCases
         const string importedSource = "@startuml\n!import widgets.zip\n!include widgets/model.iuml\n@enduml";
         Check(PlantUmlPreprocessor.TryProcess(importedSource, out var imported, importedOptions) &&
             imported.Source.Contains("class ArchiveCommon") && imported.Source.Contains("class Widget"), "archive import relative includes");
+        var importedLines = imported!.Source.Split('\n');
+        var widgetOrigin = imported.SourceMap[Array.IndexOf(importedLines, "class Widget")];
+        var commonOrigin = imported.SourceMap[Array.IndexOf(importedLines, "class ArchiveCommon")];
+        Check(widgetOrigin.File == "widgets/model.iuml" && widgetOrigin.Archive == "models/widgets.zip" &&
+            commonOrigin.File == "common.iuml" && commonOrigin.Archive == "models/widgets.zip", "archive member source identities");
+        Check(PlantUmlRenderer.TryRender(importedSource, out var archiveDiagram, importedOptions), "archive member rendering");
+        var widgetNode = XElement.Parse(archiveDiagram!.Svg).Descendants().Single(node => (string?)node.Attribute("data-qualified-name") == "Widget");
+        Check((string?)widgetNode.Attribute("data-source-file") == "widgets/model.iuml" &&
+            (string?)widgetNode.Attribute("data-source-archive") == "models/widgets.zip" && (int?)widgetNode.Attribute("data-file-line") == 1,
+            "archive member editable SVG provenance");
         Check(!PlantUmlPreprocessor.TryProcess("@startuml\n!include widgets/model.iuml\n@enduml", out _, importedOptions), "imports remain render-local");
         Parallel.For(0, 16, iteration => Check(PlantUmlPreprocessor.TryProcess(importedSource, out _, importedOptions), "concurrent immutable archive import"));
+        ArchiveStandardMembers();
 
         var diagnostics = new List<string>();
         Check(PlantUmlPreprocessor.TryProcess("@startuml\n!$x=3\n!log value $x\n!dump_memory state\nA -> B : done\n@enduml", out _, new() { Log = diagnostics.Add }), "diagnostic directives");
@@ -1157,6 +1168,58 @@ internal static class TimRuntimeCases
         Check(defined.SourceMap.Any(location => location is { File: "<definition/Named>", FileLine: 0, SourceLine: 1, Generated: true }), "definition source provenance");
         Check(!PlantUmlPreprocessor.TryProcess("!includedef Missing", out _, definedOptions), "missing source definition");
         Check(!PlantUmlPreprocessor.TryProcess("!includedef Cycle", out _, definedOptions), "recursive source definition bound");
+    }
+
+    private static void ArchiveStandardMembers()
+    {
+        var library = new PlantUmlResourceLibrary(new Dictionary<string, string>
+        {
+            ["Lib/Model.puml"] = "!include sibling\n!include external.iuml\nclass ArchiveAlias",
+            ["Lib/Sibling.iuml"] = "class ArchiveSibling",
+            ["Lib/Fragments.puml"] = "!startsub selected\nclass ArchiveSubpart\n!endsub",
+            ["Lib/puml-theme-zip.puml"] = "skinparam ArrowColor blue"
+        });
+        int imports = 0;
+        var requests = new List<string>();
+        var options = new PlantUmlRenderOptions
+        {
+            SourceFileName = "models/main.puml",
+            ImportLibrary = path => { imports++; return path == "models/aliases.zip" ? library : null; },
+            ResolveInclude = path => { requests.Add(path); return path == "<lib/external.iuml>" ? "class ExternalDependency" : null; }
+        };
+        const string source = "@startuml\n!import aliases.zip\n!include <lib/model>\n!includesub <lib/fragments>!selected\n!theme zip from <lib>\n@enduml";
+        Check(PlantUmlPreprocessor.TryProcess(source, out var result, options), "standard archive member aliases expand");
+        string[] lines = result!.Source.Split('\n');
+        foreach (var (text, file, line) in new[]
+        {
+            ("class ArchiveAlias", "Lib/Model.puml", 2),
+            ("class ArchiveSibling", "Lib/Sibling.iuml", 0),
+            ("class ArchiveSubpart", "Lib/Fragments.puml", 1),
+            ("skinparam ArrowColor blue", "Lib/puml-theme-zip.puml", 0)
+        })
+        {
+            var location = result.SourceMap[Array.IndexOf(lines, text)];
+            Check(location.File == file && location.FileLine == line && location.Archive == "models/aliases.zip" && library.Resolve(file) != null,
+                "archive aliases retain the exact physical member " + file);
+        }
+        var external = result.SourceMap[Array.IndexOf(lines, "class ExternalDependency")];
+        Check(external.File == "<lib/external.iuml>" && external.Archive == null && imports == 1 &&
+            requests.SequenceEqual(new[] { "<lib/external.iuml>" }), "physical provenance preserves logical include resolution and provider counts");
+        requests.Clear();
+        Check(PlantUmlRenderer.TryRender(source, out var rendered, options), "standard archive member aliases render");
+        var alias = XElement.Parse(rendered!.Svg).Descendants().Single(element => (string?)element.Attribute("data-qualified-name") == "ArchiveAlias");
+        Check((string?)alias.Attribute("data-source-file") == "Lib/Model.puml" && (string?)alias.Attribute("data-source-archive") == "models/aliases.zip" &&
+            (int?)alias.Attribute("data-file-line") == 2 && imports == 2 && requests.SequenceEqual(new[] { "<lib/external.iuml>" }),
+            "standard archive member SVG routes to the physical source with one provider execution");
+
+        var ambiguous = new PlantUmlResourceLibrary(new Dictionary<string, string>
+        {
+            ["lib/model.puml"] = "class Lower",
+            ["Lib/Model.puml"] = "class Upper",
+            ["lib/model.iuml"] = "class Fallback"
+        });
+        Check(ambiguous.Resolve("lib/model.puml") == "class Lower" && ambiguous.Resolve("Lib/Model.puml") == "class Upper" &&
+            ambiguous.Resolve("<lib/model>") == "class Fallback", "standard member metadata preserves case-collision fallback behavior");
     }
 
     private static void AssetResources()

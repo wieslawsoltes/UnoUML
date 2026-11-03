@@ -6,14 +6,18 @@ namespace UnoUML.PlantUml;
 internal sealed partial class Preprocessor
 {
     private sealed record Subpart(string[] Lines, int Begin, int End, string? File);
-    private readonly List<PlantUmlResourceLibrary> imports = [];
+    private sealed record ImportedLibrary(string Archive, PlantUmlResourceLibrary Library);
+    private readonly List<ImportedLibrary> imports = [];
     private readonly Dictionary<string, PlantUmlResourceLibrary?> assetArchives = new(StringComparer.Ordinal);
     private readonly Dictionary<string[], string?> resourceParents = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<string[], string?> resourceArchives = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<string[], string> resourceMembers = new(ReferenceEqualityComparer.Instance);
     private Value? currentTheme;
 
     private static bool IsDirectLibrary(string requested)
     {
         string name = requested.ToLowerInvariant();
+        if (name.EndsWith(".puml>", StringComparison.Ordinal)) name = name[..^6] + ">";
         return name is "<c4/c4>" or "<c4/c4_context>" or "<c4/c4_container>" or "<c4/c4_component>" or
             "<c4/c4_deployment>" or "<archimate/archimate>" or "<archimate/archimate.puml>";
     }
@@ -86,7 +90,7 @@ internal sealed partial class Preprocessor
         catch (InvalidDataException) { return null; }
     }
 
-    private (string Key, string? Text) ResolveRequest(string requested, string? parent)
+    private (string Key, string? Text, string? Archive, string? Member) ResolveRequest(string requested, string? parent)
     {
         string key = ResolvePath(requested, parent);
         string? archivePath = null;
@@ -97,10 +101,10 @@ internal sealed partial class Preprocessor
         }
         for (int i = imports.Count - 1; i >= 0; i--)
         {
-            if (imports[i].Resolve(key) is { } imported) return (key, imported);
-            if (archivePath != null && imports[i].Resolve(archivePath) is { } relative) return (archivePath, relative);
+            if (imports[i].Library.Resolve(key, out string? member) is { } imported) return (key, imported, imports[i].Archive, member);
+            if (archivePath != null && imports[i].Library.Resolve(archivePath, out member) is { } relative) return (archivePath, relative, imports[i].Archive, member);
         }
-        return (key, resolver?.Invoke(key));
+        return (key, ResolveSource(key), null, null);
     }
 
     private string[] ReadLines(string? body)
@@ -140,15 +144,18 @@ internal sealed partial class Preprocessor
         string? selector = null;
         int bang = requested.LastIndexOf('!');
         if (bang >= 0) { selector = requested[(bang + 1)..]; requested = requested[..bang]; if (selector.Length == 0) throw Unsupported(); }
-        var (key, body) = ResolveRequest(requested, parent);
+        var (key, body, archive, member) = ResolveRequest(requested, parent);
         string identity = key + (selector == null ? "" : "!" + selector);
         if (visiting.Contains(identity) || included.Count >= 512) throw Unsupported();
         if (!included.Add(identity) && mode != "!include_many") { if (mode == "!include_once") throw Unsupported(); return; }
         string[] lines = ReadLines(body);
+        resourceArchives.Add(lines, archive);
+        if (member != null) resourceMembers.Add(lines, member);
         var (begin, end) = DiagramRange(lines, selector);
         visiting.Add(identity);
+        bool suppressed = BeginLibrary(key, body, lines);
         try { Run(lines, begin, end, key, rootLine, locals, depth); }
-        finally { visiting.Remove(identity); }
+        finally { visiting.Remove(identity); if (suppressed) projectionSuppression--; }
     }
 
     private void IncludeSub(string requested, int rootLine, Dictionary<string, Value> locals, int depth)
@@ -161,9 +168,11 @@ internal sealed partial class Preprocessor
         }
         else
         {
-            var (path, body) = ResolveRequest(requested[..bang], CurrentFile);
+            var (path, body, archive, member) = ResolveRequest(requested[..bang], CurrentFile);
             string name = requested[(bang + 1)..].Trim();
             string[] lines = ReadLines(body);
+            resourceArchives.Add(lines, archive);
+            if (member != null) resourceMembers.Add(lines, member);
             selected = [];
             for (int i = 0; i < lines.Length; i++)
             {
@@ -182,7 +191,7 @@ internal sealed partial class Preprocessor
     {
         if (options?.ImportLibrary == null || imports.Count >= 128) throw Unsupported();
         string key = ResolvePath(requested, CurrentFile);
-        imports.Add(options.ImportLibrary(key) ?? throw Unsupported());
+        imports.Add(new(key, options.ImportLibrary(key) ?? throw Unsupported()));
     }
 
     private void IncludeDefinition(string name, int rootLine, Dictionary<string, Value> locals, int depth)
@@ -205,10 +214,12 @@ internal sealed partial class Preprocessor
             requested = location.StartsWith('<') && location.EndsWith('>') ?
                 location[..^1].TrimEnd('/') + "/puml-theme-" + name + ".puml>" : location.TrimEnd('/') + "/puml-theme-" + name + ".puml";
         }
-        var (key, body) = ResolveRequest(requested, CurrentFile);
-        if (body == null && from < 0) (key, body) = ResolveRequest("puml-theme-" + name + ".puml", CurrentFile);
+        var (key, body, archive, member) = ResolveRequest(requested, CurrentFile);
+        if (body == null && from < 0) (key, body, archive, member) = ResolveRequest("puml-theme-" + name + ".puml", CurrentFile);
         string[] lines = ReadLines(body);
         resourceParents.Add(lines, CurrentFile);
+        resourceArchives.Add(lines, archive);
+        if (member != null) resourceMembers.Add(lines, member);
         Value? themeMetadata = null;
         int begin = 0;
         if (lines.Length > 0 && lines[0] == "---")

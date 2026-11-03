@@ -202,6 +202,15 @@ export async function verifyPorts(page) {
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   assert.equal(await invoice.getAttribute('data-source-file'),'model.iuml');
   await invoice.locator('text').filter({hasText:'IncludedInvoice'}).first().dblclick();
+  await field.fill('Invoice record');
+  await field.press('Enter');
+  await paper.locator('[data-qualified-name="IncludedInvoice"] text').filter({hasText:/^Invoice record$/}).first().waitFor();
+  assert.equal(await source.inputValue(),input);
+  assert.equal(await page.evaluate(async () => (await import(new URL('uml/viewport.js',document.baseURI))).readInclude('model.iuml')), changedInclude);
+  await surface.press('Control+z');
+  await paper.locator('[data-qualified-name="IncludedInvoice"] text').filter({hasText:/^IncludedInvoice$/}).first().waitFor();
+  await invoice.locator('text').filter({hasText:'IncludedInvoice'}).first().click();
+  await page.getByText('Edit included source…',{exact:true}).click();
   assert.equal(await page.getByRole('textbox',{name:'Edit diagram label'}).count(),0);
   assert.equal(await source.inputValue(),input);
   await page.getByText('Edit imported include',{exact:true}).waitFor();
@@ -212,7 +221,8 @@ export async function verifyPorts(page) {
   await click('Apply');
   await paper.locator('[data-qualified-name="IncludedInvoice"] text').filter({hasText:/^Invoice record$/}).first().waitFor();
   assert.equal(await source.inputValue(),input);
-  await paper.locator('[data-qualified-name="IncludedInvoice"] text').filter({hasText:/^Invoice record$/}).first().dblclick();
+  await paper.locator('[data-qualified-name="IncludedInvoice"] text').filter({hasText:/^Invoice record$/}).first().click();
+  await page.getByText('Edit included source…',{exact:true}).click();
   assert.equal(await includeEditor.inputValue(),changedInclude.replaceAll('\r\n','\n'));
   const [includedFile] = await Promise.all([
     page.waitForEvent('download'),

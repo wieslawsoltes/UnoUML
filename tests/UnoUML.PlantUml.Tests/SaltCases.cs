@@ -26,7 +26,19 @@ internal static class SaltCases
         Require(Cell("Submit").Elements().Any(e => e.Attribute("rx") != null), "rounded button");
         Require(Cell("Plan").Elements().Any(e => e.Name.LocalName == "path"), "dropdown");
         Require((int?)Render("@startsalt\n{\n\"X        \"\n}\n@endsalt").Attribute("width") > (int?)Render("@startsalt\n{\n\"X\"\n}\n@endsalt").Attribute("width"), "text field padding");
-        foreach (var body in new[] { "{\n{\n[X]\n}\n}", "{T\n +Tree\n}", "{\n^Open^ option1^ option2^\n}", "{\nA | *\n}", "{\n!include secret.txt\n}", "{\n[[http://example.com]]\n}" })
+        var linked = Render("@startsalt\n{\n[[https://example.com Open]]\n}\n@endsalt");
+        Require(linked.Descendants().Any(e => e.Name.LocalName == "a" && (string?)e.Attribute("href") == "https://example.com"), "rich hyperlink label");
+        foreach (string newline in new[] { "\n", "\r\n", "\r" })
+        {
+            string source = "\uFEFF@startsalt" + newline + "{" + newline + "[Same] | [X] Same | \"Same     \" | ^Same^" + newline + "}" + newline + "@endsalt";
+            var cells = Render(source).Descendants().Where(e => e.Attribute("data-edit-start") != null).ToArray();
+            Require(cells.Length == 4 && cells.All(e => source.Substring((int)e.Attribute("data-edit-start")!, (int)e.Attribute("data-edit-length")!) == "Same"), "exact duplicate-label edit ranges and preserved field padding");
+        }
+        var styled = Render("@startsalt\n<style>\nsaltDiagram { button { FontSize 26; Padding 8; FontColor automatic; BackgroundColor #123456 } }\n</style>\n{\n[**Run** <math>x^2</math>] | <size:28>Account</size>\n}\n@endsalt");
+        Require(styled.Descendants().Any(e => e.Name.LocalName == "text" && (int?)e.Attribute("font-size") == 26) &&
+            (int)styled.Attribute("height")! > 50, "rich text and style metrics enlarge controls");
+        Require(styled.Descendants().Any(e => e.Attribute("data-sprite")?.Value == "$math/x^2"), "inline formula within Salt button");
+        foreach (var body in new[] { "{\n{\n[X]\n}\n}", "{T\n +Tree\n}", "{\n^Open^ option1^ option2^\n}", "{\nA | *\n}", "{\n!include secret.txt\n}" })
             Require(!PlantUmlRenderer.TryRender("@startsalt\n" + body + "\n@endsalt", out _), "unsupported syntax fallback");
     }
 

@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/UnoUML.Core/UnoUML.Core.csproj" />
+    <Compile Include="../../src/UnoUML.App/MainPage.ResourceHistory.cs" Link="App/MainPage.ResourceHistory.cs" />
   </ItemGroup>
 </Project>

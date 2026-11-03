@@ -39,10 +39,29 @@ internal static class ChartCases
         var second = Elements(mixed, "g").Where(x => (string?)x.Attribute("class") == "series bar").Skip(1).First().Elements().First();
         Require((double?)first.Attribute("width") == 80 && (double?)first.Attribute("height") == 112.5, "negative grouped bar");
         Require((double?)first.Attribute("x") + (double?)first.Attribute("width") == (double?)second.Attribute("x"), "group adjacency");
-        Require(Elements(mixed, "circle").Count(e => e.Attribute("data-point-index") != null) == 2 && Elements(mixed, "polyline").Count() == 1 && Elements(mixed, "polygon").Count() == 1, "mixed series");
+        Require(Elements(mixed, "circle").Count(e => e.Attribute("data-point-index") != null && e.Attribute("data-chart-marker") != null) == 2 && Elements(mixed, "polyline").Count() == 1 && Elements(mixed, "polygon").Count() == 1, "mixed series");
+        Require(Elements(mixed, "circle").Count(e => (string?)e.Attribute("fill") == "transparent" && e.Attribute("data-edit-start") != null) == 4, "line and area point editing targets");
         foreach (string directive in new[] { "v2-axis 0 --> 20", "orientation horizontal", "bar \"x\" [NaN,2]", "line \"x\" [2,3,4]", "stack bar \"x\" [1,2]", "legend nowhere" })
             Require(!PlantUmlRenderer.TryRender("@startchart\nh-axis [a,b]\nv-axis 0 --> 10\nbar [2,4]\n" + directive + "\n@endchart", out _), "compatibility path: " + directive);
         Require(!PlantUmlRenderer.TryRender("@startchart\nh-axis [a]\nv-axis 0 --> 1 spacing 0.000001\nbar [0]\n@endchart", out _), "bounded tick count");
+        const string fields = "\ufeff@startchart\r\n  title Results\r\n  h-axis \"Week\" [A, A]\r\n  v-axis \"Count\" 0 --> 100\r\n  bar \"Closed\" [20, 20] #112233\r\n  legend right\r\n@endchart";
+        var editable = Render(fields);
+        var categories = Elements(editable, "text").Where(e => (string?)e.Attribute("data-edit-kind") == "chart-category").ToArray();
+        Require(categories.Length == 2 && (int?)categories[0].Attribute("data-edit-start") != (int?)categories[1].Attribute("data-edit-start"), "repeated categories have independent source spans");
+        foreach (var element in editable.Descendants().Where(e => e.Attribute("data-edit-start") != null))
+        {
+            int start = (int)element.Attribute("data-edit-start")!, length = (int)element.Attribute("data-edit-length")!;
+            string token = fields.Substring(start, length);
+            string expected = element.Name.LocalName == "rect" ? "20" : element.Value;
+            if ((string?)element.Attribute("data-edit-kind") == "quoted") expected = "\"" + expected + "\"";
+            Require(token == expected, "caption and numeric spans retain BOM and CRLF offsets");
+        }
+        const string packet = "\ufeff@startpacketdiag\r\n{\r\n  0-7: Same\r\n  8-15: Same\r\n}\r\n@endpacketdiag";
+        Require(PlantUmlRenderer.TryRender(packet, out var packetResult), "packet literal fixture renders");
+        var packetFields = XElement.Parse(packetResult!.Svg).Descendants().Where(e => (string?)e.Attribute("data-edit-kind") == "packet-label").ToArray();
+        Require(packetFields.Length == 2 && (int?)packetFields[0].Attribute("data-edit-start") != (int?)packetFields[1].Attribute("data-edit-start"), "packet repeated label spans");
+        foreach (var field in packetFields)
+            Require(packet.Substring((int)field.Attribute("data-edit-start")!, (int)field.Attribute("data-edit-length")!) == "Same", "packet exact label token preserves bit ranges");
     }
 
     private static XElement Render(string text)

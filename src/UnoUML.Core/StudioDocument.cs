@@ -3,17 +3,20 @@ namespace UnoUML.Core;
 /// <summary>Owns the verbatim PlantUML text. The index is a projection, never a serializer.</summary>
 public sealed partial class StudioDocument
 {
-    private sealed record Edit(int At, string Before, string After, int Page);
+    private sealed record Edit(int At, string Before, string After, int Page, long State = 0);
     private const int HistoryLimit = 200;
     private const int CharacterBudget = 4 * 1024 * 1024;
     private readonly List<Edit> _history = [];
     private int _cursor, _storedChars, _activePage;
     private long _lastTypingTick;
+    private long _historySequence, _baseHistoryState;
     private DiagramIndex? _index;
     private DiagramIndex Index => _index ??= new(Source);
     public string Source { get; private set; }
     public bool CanUndo => _cursor > 0;
     public bool CanRedo => _cursor < _history.Count;
+    public long HistoryState => _cursor == 0 ? _baseHistoryState : _history[_cursor - 1].State;
+    public bool CanReachHistoryState(long state) => state == _baseHistoryState || _history.Any(edit => edit.State == state);
     public IReadOnlyList<DiagramPage> Pages => Index.Pages;
     public int ActivePage
     {
@@ -29,7 +32,8 @@ public sealed partial class StudioDocument
     {
         var copy = new StudioDocument(Source)
         {
-            _cursor = _cursor, _storedChars = _storedChars, _activePage = _activePage
+            _cursor = _cursor, _storedChars = _storedChars, _activePage = _activePage,
+            _historySequence = _historySequence, _baseHistoryState = _baseHistoryState
         };
         copy._history.AddRange(_history);
         return copy;
@@ -56,13 +60,14 @@ public sealed partial class StudioDocument
 
     private void Record(Edit edit, string next, bool typing)
     {
+        edit = edit with { State = ++_historySequence };
         for (int i = _history.Count - 1; i >= _cursor; i--) Drop(i);
         long now = Environment.TickCount64;
         bool key = typing && edit.Before.Length == 0 && edit.After.Length == 1 && edit.After[0] != '\n';
         if (key && _lastTypingTick != 0 && now - _lastTypingTick < 700 && _cursor > 0 &&
             _history[_cursor - 1] is { Before.Length: 0 } prev && prev.Page == edit.Page && prev.At + prev.After.Length == edit.At)
         {
-            _history[_cursor - 1] = prev with { After = prev.After + edit.After };
+            _history[_cursor - 1] = prev with { After = prev.After + edit.After, State = edit.State };
             _storedChars++;
         }
         else
@@ -71,7 +76,11 @@ public sealed partial class StudioDocument
             _cursor++;
             _storedChars += edit.Before.Length + edit.After.Length;
         }
-        while (_history.Count > 1 && (_history.Count > HistoryLimit || _storedChars > CharacterBudget)) { Drop(0); _cursor--; }
+        while (_history.Count > 1 && (_history.Count > HistoryLimit || _storedChars > CharacterBudget))
+        {
+            _baseHistoryState = _history[0].State;
+            Drop(0); _cursor--;
+        }
         _lastTypingTick = key ? now : 0;
         Source = next;
         _index = null;
@@ -98,6 +107,13 @@ public sealed partial class StudioDocument
         var edit = _history[_cursor++];
         Restore(edit, edit.Before, edit.After);
         return true;
+    }
+
+    /// <summary>Starts a new host transaction while retaining the current undo history.</summary>
+    public void DiscardRedo()
+    {
+        for (int i = _history.Count - 1; i >= _cursor; i--) Drop(i);
+        _lastTypingTick = 0;
     }
 
     private void Restore(Edit edit, string old, string next)
@@ -182,6 +198,14 @@ public sealed partial class StudioDocument
             expanded = expanded.Replace("{id}", id, StringComparison.Ordinal);
         }
         if (Page.Family == "Ditaa") return Insert(Index.NewLine + expanded); // separate grids by an empty row
+        if (Page.Family == "DOT" && tool.Group == "Topology")
+        {
+            int close = DotRootClose();
+            if (close < 0) return false;
+            bool directed = DotSymbols(Page.Source, 0, close).FirstOrDefault(token => token.Text is "graph" or "digraph").Text == "digraph";
+            if (!directed) expanded = expanded.Replace(" -> ", " -- ", StringComparison.Ordinal);
+            return PatchDot(close, 0, Index.NewLine + "  " + expanded + Index.NewLine);
+        }
         if (tool.Group is "Topology" or "Wireframe" or "Network")
         {
             // These languages require children inside the outer graph/table container.

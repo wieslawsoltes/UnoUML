@@ -289,7 +289,7 @@ internal static class AdvancedStyleCases
         Check(sequence.Descendants(Ns + "text").Where(t => t.Value == "A").All(t => (string?)t.Attribute("fill") == "#ffffff"), "automatic participant text on both sequence headers");
         var tree = Render("@startmindmap\n<style>\nnode { FontColor automatic }\n</style>\n*[#black] Root\n**[#white] Child\n@endmindmap", DiagramKind.MindMap);
         Check((string?)Text(tree, "Root").Attribute("fill") == "#ffffff" && (string?)Text(tree, "Child").Attribute("fill") == "#000000", "automatic tree text uses each node fill");
-        Check(!PlantUmlRenderer.TryRender("@startuml\n<style>\nactivity { FontColor automatic }\n</style>\nstart\n:Work;\nstop\n@enduml", out _), "automatic text delegates when painter background metadata is incomplete");
+        Check(PlantUmlRenderer.TryRender("@startuml\n<style>\nactivity { FontColor automatic }\n</style>\nstart\n:Work;\nstop\n@enduml", out var automaticActivity) && automaticActivity.Svg.Contains("#000000", StringComparison.Ordinal), "automatic activity text uses measured shape background");
 
         string Chart(string shape, string extra = "") => "@startchart\n<style>\nscatter { MarkerShape " + shape + "; MarkerColor red; " + extra + " }\n</style>\nh-axis [a,b]\nv-axis 0 --> 10\nscatter \"Measured\" [2,4] #00aa00\nlegend bottom\n@endchart";
         foreach (var (shape, element) in new[] { ("circle", "circle"), ("square", "rect"), ("triangle", "polygon") })

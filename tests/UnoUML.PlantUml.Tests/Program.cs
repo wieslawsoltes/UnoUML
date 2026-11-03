@@ -35,8 +35,10 @@ MathCases.Run();
 ChenCases.Run();
 DitaaCases.Run();
 JsonTokenCases.Run();
+DataStyleCases.Run();
 SequenceCases.Run();
 GraphCases.Run();
+DotCases.Run();
 StateCases.Run();
 ActivityCases.Run();
 ChartCases.Run();
@@ -68,7 +70,8 @@ foreach (var (kind, tag) in new[] { (DiagramKind.MindMap,"mindmap"), (DiagramKin
 }
 var dot = Render("@startdot\ndigraph Test {rankdir=LR; A -> B -> C [label=\"data\"]; B [shape=box,label=\"Middle\"]; }\n@enddot", DiagramKind.Dot);
 if (!dot.Value.Contains("Middle") || dot.Descendants(ns+"g").Count(e => (string?)e.Attribute("class") == "link") != 2) throw new Exception("DOT lost a chained edge or an explicit label.");
-Reject("@startdot\ndigraph { a -> b [color=red] }\n@enddot");
+var coloredDot = Render("@startdot\ndigraph { a -> b [color=red] }\n@enddot", DiagramKind.Dot);
+if (!coloredDot.Descendants().Attributes("stroke").Any(a => a.Value is "red" or "#ff0000")) throw new Exception("DOT edge color missing.");
 var creole = Render("@startcreole\n= Notes\n* **One** and //two//\n@endcreole", DiagramKind.Creole);
 if (!creole.Descendants(ns+"tspan").Any(x => (string?)x.Attribute("font-style") == "italic" && x.Value == "two")) throw new Exception("Creole did not preserve inline formatting.");
 var coloredCreole = Render("@startcreole\n<color:red>Advanced</color>\n@endcreole", DiagramKind.Creole);

@@ -37,6 +37,17 @@ public sealed partial class MainPage
             Status("Double-click to edit this JSON field or use Source to change its structure.");
             return;
         }
+        if (FieldSelection is { } literal && !(literal.Kind == "activity-label" && selected?.Kind == "Activity"))
+        {
+            Status("Double-click to edit this field on the canvas.");
+            return;
+        }
+        if (DotSelection is { } dot)
+        {
+            if (action is "delete" or "cut") Edit(() => doc.RemoveDotEdge(dot), "Select a single literal DOT edge to delete it.");
+            else Status("Use the DOT toolbox and node connection handle to add graph objects.");
+            return;
+        }
         var items = SelectionItems();
         switch (action)
         {

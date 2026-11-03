@@ -1,4 +1,5 @@
 using System.Text.Json;
+using UnoUML.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Uno.UI.NativeElementHosting;
@@ -6,8 +7,9 @@ using Uno.UI.NativeElementHosting;
 namespace UnoUML.App.Rendering;
 
 public sealed record JsonHit(int Start, int Length, string Kind);
+public sealed record SourceFieldHit(int Start, int Length, string Kind, string Role);
 public sealed record DiagramHit(string Kind, string Id, int Line, string Label, bool Participant = false, JsonHit? Token = null, bool Generated = false,
-    string? SourceFile = null, int FileLine = -1);
+    string? SourceFile = null, int FileLine = -1, string? SourceArchive = null, SourceFieldHit? Field = null, DotSourceLocation? Dot = null);
 public sealed record DiagramGesture(string Kind, DiagramHit From, DiagramHit To, string Direction = "");
 
 public sealed partial class DiagramViewport : ContentControl
@@ -140,5 +142,27 @@ public sealed partial class DiagramViewport : ContentControl
             el.TryGetProperty("token", out var t) ? new JsonHit(t.GetProperty("start").GetInt32(), t.GetProperty("length").GetInt32(), t.GetProperty("kind").GetString()!) : null,
             el.TryGetProperty("generated", out var generated) && generated.GetBoolean(),
             el.TryGetProperty("sourceFile", out var file) ? file.GetString() : null,
-            el.TryGetProperty("fileLine", out var line) && line.TryGetInt32(out int fileLine) ? fileLine : -1);
+            el.TryGetProperty("fileLine", out var line) && line.TryGetInt32(out int fileLine) ? fileLine : -1,
+            el.TryGetProperty("sourceArchive", out var archive) ? archive.GetString() : null,
+            el.TryGetProperty("field", out var field) ? new SourceFieldHit(field.GetProperty("start").GetInt32(), field.GetProperty("length").GetInt32(),
+                field.GetProperty("kind").GetString()!, field.GetProperty("role").GetString()!) : null,
+            el.TryGetProperty("dot", out var dot) ? ReadDot(dot) : null);
+
+    private static DotSourceLocation ReadDot(JsonElement value)
+    {
+        string Text(string name) => value.TryGetProperty(name, out var property) ? property.GetString() ?? "" : "";
+        int Number(string name) => value.TryGetProperty(name, out var property) && property.TryGetInt32(out int number) ? number : -1;
+        return new()
+        {
+            Id = Text("id"), Kind = Text("kind"), Name = Text("name"), Text = Text("text"), Format = Text("format"),
+            Start = Number("start"), Length = Number("length"), NameStart = Number("nameStart"), NameLength = Number("nameLength"),
+            LabelStart = Number("labelStart"), LabelLength = Number("labelLength"), LabelInsert = Number("labelInsert"), LabelKind = Text("labelKind"),
+            Explicit = value.TryGetProperty("explicit", out var declared) && declared.GetBoolean(),
+            Directed = value.TryGetProperty("directed", out var directed) && directed.GetBoolean(),
+            Merged = value.TryGetProperty("merged", out var merged) && merged.GetBoolean(),
+            FromStart = Number("fromStart"), FromLength = Number("fromLength"), FromId = Text("fromId"),
+            ToStart = Number("toStart"), ToLength = Number("toLength"), ToId = Text("toId"),
+            ArrowStart = Number("arrowStart"), ArrowLength = Number("arrowLength")
+        };
+    }
 }

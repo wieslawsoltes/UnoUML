@@ -7,18 +7,27 @@ namespace UnoUML.PlantUml;
 internal static class SaltRenderer
 {
     private enum Widget { Label, Input, Button, Radio, Check, Choice, Space }
-    private sealed record Cell(Widget Type, string Text, bool Checked, int Width, int Height, int Offset);
+    private sealed record Cell(Widget Type, string Text, bool Checked, int Width, int Height, int Offset)
+    {
+        internal StyleLabel Label = null!;
+        internal int Start, Length;
+        internal string Category => "salt-widget salt-" + Type.ToString().ToLowerInvariant() + " " + Type.ToString().ToLowerInvariant();
+    }
     private sealed record Row(List<Cell> Cells, int Height, int Line);
 
     internal static string? TryRender(string source)
     {
         var rows = new List<Row>();
         var widths = new List<int>();
-        int phase = 0, index = -1, total = 0;
+        int phase = 0, index = -1, total = 0, nextOffset = 0;
         char grid = ' ';
         foreach (var raw in source.AsSpan().EnumerateLines())
         {
             index++;
+            int lineOffset = nextOffset;
+            nextOffset += raw.Length;
+            if (nextOffset < source.Length && source[nextOffset] == '\r') nextOffset++;
+            if (nextOffset < source.Length && source[nextOffset] == '\n') nextOffset++;
             var line = raw.Trim();
             if (line.IsEmpty || line[0] == '\'') continue;
             if (phase == 0) { if (!line.SequenceEqual("@startsalt")) return null; phase++; continue; }
@@ -31,7 +40,7 @@ internal static class SaltRenderer
             if (phase == 3) { if (!line.SequenceEqual("@endsalt")) return null; phase++; continue; }
             if (phase != 2) return null;
             if (line.SequenceEqual("}")) { phase++; continue; }
-            if (line.StartsWith("!") || line.StartsWith("@") || line.IndexOfAny('{','}') >= 0 || line.Length > 8192 || rows.Count >= 1024) return null;
+            if (line.StartsWith("!") || line.StartsWith("@") || line[0] is '{' or '}' || line.Length > 8192 || rows.Count >= 1024) return null;
             foreach (string command in Reserved)
                 if (line.StartsWith(command, StringComparison.OrdinalIgnoreCase)) return null;
             var cells = new List<Cell>();
@@ -42,7 +51,7 @@ internal static class SaltRenderer
                 var value = original.Trim();
                 if (cells.Count >= 128 || ++total > 8192) return null;
                 int offset = part.Start.GetOffset(raw.Length) + original.Length - original.TrimStart().Length;
-                if (Parse(value.ToString(), offset) is not {} cell) return null;
+                if (Parse(value.ToString(), offset, lineOffset) is not {} cell) return null;
                 if (widths.Count == cells.Count) widths.Add(cell.Width);
                 else widths[cells.Count] = Math.Max(widths[cells.Count], cell.Width);
                 cells.Add(cell);
@@ -64,7 +73,9 @@ internal static class SaltRenderer
                 var cell = row.Cells[i];
                 if (cell.Type != Widget.Space)
                 {
-                    s.Append(CultureInfo.InvariantCulture, $"<g class=\"salt-widget salt-{cell.Type.ToString().ToLowerInvariant()}\" data-source-line=\"{row.Line}\" data-source-column=\"{cell.Offset}\" data-column-index=\"{i}\">");
+                    s.Append(CultureInfo.InvariantCulture, $"<g class=\"salt-widget salt-{cell.Type.ToString().ToLowerInvariant()}\" data-source-line=\"{row.Line}\" data-source-column=\"{cell.Offset}\" data-column-index=\"{i}\" data-edit-start=\"{cell.Start}\" data-edit-length=\"{cell.Length}\" data-edit-kind=\"salt-text\" data-edit-role=\"label\"");
+                    StyleLabel.Scope(s, cell.Category);
+                    s.Append('>');
                     Draw(s, cell, x, y + (row.Height - cell.Height) / 2);
                     s.Append("</g>");
                 }
@@ -85,32 +96,44 @@ internal static class SaltRenderer
 
     private static readonly string[] Reserved = ["title ", "header ", "footer ", "caption ", "legend", "skinparam", "sprite ", "scale ", "hide ", "show "];
 
-    private static Cell? Parse(string token, int offset)
+    private static Cell? Parse(string token, int offset, int lineOffset)
     {
         if (token is "" or ".") return new(Widget.Space, "", false, 4, 16, offset);
         string text = token;
+        int textOffset = 0;
         Widget kind;
         bool active = false;
         if (Mark("[]") || Mark("[X]") || Mark("()") || Mark("(X)"))
         {
             kind = token[0] == '(' ? Widget.Radio : Widget.Check;
             active = token.Length > 2 && char.ToUpperInvariant(token[1]) == 'X';
-            text = token[(active ? 3 : 2)..].TrimStart();
+            textOffset = active ? 3 : 2;
+            while (textOffset < token.Length && char.IsWhiteSpace(token[textOffset])) textOffset++;
+            text = token[textOffset..];
         }
-        else if (token.Length > 1 && token[0] == '[' && token[^1] == ']') { kind = Widget.Button; text = token[1..^1]; }
-        else if (token.Length > 1 && token[0] == '"' && token[^1] == '"') { kind = Widget.Input; text = token[1..^1]; }
-        else if (token.Length > 1 && token[0] == '^' && token[^1] == '^') { kind = Widget.Choice; text = token[1..^1]; }
+        else if (token.Length > 1 && token[0] == '[' && token[^1] == ']' && !token.StartsWith("[[", StringComparison.Ordinal)) { kind = Widget.Button; text = token[1..^1]; textOffset = 1; }
+        else if (token.Length > 1 && token[0] == '"' && token[^1] == '"') { kind = Widget.Input; text = token[1..^1]; textOffset = 1; }
+        else if (token.Length > 1 && token[0] == '^' && token[^1] == '^') { kind = Widget.Choice; text = token[1..^1]; textOffset = 1; }
         else kind = Widget.Label;
-        if (text.Length > 1024 || (text.AsSpan().IndexOfAny("[]^\"{}") >= 0) || (!SvgText.IsPlain(text) && !(kind == Widget.Input && text.All(c => c == '*')))) return null;
-        if (kind == Widget.Label && (text == "*" || text[0] is '(' or '/' or '~' || text.StartsWith("..") || text.StartsWith("==") || text.StartsWith("--"))) return null;
+        if (text.Length > 4096 || !SvgText.IsSupported(text) && !(kind == Widget.Input && text.All(c => c == '*'))) return null;
+        if (kind == Widget.Label && (text == "*" || text[0] is '(' or '{' or '}' || text.StartsWith("..") || text.StartsWith("=="))) return null;
+        if (kind == Widget.Choice && text.Contains('^') || kind == Widget.Input && text.Contains('"') || kind == Widget.Button && text.Contains('[')) return null;
+        string display = text.TrimEnd();
+        if (kind == Widget.Input && text.All(c => c == '*')) display = string.Concat(Enumerable.Repeat("<U+002A>", text.Length));
+        string category = "salt-widget salt-" + kind.ToString().ToLowerInvariant() + " " + kind.ToString().ToLowerInvariant();
+        var label = StyleLabel.Measure(display, category, 12);
         int width = kind switch
         {
-            Widget.Button or Widget.Input => Math.Max(text.Length * 8, SvgText.Measure(text, 12)) + 11,
-            Widget.Radio or Widget.Check or Widget.Choice => SvgText.Measure(text, 12) + 24,
-            _ => SvgText.Measure(text, 12) + 6
+            Widget.Button or Widget.Input => Math.Max(text.Length * label.Size * 2 / 3, label.Width) + 11,
+            Widget.Radio or Widget.Check or Widget.Choice => label.Width + 24,
+            _ => label.Width + 6
         };
-        int height = kind switch { Widget.Button => 25, Widget.Input or Widget.Choice => 19, _ => 16 };
-        return new(kind, text, active, width, height, offset);
+        int height = Math.Max(kind switch { Widget.Button => 25, Widget.Input or Widget.Choice => 19, _ => 16 },
+            label.Height + (kind == Widget.Button ? 10 : 4));
+        return new(kind, text, active, width, height, offset)
+        {
+            Label = label, Start = lineOffset + offset + textOffset, Length = text.TrimEnd().Length
+        };
 
         bool Mark(string marker) => token.StartsWith(marker, StringComparison.OrdinalIgnoreCase) &&
                                     (token.Length == marker.Length || char.IsWhiteSpace(token[marker.Length]));
@@ -118,38 +141,34 @@ internal static class SaltRenderer
 
     private static void Draw(StringBuilder s, Cell c, int x, int y)
     {
-        int labelX = x + 1, baseline = y + 12;
+        int labelX = x + 1, labelWidth = c.Width - 2;
+        int center = y + c.Height / 2;
         switch (c.Type)
         {
             case Widget.Input:
-                Rule(s, x + 1, y + 15, x + c.Width - 4, y + 15);
-                Rule(s, x + 1, y + 12, x + 1, y + 15);
-                Rule(s, x + c.Width - 4, y + 12, x + c.Width - 4, y + 15);
-                labelX = x + 3; break;
+                Rule(s, x + 1, y + c.Height - 3, x + c.Width - 4, y + c.Height - 3);
+                Rule(s, x + 1, y + c.Height - 6, x + 1, y + c.Height - 3);
+                Rule(s, x + c.Width - 4, y + c.Height - 6, x + c.Width - 4, y + c.Height - 3);
+                labelX = x + 3; labelWidth = c.Width - 7; break;
             case Widget.Button:
-                s.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x+3}\" y=\"{y+3}\" width=\"{c.Width-7}\" height=\"18\" rx=\"5\" ry=\"5\" stroke=\"#000\" stroke-width=\"2.5\" fill=\"#EEE\"/>");
-                labelX = x + c.Width / 2; baseline = y + 16; break;
+                s.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x + 3}\" y=\"{y + 3}\" width=\"{c.Width - 7}\" height=\"{c.Height - 7}\" rx=\"5\" ry=\"5\" stroke=\"#000\" stroke-width=\"2.5\" fill=\"#EEE\"/>");
+                labelX = x + 4; labelWidth = c.Width - 9; break;
             case Widget.Check:
-                s.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x+3}\" y=\"{y+3}\" width=\"10\" height=\"10\" stroke=\"#000\" fill=\"none\"/>");
-                if (c.Checked) s.Append(CultureInfo.InvariantCulture, $"<path d=\"M{x+4} {y+7}l3 4 7-10-7 7z\"/>");
-                labelX = x + 20; break;
+                s.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x + 3}\" y=\"{center - 5}\" width=\"10\" height=\"10\" stroke=\"#000\" fill=\"none\"/>");
+                if (c.Checked) s.Append(CultureInfo.InvariantCulture, $"<path d=\"M{x + 4} {center - 1}l3 4 7-10-7 7z\"/>");
+                labelX = x + 20; labelWidth = c.Width - 22; break;
             case Widget.Radio:
-                s.Append(CultureInfo.InvariantCulture, $"<circle cx=\"{x+8}\" cy=\"{y+8}\" r=\"5\" stroke=\"#000\" stroke-width=\"1.5\" fill=\"none\"/>");
-                if (c.Checked) s.Append(CultureInfo.InvariantCulture, $"<circle cx=\"{x+8}\" cy=\"{y+8}\" r=\"2.5\"/>");
-                labelX = x + 20; break;
+                s.Append(CultureInfo.InvariantCulture, $"<circle cx=\"{x + 8}\" cy=\"{center}\" r=\"5\" stroke=\"#000\" stroke-width=\"1.5\" fill=\"none\"/>");
+                if (c.Checked) s.Append(CultureInfo.InvariantCulture, $"<circle cx=\"{x + 8}\" cy=\"{center}\" r=\"2.5\"/>");
+                labelX = x + 20; labelWidth = c.Width - 22; break;
             case Widget.Choice:
-                s.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x+1}\" y=\"{y+1}\" width=\"{c.Width-4}\" height=\"17\" fill=\"#EEE\" stroke=\"#000\"/>");
+                s.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x + 1}\" y=\"{y + 1}\" width=\"{c.Width - 4}\" height=\"{c.Height - 3}\" fill=\"#EEE\" stroke=\"#000\"/>");
                 int arrow = x + c.Width - 14;
-                Rule(s, arrow, y + 1, arrow, y + 18);
-                s.Append(CultureInfo.InvariantCulture, $"<path d=\"M{arrow+2} {y+7}h7l-3.5 6z\"/>");
-                labelX = x + 3; baseline = y + 14; break;
+                Rule(s, arrow, y + 1, arrow, y + c.Height - 2);
+                s.Append(CultureInfo.InvariantCulture, $"<path d=\"M{arrow + 2} {center - 3}h7l-3.5 6z\"/>");
+                labelX = x + 3; labelWidth = c.Width - 20; break;
         }
-        if (c.Text.Length > 0)
-        {
-            s.Append(CultureInfo.InvariantCulture, $"<text x=\"{labelX}\" y=\"{baseline}\" xml:space=\"preserve\"");
-            if (c.Type == Widget.Button) s.Append(" text-anchor=\"middle\"");
-            s.Append('>').Append(SvgText.Escape(c.Text.TrimEnd())).Append("</text>");
-        }
+        if (c.Text.Length > 0) c.Label.Append(s, labelX, y + (c.Height - c.Label.Height) / 2, labelWidth, c.Type == Widget.Button ? "center" : null);
     }
 
     private static void Rule(StringBuilder s, int x1, int y1, int x2, int y2) =>

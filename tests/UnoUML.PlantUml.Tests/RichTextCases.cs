@@ -18,6 +18,15 @@ internal static class RichTextCases
         Check(longPlain.Descendants(Ns + "text").Single().Value == limit, "maximum plain label length");
         Check(!PlantUmlRenderer.TryRender("@startcreole\n" + limit + "A\n@endcreole", out _), "oversized plain label declines");
 
+        var mixed = Render("@startcreole\n**Send** request\n**Native** //layout// with text\n@endcreole", DiagramKind.Creole);
+        var mixedRows = mixed.Descendants(Ns + "text").ToArray();
+        Check(mixedRows.Select(row => row.Value).SequenceEqual(new[] { "Send request", "Native layout with text" }),
+            "mixed styled words preserve separating spaces");
+        Check(mixedRows.All(row => (string?)row.Attribute(XNamespace.Xml + "space") == "preserve" &&
+            row.Descendants(Ns + "tspan").First().Attribute("x") != null &&
+            row.Descendants(Ns + "tspan").Skip(1).All(span => span.Attribute("x") == null)),
+            "contiguous styled spans use natural glyph advances on each line");
+
         var graph = Render("""
             @startuml
             class "**Customer** and //Guest//\n<size:28><color:#c71585>Portal</color></size>\n<U+221E> &amp; <u:red>active</u>" as Client {
@@ -118,6 +127,9 @@ internal static class RichTextCases
             """, DiagramKind.Graph);
         Check(sprites.Descendants(Ns + "g").Count(g => (string?)g.Attribute("data-sprite") == "icon") == 2, "inline pixel sprites");
         Check(sprites.Descendants(Ns + "g").Any(g => (string?)g.Attribute("style") == "color:red"), "sprite tint");
+        var afterSprites = sprites.Descendants(Ns + "tspan").Where(span => span.Value is " Badge" or " Color").ToArray();
+        Check(afterSprites.Length == 2 && afterSprites.All(span => span.Attribute("x") != null),
+            "text after a sprite retains its absolute position");
 
         var artwork = Render("@startuml\nrectangle \"<size:24><&person> <:1f600:></size> <#red:grinning:>\" as A\n@enduml", DiagramKind.Graph);
         var icon = artwork.Descendants(Ns + "g").Single(g => (string?)g.Attribute("data-sprite") == "$openiconic/person");

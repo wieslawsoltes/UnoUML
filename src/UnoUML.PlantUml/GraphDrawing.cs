@@ -301,7 +301,7 @@ internal static partial class GraphRenderer
                 list.Add(node);
             }
         }
-        internal bool Blocked(Point[] path, Node from, Node to)
+        internal bool Blocked(Point[] path, Node from, Node to, bool includeEndpoints = false)
         {
             for (int i = 1; i < path.Length; i++)
             {
@@ -311,7 +311,7 @@ internal static partial class GraphRenderer
                 if (!bins.TryGetValue((horizontal ? a.Y : a.X) / 64, out var nodes)) continue;
                 foreach (var n in nodes)
                 {
-                    if (n == from || n == to) continue;
+                    if (!includeEndpoints && (n == from || n == to)) continue;
                     if (Math.Min(a.X, b.X) < n.X + n.Width + 4 && Math.Max(a.X, b.X) > n.X - 4 &&
                         Math.Min(a.Y, b.Y) < n.Y + n.Height + 4 && Math.Max(a.Y, b.Y) > n.Y - 4) return true;
                 }

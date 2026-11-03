@@ -105,6 +105,7 @@ internal sealed partial class Preprocessor
             overloads.RemoveAt(existing);
         }
         if (routines.Count > 4096) throw Unsupported();
+        if (currentNativeLibrary) nativeLibrarySources.Add(body);
         overloads.Add(new(name, [.. parameters], body, begin, stop, file, returns,
             unquoted || kind is "define" or "definelong", final, legacy));
     }
@@ -151,6 +152,7 @@ internal sealed partial class Preprocessor
     private Value InvokeFunction(string name, CallArguments args, Dictionary<string, Value> caller, int depth)
     {
         var routine = SelectRoutine(name, args);
+        if (currentNativeLibrary && !nativeLibrarySources.Contains(routine.Lines)) DisableProjection();
         if (!routine.Returns || depth > 64) throw Unsupported();
         var locals = Bind(routine, args);
         try
@@ -173,6 +175,7 @@ internal sealed partial class Preprocessor
 
     private void ExecuteProcedure(Routine routine, CallArguments args, int depth)
     {
+        if (currentNativeLibrary && !nativeLibrarySources.Contains(routine.Lines)) DisableProjection();
         if (routine.Returns || depth > 64) throw Unsupported();
         var locals = Bind(routine, args);
         try { Run(routine.Lines, routine.Begin, routine.End, routine.File, currentOrigin.Root, locals, depth); }
@@ -181,6 +184,7 @@ internal sealed partial class Preprocessor
 
     private Value RetrieveProcedure(string name, IReadOnlyList<Value> args, Dictionary<string, Value> locals, int depth)
     {
+        DisableProjection();
         int length = output.Length, count = origins.Count;
         try
         {
@@ -193,7 +197,7 @@ internal sealed partial class Preprocessor
 
     private void ExpandStatement(string raw, Origin origin, Dictionary<string, Value> locals, int depth, bool emitLiteral = true)
     {
-        string? replacement = library && raw.Contains('$') ? LibraryStatement(raw, locals, depth) : SubstituteText(raw, locals, depth, origin);
+        string? replacement = SubstituteText(raw, locals, depth, origin);
         if (replacement == null || !emitLiteral) return;
         if (replacement.TrimStart().StartsWith('@') && !raw.TrimStart().StartsWith('@')) throw Unsupported();
         Emit(replacement, origin with { Generated = origin.Generated || replacement != raw });

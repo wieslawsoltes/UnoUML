@@ -36,7 +36,11 @@ internal static class C4Cases
         CheckScopedComponents();
         CheckDeployment();
         Require(PlantUmlRenderer.TryRender("@startuml\n!include <C4/C4_Context>\n!define NAME App\nSystem(svc, \"NAME\")\n@enduml", out _), "legacy macro with native C4");
-        foreach (string extra in new[] { "!include <C4/C4_Container>", "UpdateElementStyle(svc, $bgColor=\"red\")", "Container(db, \"DB\")", "System(svc, \"Name\", \"Desc\", $tags=\"red\")", "Rel(unknown,svc,\"Uses\")", "System(bad, \"<$icon>\")", "System_Boundary(b, \"Boundary\") {" })
+        foreach (string extra in new[] { "!include <C4/C4_Container>", "UpdateElementStyle(svc, $bgColor=\"red\")" })
+            Require(PlantUmlRenderer.TryRender("@startuml\n!include <C4/C4_Context>\nSystem(svc, \"App\")\n" + extra + "\n@enduml", out var expanded) &&
+                XElement.Parse(expanded.Svg).Descendants().Any(element => (string?)element.Attribute("data-qualified-name") == "svc"),
+                "expanded library configuration: " + extra);
+        foreach (string extra in new[] { "Container(db, \"DB\")", "System(svc, \"Name\", \"Desc\", $tags=\"red\")", "Rel(unknown,svc,\"Uses\")", "System(bad, \"<$icon>\")", "System_Boundary(b, \"Boundary\") {" })
             Require(!PlantUmlRenderer.TryRender("@startuml\n!include <C4/C4_Context>\nSystem(svc, \"App\")\n" + extra + "\n@enduml", out _), "whole-document compatibility fallback: " + extra);
     }
     private static void CheckScopedComponents()

@@ -1,0 +1,180 @@
+using System.Globalization;
+using System.Xml.Linq;
+using UnoUML.PlantUml;
+
+namespace UnoUML.PlantUml.Tests;
+
+internal static class DotCases
+{
+    internal static void Run()
+    {
+        Grammar();
+        Defaults();
+        Clusters();
+        Ranks();
+        LabelsAndPorts();
+        Attributes();
+        Images();
+        SourceSpans();
+        Boundaries();
+    }
+
+    private static void Grammar()
+    {
+        foreach (string body in new[]
+        {
+            "digraph {}", "graph G { a -- b -- c }", "STRICT DIGRAPH Test { a -> b; a -> b [label=merged] }",
+            "digraph { node [shape=box][color=red]; a,b -> c,d [label=flow][style=dashed] }",
+            "digraph { /* many\n lines */ # 12 \"example.dot\"\n a -> b // comment\n b -> c }",
+            "digraph { -.5 -> 1.2; \"space name\" -> 日本語; \"node\" -> \"graph\" }",
+            "digraph { a[label=\"one\" + \"two\"]; b[label=\"joined\\\nline\"]; a->b }",
+            "digraph { subgraph one { a; b } subgraph one { c } subgraph one { } -> d }"
+        }) Render(body);
+        var cross = Render("digraph { {a;b} -> {c;d} -> e }");
+        Require(Edges(cross).Count() == 6, "subgraph edge products and chain");
+        var strict = Render("strict graph { a -- b [color=red]; b -- a [label=merged] }");
+        Require(Edges(strict).Count() == 1 && strict.Value.Contains("merged"), "strict undirected edge identity");
+        Require((string?)Edges(strict).Single().Attribute("data-dot-merged") == "true", "reversed undirected strict declarations retain merged source provenance");
+        string mergedSource = "@startdot\nstrict digraph { a->b[label=first]; a->b[label=updated]; b->c; }\n@enddot";
+        var mergedEdges = Edges(RenderSource(mergedSource)).ToArray();
+        Require((string?)mergedEdges[0].Attribute("data-dot-merged") == "true" && Slice(mergedSource, mergedEdges[0], "data-dot-label") == "updated", "merged directed edges preserve exact label editing metadata");
+        var parallel = Edges(Render("digraph { a->b; a->b; }")).ToArray();
+        Require(mergedEdges[1].Attribute("data-dot-merged") == null && parallel.Length == 2 && parallel.All(edge => edge.Attribute("data-dot-merged") == null), "single and non-strict edges retain ordinary editing provenance");
+        Require(Node(Render("digraph { a [label=\"literal **bold** //text//\"] }"), "a").Descendants().Any(element => element.Name.LocalName == "text" && element.Value == "literal **bold** //text//"), "DOT text remains literal");
+    }
+
+    private static void Defaults()
+    {
+        var svg = Render("digraph { node [shape=box style=filled fillcolor=red]; a; node [fillcolor=blue]; b; subgraph { node [fillcolor=green]; c; a [label=updated]; } d; edge [color=purple]; a->b; edge [color=orange]; b->c; }");
+        Require(Paint(Node(svg, "a"), "fill") == "#ff0000", "node defaults apply only at creation");
+        Require(Paint(Node(svg, "b"), "fill") == "#0000ff" && Paint(Node(svg, "d"), "fill") == "#0000ff", "nested defaults restore parent scope");
+        Require(Paint(Node(svg, "c"), "fill") == "#00ff00", "X11 color palette and nested defaults");
+        Require(Node(svg, "a").Value.Contains("updated"), "later explicit attributes update existing node");
+        Require(Edges(svg).First().Descendants().Any(element => (string?)element.Attribute("stroke") == "#a020f0"), "edge defaults use X11 palette");
+    }
+
+    private static void Clusters()
+    {
+        var svg = Render("digraph { subgraph cluster_a { label=Outer; color=blue; a; subgraph cluster_b { label=Inner; b; c } } d; a->b; c->d }");
+        Require(svg.Descendants().Count(element => (string?)element.Attribute("data-dot-kind") == "cluster") == 2, "nested clusters render");
+        Require(Contains(Cluster(svg, "cluster_a"), Node(svg, "a")) && Contains(Cluster(svg, "cluster_a"), Cluster(svg, "cluster_b")), "cluster contains direct nodes and child cluster");
+        Require(Contains(Cluster(svg, "cluster_b"), Node(svg, "b")), "inner cluster contains nodes");
+        var late = Render("digraph { a; subgraph cluster_a { label=Later; a; b } a->b }");
+        Require(Contains(Cluster(late, "cluster_a"), Node(late, "a")), "cluster membership after first node use");
+    }
+
+    private static void Ranks()
+    {
+        foreach (string direction in new[] { "TB", "BT", "LR", "RL" })
+        {
+            var svg = Render("digraph { rankdir=" + direction + "; a->b->c }");
+            var a = Center(Node(svg, "a")); var b = Center(Node(svg, "b"));
+            Require(direction switch { "TB" => a.Y < b.Y, "BT" => a.Y > b.Y, "LR" => a.X < b.X, _ => a.X > b.X }, "rankdir " + direction);
+        }
+        var same = Render("digraph { {rank=same; a;b} a->c; b->d }");
+        Require(Center(Node(same, "a")).Y == Center(Node(same, "b")).Y, "rank same");
+        var unequal = Render("digraph { {rank=same; a[fontsize=10];b[fontsize=36]} a->c }");
+        Require(Math.Abs(Center(Node(unequal, "a")).Y - Center(Node(unequal, "b")).Y) < 1, "rank centers align heterogeneous node sizes");
+        var source = Render("digraph { a->b; c; {rank=source; c} }");
+        Require(Center(Node(source, "c")).Y < Center(Node(source, "a")).Y, "rank source excludes other minimum ranks");
+        var shortSvg = Render("digraph {a->b[minlen=1]}");
+        var longSvg = Render("digraph {a->b[minlen=4]}");
+        Require(Center(Node(longSvg, "b")).Y - Center(Node(longSvg, "a")).Y > Center(Node(shortSvg, "b")).Y - Center(Node(shortSvg, "a")).Y + 50, "minimum edge rank length");
+    }
+
+    private static void LabelsAndPorts()
+    {
+        var record = Render("digraph { node[shape=record]; a[label=\"<left> First|{<top> Upper|<bottom> Lower}|Last\"]; b[label=\"<in> Input|Output\"]; a:bottom:e -> b:in:w [headlabel=H taillabel=T label=Route] }");
+        Require(record.Value.Contains("Upper") && record.Value.Contains("Lower") && record.Value.Contains("Route"), "record nested fields and edge labels");
+        var html = Render("digraph { a[shape=plain label=<<TABLE BORDER=\"1\" CELLBORDER=\"1\" CELLSPACING=\"0\"><TR><TD PORT=\"header\" COLSPAN=\"2\" BGCOLOR=\"navy\"><FONT COLOR=\"white\" POINT-SIZE=\"22\"><B>Header &amp; name</B></FONT></TD></TR><TR><TD ROWSPAN=\"2\">Left</TD><TD PORT=\"right\">Right<BR ALIGN=\"LEFT\"/><I>Next</I></TD></TR><TR><TD>Bottom</TD></TR></TABLE>>]; b; a:right:e -> b:w }");
+        Require(html.Descendants().Any(element => element.Name.LocalName == "text" && element.Value == "Header & name" && (string?)element.Attribute("font-size") == "22" && (string?)element.Attribute("font-weight") == "bold"), "HTML styled text and entity decoding");
+        Require(html.Value.Contains("Bottom") && html.Value.Contains("Next"), "HTML row/column spans and line breaks");
+        Render("digraph { a[label=<<FONT POINT-SIZE=\"18\">A<SUP>2</SUP> &beta; <U>line</U></FONT>>]; b; a:ne->b:sw }");
+        var escapes = Render("digraph Name { a[label=\"\\N in \\G\\lsecond\\rrd\\n\"]; a->b[label=\"\\T to \\H (\\E)\"] }");
+        Require(escapes.Value.Contains("a in Name") && escapes.Value.Contains("a to b (a->b)"), "Graphviz escString substitutions");
+        Render("digraph { a[label=<John's &amp; Mary's <!-- a < b -->label>] }");
+    }
+
+    private static void Attributes()
+    {
+        foreach (string shape in new[] { "box", "ellipse", "circle", "point", "diamond", "triangle", "invtriangle", "hexagon", "octagon", "doublecircle", "note", "tab", "folder", "box3d", "component", "cylinder", "star", "polygon", "Mrecord", "Msquare" })
+            Render("digraph { a[shape=" + shape + " label=Shape style=filled fillcolor=\"#abcdef\"]; a->b }");
+        foreach (string arrow in new[] { "normal", "onormal", "diamond", "odiamond", "dot", "odot", "box", "tee", "crow", "vee", "curve", "icurve", "inv", "none", "olnormalodot", "rdiamond" })
+            Render("digraph { a->b[arrowhead=" + arrow + " arrowtail=dot dir=both arrowsize=1.5 color=red penwidth=2] }");
+        var gradient = Render("digraph { bgcolor=\"white:lightblue\"; a[shape=box style=filled fillcolor=\"red:blue\" gradientangle=90]; a->b[style=dashed color=\"#123456\"] }");
+        Require(gradient.Descendants().Count(element => element.Name.LocalName == "linearGradient") == 2, "node and graph gradients");
+        var link = Render("digraph {a[URL=\"https://example.org/a?x=1&y=2\" tooltip=\"Open A\" target=\"_blank\"];a->b[href=\"#edge\"]}");
+        Require(link.Descendants().Any(element => element.Name.LocalName == "a" && (string?)element.Attribute("href") == "https://example.org/a?x=1&y=2"), "escaped node hyperlink");
+        var invisible = Render("digraph { a->b[style=invis];b->c; a[style=invis] }");
+        Require(!invisible.Descendants().Any(element => (string?)element.Attribute("data-dot-id") == "node:a") && Edges(invisible).Count() == 1, "invisible constraints retain placement without paint");
+    }
+
+    private static void SourceSpans()
+    {
+        string source = "\uFEFF@startdot\r\ndigraph { \"space name\" [label=\"First\" + \" label\"];\r\n \"space name\":e -> next:w [label=\"Edge\"]; next -> last; }\r\n@enddot\r\n";
+        var svg = RenderSource(source);
+        var node = Node(svg, "space name");
+        Require(Slice(source, node, "data-dot-label") == "\"First\" + \" label\"", "BOM CRLF and concatenated full label token");
+        Require(Slice(source, node, "data-dot-name") == "\"space name\"", "original identifier token excludes ports");
+        var edge = Edges(svg).First();
+        Require(Slice(source, edge, "data-dot-from") == "\"space name\":e" && Slice(source, edge, "data-dot-to") == "next:w" && Slice(source, edge, "data-dot-arrow") == "->", "literal edge endpoint and operator token spans");
+        Require((string?)Node(svg, "last").Attribute("data-dot-explicit") == "false" && source[(int)Node(svg, "last").Attribute("data-dot-label-insert")!] == '}', "implicit node label insertion at graph close");
+        Require(Edges(svg).Select(element => (string?)element.Attribute("data-dot-id")).Distinct().Count() == 2, "unique same-line edge identities");
+        string richSource = "@startdot\ndigraph { a[shape=record label=\"<in> one\\|two|quote \\\"yes\\\"\"]; b[shape=plain label=<<TABLE><TR><TD>R&amp;D</TD><TD><B>bold</B></TD></TR></TABLE>>] }\n@enddot";
+        var rich = RenderSource(richSource);
+        var fields = rich.Descendants().Where(element => element.Attribute("data-edit-kind") != null).ToArray();
+        Require(fields.Any(element => (string?)element.Attribute("data-edit-kind") == "dot-record-text" && Slice(richSource, element, "data-edit") == "one\\|two"), "record field raw source token");
+        Require(fields.Any(element => (string?)element.Attribute("data-edit-kind") == "dot-html-text" && Slice(richSource, element, "data-edit") == "R&amp;D"), "HTML field retains original entity source span");
+        var lines = Node(Render("digraph { a[label=\"first\\nsecond\"] }"), "a");
+        Require((string?)lines.Attribute("data-dot-label-text") == "first\nsecond", "multiline metadata preserves XML attribute line breaks");
+        var shared = Render("digraph { node[shape=record label=\"<p>Default|Value\"]; a; b; c,d[label=\"<p>Shared|Fields\"]; edge[label=<Shared <B>edge</B>> headlabel=<Head>]; a->b->c; }");
+        Require(!shared.Descendants().Any(element => element.Attribute("data-edit-start") != null), "default and shared rich labels have no single-object leaf edits");
+        Require((string?)Node(shared, "c").Attribute("data-dot-label-shared") == "true" && Edges(shared).All(element => (string?)element.Attribute("data-dot-label-shared") == "true"), "shared declarations and chains carry explicit edit provenance");
+    }
+
+    private static void Images()
+    {
+        const string artwork = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"40\" height=\"20\"><rect width=\"40\" height=\"20\" fill=\"red\"/></svg>";
+        int calls = 0;
+        var options = new PlantUmlRenderOptions { ResolveInclude = path => { calls++; return path == "icon.svg" ? artwork : null; } };
+        string source = "@startdot\ndigraph { a[image=\"icon.svg\" imagescale=true width=2 height=1 label=\"\"]; b[shape=plain label=<<TABLE><TR><TD WIDTH=\"80\" HEIGHT=\"60\"><IMG SRC=\"icon.svg\" SCALE=\"BOTH\"/></TD></TR></TABLE>>]; a->b }\n@enddot";
+        Require(PlantUmlRenderer.TryRender(source, out var image, options) && image.Svg.Contains("scale(", StringComparison.Ordinal), "node and HTML images use host artwork resolver");
+        Require(calls == 1, "image source cache shares same-line resource requests");
+    }
+
+    private static void Boundaries()
+    {
+        foreach (string body in new[] { "digraph {a--b}", "graph {a->b}", "digraph {a[label=\"unterminated]}", "digraph { a[shape=epsf] }", "digraph { a[label=<<TABLE><TR><TD>bad</TR></TABLE>>] }", "digraph { a[URL=\"javascript:alert(1)\"] }" })
+            Require(!PlantUmlRenderer.TryRender("@startdot\n" + body + "\n@enddot", out _), "bounded fallback " + body);
+        string source = "@startdot\ndigraph { a[label=\"A & B\"]; a->b; }\n@enddot";
+        var initial = RenderSource(source).ToString(SaveOptions.DisableFormatting);
+        var culture = CultureInfo.CurrentCulture;
+        try { CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("pl-PL"); Require(RenderSource(source).ToString(SaveOptions.DisableFormatting) == initial, "culture-independent deterministic DOT"); }
+        finally { CultureInfo.CurrentCulture = culture; }
+    }
+
+    private static XElement Render(string body) => RenderSource("@startdot\n" + body + "\n@enddot");
+    private static XElement RenderSource(string source)
+    {
+        Require(PlantUmlRenderer.TryRender(source, out var diagram) && diagram.Kind == DiagramKind.Dot, "native DOT expected " + source);
+        return XElement.Parse(diagram!.Svg);
+    }
+    private static XElement Node(XElement svg, string id) => svg.Descendants().Single(element => (string?)element.Attribute("data-dot-id") == "node:" + id);
+    private static XElement Cluster(XElement svg, string id) => svg.Descendants().Single(element => (string?)element.Attribute("data-dot-id") == "cluster:" + id);
+    private static IEnumerable<XElement> Edges(XElement svg) => svg.Descendants().Where(element => (string?)element.Attribute("data-dot-kind") == "edge");
+    private static string? Paint(XElement node, string attribute) => node.Descendants().Select(element => (string?)element.Attribute(attribute)).FirstOrDefault(value => value != null && value != "none");
+    private static (double X, double Y, double W, double H) Bounds(XElement group)
+    {
+        var element = group.Descendants().First(item => item.Name.LocalName is "rect" or "ellipse");
+        double Read(string key) => (double?)element.Attribute(key) ?? 0;
+        return element.Name.LocalName == "ellipse" ? (Read("cx") - Read("rx"), Read("cy") - Read("ry"), Read("rx") * 2, Read("ry") * 2) : (Read("x"), Read("y"), Read("width"), Read("height"));
+    }
+    private static (double X, double Y) Center(XElement node) { var box = Bounds(node); return (box.X + box.W / 2, box.Y + box.H / 2); }
+    private static bool Contains(XElement container, XElement child)
+    {
+        var outer = Bounds(container); var inner = Bounds(child);
+        return inner.X >= outer.X && inner.Y >= outer.Y && inner.X + inner.W <= outer.X + outer.W && inner.Y + inner.H <= outer.Y + outer.H;
+    }
+    private static string Slice(string source, XElement element, string prefix) => source.Substring((int)element.Attribute(prefix + "-start")!, (int)element.Attribute(prefix + "-length")!);
+    private static void Require(bool condition, string label) { if (!condition) throw new InvalidOperationException("DOT compatibility: " + label); }
+}

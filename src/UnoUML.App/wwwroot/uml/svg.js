@@ -118,11 +118,13 @@ export function indexHits(svg, source, exactSourceMap = false) {
   function register(el, id, line, label) {
     el.setAttribute('data-uml-hit', '');
     const hit = { id, line, label };
-    if (exactSourceMap && el.getAttribute('data-source-generated') === 'true') hit.generated = true;
-    if (exactSourceMap && el.hasAttribute('data-source-file') && el.hasAttribute('data-file-line')) {
-      const fileLine = Number(el.getAttribute('data-file-line'));
+    if (exactSourceMap && el.closest('[data-source-generated="true"]')) hit.generated = true;
+    const origin = el.closest('[data-source-file][data-file-line]');
+    if (exactSourceMap && origin) {
+      const fileLine = Number(origin.getAttribute('data-file-line'));
       if (Number.isSafeInteger(fileLine) && fileLine >= 0) {
-        hit.sourceFile = el.getAttribute('data-source-file'); hit.fileLine = fileLine;
+        hit.sourceFile = origin.getAttribute('data-source-file'); hit.fileLine = fileLine;
+        if (origin.hasAttribute('data-source-archive')) hit.sourceArchive = origin.getAttribute('data-source-archive');
       }
     }
     if (!exactSourceMap && dynamicC4 && c4Aliases.has(id.slice(id.lastIndexOf('.') + 1))) hit.generated = true;
@@ -135,6 +137,32 @@ export function indexHits(svg, source, exactSourceMap = false) {
         byToken.set(start, el);
       }
     }
+    if (exactSourceMap && !hit.generated && el.hasAttribute('data-edit-start')) {
+      const start = Number(el.getAttribute('data-edit-start')), length = Number(el.getAttribute('data-edit-length'));
+      const kind = el.getAttribute('data-edit-kind'), role = el.getAttribute('data-edit-role') || 'label';
+      if (Number.isSafeInteger(start) && Number.isSafeInteger(length) && start >= 0 && (length > 0 || length === 0 && ['yaml-string','salt-text'].includes(kind)) &&
+          start <= source.length - length && kind && ['label','key','value','member'].includes(role)) {
+        hit.field = {start,length,kind,role};
+        byToken.set(start,el);
+        if (el.localName === 'g') el.setAttribute('pointer-events', 'bounding-box');
+      }
+    }
+    const dot = exactSourceMap && !hit.generated ? el.closest('[data-dot-kind]') : null;
+    if (dot) {
+      const value = name => dot.getAttribute('data-dot-' + name) || '';
+      const integer = name => {
+        const text = dot.getAttribute('data-dot-' + name), number = Number(text);
+        return text !== null && Number.isSafeInteger(number) ? number : -1;
+      };
+      hit.dot = {id:value('id'),kind:value('kind'),name:dot.getAttribute('data-qualified-name') || '',
+        text:value('label-text'),format:value('label-format') || 'text',
+        start:integer('start'),length:integer('length'),nameStart:integer('name-start'),nameLength:integer('name-length'),
+        labelStart:integer('label-start'),labelLength:integer('label-length'),labelInsert:integer('label-insert'),labelKind:value('label-kind'),
+        explicit:value('explicit') === 'true',directed:svg.getAttribute('data-dot-directed') === 'true',merged:value('merged') === 'true',
+        fromStart:integer('from-start'),fromLength:integer('from-length'),fromId:value('from-id'),
+        toStart:integer('to-start'),toLength:integer('to-length'),toId:value('to-id'),
+        arrowStart:integer('arrow-start'),arrowLength:integer('arrow-length')};
+    }
     if (el.matches('.participant-lifeline,.participant-head,.participant-tail')) hit.participant = true;
     hits.set(el, hit);
     // Use the visible header as the representative of a sequence participant.
@@ -143,13 +171,14 @@ export function indexHits(svg, source, exactSourceMap = false) {
     if (id && (!byId.has(id) || el.classList.contains('participant-head'))) byId.set(id, el);
     if (line >= 0 && (!byLine.has(line) || el.matches('.participant-head, .message'))) byLine.set(line, el);
   }
-  for (const el of svg.querySelectorAll('[data-source-line],[data-qualified-name]')) {
-    if (!el.children.length && !(exactSourceMap && el.localName === 'text' && el.hasAttribute('data-json-start'))) continue;
+  for (const el of svg.querySelectorAll('[data-source-line],[data-qualified-name],[data-edit-start]')) {
+    if (!el.children.length && !(exactSourceMap && (el.hasAttribute('data-json-start') || el.hasAttribute('data-edit-start')))) continue;
     // C4 aliases are global even inside visual boundaries. The renderer's
     // qualified names describe geometry while the source editor uses aliases.
-    let id = (exactSourceMap && el.getAttribute('data-c4-alias')) || el.getAttribute('data-qualified-name') || '';
+    let id = (exactSourceMap && el.closest('[data-dot-id]')?.getAttribute('data-dot-id')) ||
+      (exactSourceMap && el.getAttribute('data-c4-alias')) || el.getAttribute('data-qualified-name') || '';
     const label = (el.localName === 'text' ? el.textContent : null) || el.querySelector('title')?.textContent || el.querySelector('text:last-of-type')?.textContent || id;
-    const n = el.getAttribute('data-source-line');
+    const n = el.closest('[data-source-line]')?.getAttribute('data-source-line') ?? null;
     let line = n !== null && /^\d+$/.test(n) ? Number(n) : -1;
     if (!exactSourceMap && line >= lines.length) line = -1;
     // Preprocessing replaces lines. Prefer an original macro invocation over
@@ -163,7 +192,7 @@ export function indexHits(svg, source, exactSourceMap = false) {
       }
     }
     if (line < 0) line = inferred(label);
-    if (id || line >= 0) register(el, id, line, label);
+    if (id || line >= 0 || exactSourceMap && el.hasAttribute('data-edit-start')) register(el, id, line, label);
   }
   if (exactSourceMap) return { hits, byId, byLine, byToken };
   for (const el of svg.querySelectorAll('text')) {

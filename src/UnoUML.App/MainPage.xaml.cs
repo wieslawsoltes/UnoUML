@@ -122,8 +122,8 @@ public sealed partial class MainPage : Page
         switch (e.Key)
         {
             case VirtualKey.F2: BeginCanvasEdit(item); break;
-            case VirtualKey.Delete: Edit(() => doc.Remove(item)); break;
-            case VirtualKey.Escape: additionalSelection.Clear(); selected = null; selectedGenerated = null; ShowInspector(); SyncCanvasSelection(); break;
+            case VirtualKey.Delete: OnCanvasCommand("delete", ""); break;
+            case VirtualKey.Escape: additionalSelection.Clear(); selected = null; selectedGenerated = null; selectedJsonField = null; selectedSourceField = null; selectedDot = null; ShowInspector(); SyncCanvasSelection(); break;
             default: return;
         }
         e.Handled = true;
@@ -224,8 +224,9 @@ public sealed partial class MainPage : Page
         if (!ready || syncing) return;
         if (SourceEditor.Text == doc.Source) return;
         doc.SetSource(SourceEditor.Text);
+        DiscardResourceRedo();
         revision++; dirty = true; additionalSelection.Clear(); selected = null;
-        undoButton.IsEnabled = doc.CanUndo; redoButton.IsEnabled = doc.CanRedo;
+        undoButton.IsEnabled = doc.CanUndo || resourceCursor > 0; redoButton.IsEnabled = doc.CanRedo || resourceCursor < resourceHistory.Count;
         Status("Editing source…");
         changeTimer.Stop(); changeTimer.Start();
     }
@@ -243,7 +244,7 @@ public sealed partial class MainPage : Page
         }
         else if (selected != item)
         {
-            selectedJsonField = null; additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
+            selectedJsonField = null; selectedSourceField = null; selectedDot = null; additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
         }
     }
 
@@ -259,6 +260,7 @@ public sealed partial class MainPage : Page
 
     void Refresh()
     {
+        PruneResourceHistory();
         if (!ready) return;
         syncing = true;
         try
@@ -276,7 +278,7 @@ public sealed partial class MainPage : Page
             CanvasTitle.Text = doc.Page.Title;
             CanvasFamily.Text = $"{doc.Page.Family.ToUpperInvariant()}  /  DIAGRAM {doc.ActivePage + 1:00}";
             DocumentStats.Text = $"{doc.Objects.Count} objects   ·   {doc.Source.Length:N0} characters";
-            undoButton.IsEnabled = doc.CanUndo; redoButton.IsEnabled = doc.CanRedo;
+            undoButton.IsEnabled = doc.CanUndo || resourceCursor > 0; redoButton.IsEnabled = doc.CanRedo || resourceCursor < resourceHistory.Count;
             if (libraryFamily != doc.Page.Family) ShowLibrary();
             ShowInspector(); ApplyMode();
             foreach (var p in tools) Highlight(p.Value, p.Key == tool);
@@ -314,18 +316,21 @@ public sealed partial class MainPage : Page
 
     void History(bool redo)
     {
+        if (TryResourceHistory(redo)) return;
         if (!(redo ? doc.Redo() : doc.Undo())) return;
-        Changed();
+        Changed(history: true);
     }
 
-    void Changed()
+    void Changed(bool history = false)
     {
+        if (!history) DiscardResourceRedo();
         additionalSelection.Clear(); selected = null; revision++; dirty = true;
         changeTimer.Stop(); Refresh(); _ = RenderPageAsync();
     }
 
     void Edit(Func<bool> operation, string failure = "This operation is unavailable for the selected syntax.")
     {
+        if (resourceHistoryBusy) { Status("Finishing the imported source update…"); return; }
         try { if (operation()) Changed(); else Status(failure, true); }
         catch (Exception ex) { Status(ex.Message, true); }
     }
@@ -345,43 +350,53 @@ public sealed partial class MainPage : Page
         if (renderedRevision != revision) return;
         if (hit.Generated && Resolve(hit) == null)
         {
-            selectedJsonField = null; additionalSelection.Clear(); selected = null;
+            selectedJsonField = null; selectedSourceField = null; selectedDot = null; additionalSelection.Clear(); selected = null;
             selectedGenerated = hit; generatedRevision = revision;
             ShowInspector(); SyncCanvasSelection();
-            if (hit.Kind == "edit") EditGeneratedSource(hit);
+            if (hit.Kind == "edit" && !BeginImportedLabel(hit)) EditGeneratedSource(hit);
             int line = doc.Page.StartLine + hit.Line;
             if (mode == "Split" && doc.Find(null,line) is { } origin) SelectSource(origin);
-            Status(hit.SourceFile is { Length: > 0 } file ? $"Generated from {file}, line {hit.FileLine + 1}." :
+            Status(hit.SourceFile is { Length: > 0 } file ? $"Generated from {new ImportedSource(file, hit.SourceArchive)}, line {hit.FileLine + 1}." :
                 $"Generated from line {line + 1}. Edit the invocation to change this object.");
             return;
         }
         selectedGenerated = null;
         SelectJsonField(hit.Token);
-        if (hit.Kind == "toggle" && JsonSelection == null) { ToggleSelection(Resolve(hit)); return; }
+        SelectSourceField(hit.Field);
+        SelectDot(hit.Dot);
+        if (hit.Kind == "toggle" && JsonSelection == null && FieldSelection == null && DotSelection == null) { ToggleSelection(Resolve(hit)); return; }
         additionalSelection.Clear();
-        selected = Resolve(hit);
+        selected = DotSelection == null ? Resolve(hit) : null;
         ShowInspector(); SyncCanvasSelection();
         if (mode == "Split" && JsonSelection is { } json) SourceEditor.Select(json.Offset, json.Length);
+        else if (mode == "Split" && FieldSelection is { } field) SourceEditor.Select(field.Offset, field.Length);
+        else if (mode == "Split" && DotSelection is { } dot) SourceEditor.Select(dot.Offset, dot.Location.Length);
         else if (mode == "Split" && selected != null) SelectSource(selected);
         if (hit.Kind == "edit") BeginCanvasEdit(selected);
     }
 
     void SyncCanvasSelection()
     {
-        viewport.SetSelection(selected?.Alias ?? "", selected == null ? -1 : selected.Line - doc.Page.StartLine);
+        var dot = DotSelection;
+        viewport.SetSelection(dot?.Location.Id ?? selected?.Alias ?? GeneratedSelection?.Id ?? "", selected == null ? GeneratedSelection?.Line ?? -1 : selected.Line - doc.Page.StartLine);
         if (JsonSelection != null) viewport.SelectJsonToken(jsonStart);
-        viewport.SetConnectable(selected?.IsConnectable == true && additionalSelection.Count == 0);
+        if (FieldSelection != null) viewport.SelectJsonToken(fieldStart);
+        viewport.SetConnectable((dot?.IsConnectable == true || selected?.IsConnectable == true) && additionalSelection.Count == 0 && FieldSelection == null);
         var edge = additionalSelection.Count == 0 && selected?.Kind == "Relationship" ? selected : null;
         if (edge != null && (doc.Find(edge.From)?.IsConnectable != true || doc.Find(edge.To)?.IsConnectable != true)) edge = null;
-        viewport.SetEndpoints(edge?.From ?? "", edge?.To ?? "");
+        viewport.SetEndpoints(dot?.CanEditConnection == true && dot.Location.FromId.Length > 0 ? "node:" + dot.Location.FromId : edge?.From ?? "",
+            dot?.CanEditConnection == true && dot.Location.ToId.Length > 0 ? "node:" + dot.Location.ToId : edge?.To ?? "");
         var items = SelectionItems();
         viewport.SetAdditionalSelection(string.Join(",", additionalSelection.Select(o => o.Line - doc.Page.StartLine)),
-            JsonSelection is { } json ? doc.Source.Substring(json.Offset,json.Length) : items.Length == 0 ? "" : doc.CopySelection(items) ?? (items.Length == 1 ? items[0].Statement : ""));
+            JsonSelection is { } json ? doc.Source.Substring(json.Offset,json.Length) : FieldSelection is { } field && !(field.Kind == "activity-label" && selected?.Kind == "Activity") ? field.Text :
+            dot != null ? doc.Page.Source.Substring(dot.Location.Start, dot.Location.Length) :
+            items.Length == 0 ? "" : doc.CopySelection(items) ?? (items.Length == 1 ? items[0].Statement : ""));
     }
 
     void OnGesture(DiagramGesture gesture)
     {
         if (renderedRevision != revision) return;
+        if (HandleDotGesture(gesture)) return;
         var from = Resolve(gesture.From); var to = Resolve(gesture.To);
         if (from == null || to == null) { Status("Choose two source-backed objects.", true); return; }
         if (gesture.Kind is "retargetFrom" or "retargetTo")
@@ -402,7 +417,7 @@ public sealed partial class MainPage : Page
 
     void Select(DiagramObject item)
     {
-        selectedGenerated = null; selectedJsonField = null; additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
+        selectedGenerated = null; selectedJsonField = null; selectedSourceField = null; selectedDot = null; additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
         if (mode != "Design") SelectSource(item);
     }
 

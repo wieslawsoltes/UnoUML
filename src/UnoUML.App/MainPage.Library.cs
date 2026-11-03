@@ -112,8 +112,10 @@ public sealed partial class MainPage
             SelectionType.Text = "GENERATED OBJECT";
             SelectionTitle.Text = generated.Label;
             Properties.Children.Add(Caption(generated.SourceFile is { Length: > 0 } file ?
-                $"Source file   {file}\nLine   {generated.FileLine + 1}" : $"Source invocation   L{doc.Page.StartLine + generated.Line + 1}"));
-            Properties.Children.Add(Item(generated.SourceFile != null && BrowserIncludes.Read(generated.SourceFile) != null ?
+                $"Source file   {new ImportedSource(file, generated.SourceArchive)}\nLine   {generated.FileLine + 1}" : $"Source invocation   L{doc.Page.StartLine + generated.Line + 1}"));
+            if (OpenImportedLabel(generated) != null)
+                Properties.Children.Add(Item("Edit label on canvas…", "edit", () => BeginImportedLabel(generated)));
+            Properties.Children.Add(Item(generated.SourceFile != null && BrowserIncludes.Read(generated.SourceFile, generated.SourceArchive) != null ?
                 "Edit included source…" : "Edit source invocation…", "source", () => EditGeneratedSource(generated)));
         }
         else if (JsonSelection is { } field)
@@ -123,6 +125,14 @@ public sealed partial class MainPage
             Properties.Children.Add(Caption(field.Kind == "scalar" ? "Enter a JSON scalar such as 42, true, null or a quoted string." : "Enter text directly. Quotes and special characters are escaped when saved."));
             Properties.Children.Add(Item("Edit field…", "edit", () => BeginCanvasEdit(item)));
         }
+        else if (FieldSelection is { } literal)
+        {
+            SelectionType.Text = doc.Page.Family.ToUpperInvariant() + " " + literal.Role.ToUpperInvariant();
+            SelectionTitle.Text = literal.Text;
+            Properties.Children.Add(Caption(literal.Kind is "number" or "integer" ? "Enter a numeric value." : "Edit the displayed value on the canvas. Its surrounding syntax and formatting are preserved."));
+            Properties.Children.Add(Item("Edit field…", "edit", () => BeginCanvasEdit(item)));
+        }
+        else if (DotSelection is { } dot) ShowDotInspector(dot);
         else if (additionalSelection.Count > 0 && selected != null) ShowSelectionActions();
         else if (item == null)
         {

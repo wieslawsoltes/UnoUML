@@ -27,7 +27,10 @@ internal sealed partial class Preprocessor
         public int Int => Integer ?? 0;
     }
 
-    private sealed record CallArguments(List<Value> Positional, Dictionary<string, Value> Named);
+    private sealed record CallArguments(List<Value> Positional, Dictionary<string, Value> Named)
+    {
+        internal bool Literal { get; set; }
+    }
 
     // A bounded operator stack preserves TIM's eager evaluation and its legacy
     // handling of adjacent operands, including unquoted decimal defaults.
@@ -312,7 +315,7 @@ internal sealed partial class Preprocessor
         internal CallArguments Arguments(int nesting = 0, bool unquoted = false)
         {
             if (!Consume('(')) throw Unsupported();
-            var args = new CallArguments([], new(StringComparer.Ordinal));
+            var args = new CallArguments([], new(StringComparer.Ordinal)) { Literal = true };
             if (Consume(')')) return args;
             do
             {
@@ -329,7 +332,13 @@ internal sealed partial class Preprocessor
                         pos = end + 1;
                     }
                 }
+                int valueStart = pos;
                 Value value = unquoted ? UnquotedArgument() : ReadExpression(nesting + 1);
+                string raw = text[valueStart..pos].Trim();
+                bool literal = raw.Length >= 2 && raw[0] is '\'' or '"' && raw[^1] == raw[0]
+                    ? raw[1..^1] == value.Scalar && !raw[1..^1].Contains(raw[0])
+                    : raw == value.Scalar && (LibraryMacro.Alias(raw) || int.TryParse(raw, out _));
+                args.Literal &= literal;
                 if (name == null) args.Positional.Add(value);
                 else args.Named[name] = value;
             } while (Consume(','));

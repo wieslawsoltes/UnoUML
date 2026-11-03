@@ -149,12 +149,13 @@ internal static class SvgText
                 }
                 else
                 {
+                    bool absoluteX = !textOpen;
                     if (!textOpen)
                     {
                         TextStart(svg, start, baseline, size, "start", bold, italic, underline, color, part);
                         textOpen = true;
                     }
-                    Span(svg, run, cursor, baseline);
+                    Span(svg, run, cursor, baseline, absoluteX);
                 }
                 cursor += run.Width;
             }
@@ -179,11 +180,13 @@ internal static class SvgText
         svg.Append(" xml:space=\"preserve\">");
     }
 
-    private static void Span(StringBuilder svg, PlacedRun run, double x, double y)
+    private static void Span(StringBuilder svg, PlacedRun run, double x, double y, bool absoluteX)
     {
         var style = run.Source.Style;
         LinkStart(svg, style.Link);
-        svg.Append(CultureInfo.InvariantCulture, $"<tspan x=\"{x:0.###}\" y=\"{y + run.Shift:0.###}\"");
+        svg.Append("<tspan");
+        if (absoluteX) svg.Append(CultureInfo.InvariantCulture, $" x=\"{x:0.###}\"");
+        svg.Append(CultureInfo.InvariantCulture, $" y=\"{y + run.Shift:0.###}\"");
         if (style.Size != null || style.Script != 0 || style.SizeOffset != 0) svg.Append(CultureInfo.InvariantCulture, $" font-size=\"{run.FontSize:0.###}\"");
         if (style.Bold is { } bold) svg.Append(" font-weight=\"").Append(bold ? "bold" : "normal").Append('"');
         if (style.Italic is { } italic) svg.Append(" font-style=\"").Append(italic ? "italic" : "normal").Append('"');

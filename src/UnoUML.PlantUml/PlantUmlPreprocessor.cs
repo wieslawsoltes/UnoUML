@@ -4,7 +4,11 @@ using System.Collections.Frozen;
 namespace UnoUML.PlantUml;
 
 /// <summary>A zero-based original source location for one expanded physical line.</summary>
-public sealed record SourceLocation(int SourceLine, string? File, int FileLine, bool Generated);
+public sealed record SourceLocation(int SourceLine, string? File, int FileLine, bool Generated)
+{
+    /// <summary>Normalized archive identifier when File names a member of an imported library.</summary>
+    public string? Archive { get; init; }
+}
 
 /// <summary>Expanded PlantUML text and a corresponding immutable map of physical source lines.</summary>
 public sealed record PreprocessedSource(string Source, IReadOnlyList<SourceLocation> SourceMap)
@@ -34,5 +38,5 @@ internal sealed partial class Preprocessor
 {
     internal IReadOnlyDictionary<string, string> GetOptions() => renderingOptions.ToFrozenDictionary(StringComparer.Ordinal);
     internal IReadOnlyList<SourceLocation> GetSourceMap() => Array.AsReadOnly(origins
-        .Select(origin => new SourceLocation(origin.Root, origin.File, origin.Line, origin.Generated)).ToArray());
+        .Select(origin => new SourceLocation(origin.Root, origin.File, origin.Line, origin.Generated) { Archive = origin.Archive }).ToArray());
 }

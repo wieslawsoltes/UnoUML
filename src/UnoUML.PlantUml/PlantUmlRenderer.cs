@@ -23,98 +23,36 @@ public static class PlantUmlRenderer
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(options);
-        if (!source.Contains("!include", StringComparison.OrdinalIgnoreCase))
-            return TryRenderPrepared(source, options, true, out diagram);
-
-        bool canRetry = true, streamDiagnostics = false;
-        long resourceCharacters = 0, diagnosticCharacters = 0;
-        var resources = new Dictionary<string, string?>(StringComparer.Ordinal);
-        var archives = new Dictionary<string, PlantUmlResourceLibrary?>(StringComparer.Ordinal);
-        var diagnostics = new Queue<string>();
-        string? Resolve(string path)
-        {
-            if (resources.TryGetValue(path, out var cached)) return cached;
-            string? value;
-            try { value = options.ResolveInclude!(path); }
-            catch { canRetry = false; throw; }
-            long size = path.Length + (long)(value?.Length ?? 0);
-            // Keep source reads consistent across attempts, within the same
-            // resource budget as a host library. Larger renders keep one attempt.
-            if (resources.Count >= 32768 || resourceCharacters + size > 67_108_864) canRetry = false;
-            else { resources.Add(path, value); resourceCharacters += size; }
-            return value;
-        }
-        PlantUmlResourceLibrary? Import(string path)
-        {
-            if (archives.TryGetValue(path, out var cached)) return cached;
-            PlantUmlResourceLibrary? library;
-            try { library = options.ImportLibrary!(path); }
-            catch { canRetry = false; throw; }
-            if (archives.Count >= 128) canRetry = false;
-            else archives.Add(path, library);
-            return library;
-        }
-        void FlushDiagnostics()
-        {
-            try
-            {
-                while (diagnostics.TryDequeue(out string? message))
-                {
-                    diagnosticCharacters -= message.Length;
-                    options.Log!(message);
-                }
-            }
-            catch
-            {
-                diagnostics.Clear();
-                diagnosticCharacters = 0;
-                throw;
-            }
-        }
-        void Log(string message)
-        {
-            if (!streamDiagnostics && (diagnostics.Count >= 32000 || diagnosticCharacters + message.Length > 1_048_576))
-            {
-                canRetry = false;
-                streamDiagnostics = true;
-                FlushDiagnostics();
-            }
-            if (streamDiagnostics) options.Log!(message);
-            else { diagnostics.Enqueue(message); diagnosticCharacters += message.Length; }
-        }
-        var attempt = options with
-        {
-            ResolveInclude = options.ResolveInclude == null ? null : Resolve,
-            ResolveEnvironment = options.ResolveEnvironment == null ? null : name => { canRetry = false; return options.ResolveEnvironment(name); },
-            ImportLibrary = options.ImportLibrary == null ? null : Import,
-            UtcNow = () => { canRetry = false; return options.UtcNow(); },
-            RandomInteger = (minimum, maximum) => { canRetry = false; return options.RandomInteger(minimum, maximum); },
-            Log = options.Log == null ? null : Log
-        };
-        bool rendered = TryRenderPrepared(source, attempt, true, out diagram);
-        // Dedicated library grammars avoid expanding thousands of common C4 and
-        // ArchiMate declarations. Retry pure preprocessing against expanded
-        // libraries without consuming a host provider's state a second time.
-        if (!rendered && canRetry)
-        {
-            diagnostics.Clear();
-            diagnosticCharacters = 0;
-            rendered = TryRenderPrepared(source, attempt, false, out diagram);
-        }
-        try { FlushDiagnostics(); }
-        catch (Exception error) when (Preprocessor.IsHandledFailure(error))
-        {
-            diagram = null;
-            return false;
-        }
-        return rendered;
+        return TryRenderPrepared(source, options, out diagram);
     }
 
-    private static bool TryRenderPrepared(string source, PlantUmlRenderOptions options, bool preserveLibraries,
+    private static bool TryRenderPrepared(string source, PlantUmlRenderOptions options,
         [NotNullWhen(true)] out RenderedDiagram? diagram)
     {
         diagram = null;
-        if (!TryPrepare(source, options, out source, out var kind, out var preprocessor, preserveLibraries)) return false;
+        if (!TryPrepare(source, options, out source, out var kind, out var preprocessor, deferPreprocessing: true)) return false;
+        if (preprocessor != null)
+        {
+            if (kind == DiagramKind.Sequence && preprocessor.TryRenderPureLibrary(source, out diagram)) return diagram != null;
+            if (!preprocessor.Expand(source, out source)) return false;
+            try { XmlConvert.VerifyXmlChars(source); }
+            catch (XmlException) { return false; }
+        }
+        if (kind == DiagramKind.Sequence && preprocessor?.LibraryProjection is { } projected)
+        {
+            string? direct = RenderStyled(projected, DiagramKind.C4, C4Renderer.TryRender);
+            DiagramKind directKind = DiagramKind.C4;
+            if (direct == null)
+            {
+                direct = RenderStyled(projected, DiagramKind.ArchiMate, ArchimateRenderer.TryRender);
+                directKind = DiagramKind.ArchiMate;
+            }
+            if (direct != null)
+            {
+                diagram = new(directKind, preprocessor.Remap(direct, projectedLibrary: true));
+                return true;
+            }
+        }
         Preprocessor? resourceResolver = preprocessor;
         string? ResolveAsset(string path, int line) => (resourceResolver ??= new(options.Resolve, options)).ResolveAsset(path, line);
         if (!SpriteCatalog.TryExtract(source, ResolveAsset, out source, out var sprites,
@@ -149,6 +87,7 @@ public static class PlantUmlRenderer
     {
         if (!source.Contains("skinparam", StringComparison.OrdinalIgnoreCase) && !source.Contains("<style", StringComparison.OrdinalIgnoreCase)) return render(source);
         if (!StyleDocument.TryPrepare(source, kind, out var cleaned, out var styles)) return null;
+        using var styleScope = styles.Begin();
         var svg = render(cleaned);
         return svg == null ? null : styles.Apply(svg);
     }
@@ -159,7 +98,7 @@ public static class PlantUmlRenderer
         => TryPrepare(input, new PlantUmlRenderOptions { ResolveInclude = resolveInclude }, out source, out kind, out preprocessor);
 
     internal static bool TryPrepare(string input, PlantUmlRenderOptions options,
-        out string source, out DiagramKind kind, out Preprocessor? preprocessor, bool preserveLibraries = true)
+        out string source, out DiagramKind kind, out Preprocessor? preprocessor, bool preserveLibraries = true, bool deferPreprocessing = false)
     {
         source = input;
         ArgumentNullException.ThrowIfNull(source);
@@ -212,14 +151,12 @@ public static class PlantUmlRenderer
         if (source.AsSpan().IndexOfAny('\u0085', '\u2028', '\u2029') >= 0) return false;
         try { XmlConvert.VerifyXmlChars(source); }
         catch (XmlException) { return false; }
-        if (kind != DiagramKind.Json)
-        {
-            if (bom) source = source[1..];
-            if (source.Contains('\r')) source = source.ReplaceLineEndings("\n");
-        }
+        // Mask a BOM without shifting any absolute UTF-16 source offsets.
+        if (bom) source = " " + source[1..];
         if (Preprocessor.Needed(source))
         {
             preprocessor = new Preprocessor(options.Resolve, options, preserveLibraries);
+            if (deferPreprocessing) return true;
             if (!preprocessor.Expand(source,out source)) return false;
             try { XmlConvert.VerifyXmlChars(source); }
             catch (XmlException) { return false; }

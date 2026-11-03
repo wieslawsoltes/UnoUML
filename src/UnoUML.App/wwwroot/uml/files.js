@@ -61,6 +61,11 @@ export async function listIncludes() {
   return JSON.stringify([...memory].filter(([,value]) => !value.startsWith('data:image/')).map(([path]) => path).sort());
 }
 
+export async function listArchives() {
+  await includeFiles();
+  return JSON.stringify([...archives.keys()].sort());
+}
+
 async function persist(entries, packed = []) {
   try {
     const db = await openDatabase();
@@ -86,33 +91,59 @@ function remember(entries, packed) {
   includeRevision++;
 }
 
-export async function updateInclude(path, expectedText, text) {
+async function updateResource(kind, path, expected, value) {
   await includeFiles();
-  if (!memory.has(path) || memory.get(path) !== expectedText) return JSON.stringify({updated:false, persisted:false});
-  memory.set(path, text);
-  includeRevision++;
+  const packed = kind === 'archives', target = packed ? archives : memory;
+  if (!target.has(path) || target.get(path) !== expected) return {updated:false,persisted:false};
+  remember(packed ? [] : [[path,value]], packed ? [[path,value]] : []);
+  const version = packed ? readArchiveVersion(path) : undefined;
   try {
     const db = await openDatabase();
     const result = await new Promise((resolve,reject) => {
-      const tx = db.transaction('includes','readwrite'), store = tx.objectStore('includes');
-      let conflict;
-      const current = store.get(path);
-      current.onsuccess = () => {
-        if (current.result !== undefined && current.result !== expectedText) conflict = current.result;
-        else store.put(text,path);
+      const tx = db.transaction(['includes','archives'],'readwrite'), store = tx.objectStore(kind);
+      const other = tx.objectStore(packed ? 'includes' : 'archives');
+      let conflict, pending = 2;
+      const current = store.get(path), alternate = other.get(path);
+      const read = () => {
+        if (--pending !== 0) return;
+        if (current.result !== undefined && current.result !== expected || alternate.result !== undefined)
+          conflict = {current:current.result,alternate:alternate.result};
+        else store.put(value,path);
       };
+      current.onsuccess = alternate.onsuccess = read;
       tx.oncomplete = () => resolve({conflict});
       tx.onabort = tx.onerror = () => reject(tx.error);
     });
     if (result.conflict !== undefined) {
-      if (memory.get(path) === text) { memory.set(path,result.conflict); includeRevision++; }
-      return JSON.stringify({updated:false,persisted:false});
+      if (target.get(path) === value) {
+        const {current,alternate} = result.conflict;
+        const actualPacked = alternate === undefined ? packed : !packed;
+        const actual = alternate === undefined ? current : alternate;
+        remember(actualPacked ? [] : [[path,actual]],actualPacked ? [[path,actual]] : []);
+      }
+      return {updated:false,persisted:false};
     }
-    return JSON.stringify({updated:true,persisted:true});
+    return {updated:true,persisted:true,...(packed ? {version} : {})};
   } catch {
     // Session editing remains available when persistent storage is unavailable.
-    return JSON.stringify({updated:true,persisted:false});
+    return {updated:true,persisted:false,...(packed ? {version} : {})};
   }
+}
+
+export async function updateInclude(path, expectedText, text) {
+  return JSON.stringify(await updateResource('includes',path,expectedText,text));
+}
+
+export async function updateArchive(path, expectedData, data) {
+  return JSON.stringify(await updateResource('archives',path,expectedData,data));
+}
+
+export function downloadArchive(path, data = null) {
+  const encoded = data ?? readArchive(path);
+  if (encoded === null) throw new Error('The imported archive is unavailable.');
+  const binary = atob(encoded), bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  download(path.split('/').at(-1),new Blob([bytes],{type:'application/zip'}));
 }
 
 function pick(accept, multiple, directory) {

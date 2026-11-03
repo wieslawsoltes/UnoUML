@@ -8,13 +8,16 @@ namespace UnoUML.PlantUml;
 internal static partial class ChartRenderer
 {
     private const string Number = @"[-+]?(?:\d+(?:\.\d*)?|\.\d+)";
-    private sealed record Series(string Kind, string Label, string? Color, double[] Values, int Line);
-    private sealed record Domain(double Min, double Max, double Step, string Label, int Line);
+    private readonly record struct Token(int Start, int Length);
+    private sealed record Series(string Kind, string Label, string? Color, double[] Values, int Line, Token LabelToken, Token[] ValueTokens);
+    private sealed record Domain(double Min, double Max, double Step, string Label, int Line, Token LabelToken, Token MinToken, Token MaxToken);
     private sealed class Chart
     {
         internal string[]? Categories;
         internal Domain? Vertical;
         internal string HorizontalLabel = "", Title = "", Legend = "";
+        internal Token TitleToken, HorizontalToken;
+        internal Token[] CategoryTokens = [];
         internal int TitleLine, HorizontalLine, CategorySpacing = 1;
         internal readonly List<Series> Series = [];
     }
@@ -32,10 +35,14 @@ internal static partial class ChartRenderer
     {
         var chart = new Chart();
         bool opened = false, closed = false;
-        int index = -1, count = 0;
+        int index = -1, count = 0, offset = 0;
         foreach (var segment in source.AsSpan().EnumerateLines())
         {
             index++;
+            int start = offset + segment.Length - segment.TrimStart().Length;
+            offset += segment.Length;
+            if (offset < source.Length && source[offset] == '\r') offset++;
+            if (offset < source.Length && source[offset] == '\n') offset++;
             var line = segment.Trim();
             if (line.IsEmpty || line[0] == '\'') continue;
             if (!opened) { if (!line.SequenceEqual("@startchart")) return null; opened = true; continue; }
@@ -44,6 +51,7 @@ internal static partial class ChartRenderer
             if (line.StartsWith("title ", StringComparison.OrdinalIgnoreCase))
             {
                 if (chart.Title.Length != 0 || !Plain(chart.Title = line[6..].Trim().ToString())) return null;
+                chart.TitleToken = new(start + line.Length - line[6..].TrimStart().Length, chart.Title.Length);
                 chart.TitleLine = index; continue;
             }
             if (line.StartsWith("legend ", StringComparison.OrdinalIgnoreCase))
@@ -58,9 +66,11 @@ internal static partial class ChartRenderer
                 var axis = HorizontalAxis().Match(line.ToString());
                 if (chart.Categories != null || !axis.Success || !Plain(axis.Groups[1].Value)) return null;
                 chart.HorizontalLabel = axis.Groups[1].Value;
+                chart.HorizontalToken = QuotedToken(axis.Groups[1], start);
                 var categories = axis.Groups[2].Value.Split(',', StringSplitOptions.TrimEntries);
                 if (categories.Length > 512 || categories.Any(s => s.Length == 0 || s.Contains('"') || !Plain(s))) return null;
                 chart.Categories = categories;
+                chart.CategoryTokens = ListTokens(axis.Groups[2], start);
                 chart.HorizontalLine = index;
                 if (axis.Groups[3].Success && !int.TryParse(axis.Groups[3].Value, NumberStyles.None, CultureInfo.InvariantCulture, out chart.CategorySpacing)) return null;
                 continue;
@@ -72,7 +82,8 @@ internal static partial class ChartRenderer
                 double step = (max - min) / 5;
                 if (axis.Groups[4].Success && !Value(axis.Groups[4].Value, out step)) return null;
                 if (step <= 0 || (max - min) / step > 128) return null;
-                chart.Vertical = new(min, max, step, axis.Groups[1].Value, index);
+                chart.Vertical = new(min, max, step, axis.Groups[1].Value, index, QuotedToken(axis.Groups[1], start),
+                    new(start + axis.Groups[2].Index, axis.Groups[2].Length), new(start + axis.Groups[3].Index, axis.Groups[3].Length));
                 continue;
             }
             var series = SeriesDeclaration().Match(line.ToString());
@@ -82,7 +93,7 @@ internal static partial class ChartRenderer
             var data = new double[values.Length];
             for (int i = 0; i < values.Length; i++) if (!Value(values[i], out data[i])) return null;
             chart.Series.Add(new(series.Groups[1].Value.ToLowerInvariant(), series.Groups[2].Value,
-                series.Groups[4].Success ? series.Groups[4].Value : null, data, index));
+                series.Groups[4].Success ? series.Groups[4].Value : null, data, index, QuotedToken(series.Groups[2], start), ListTokens(series.Groups[3], start)));
         }
         if (!closed || chart.Categories == null || chart.Vertical is not {} vertical || chart.Series.Count == 0) return null;
         // Explicit coordinate pairs, secondary axes, stacked series and noncategorical charts use the upstream engine.
@@ -95,6 +106,19 @@ internal static partial class ChartRenderer
         double.TryParse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out number) && double.IsFinite(number) && Math.Abs(number) <= 1e12;
     private static string F(double n) => n.ToString("0.###", CultureInfo.InvariantCulture);
     private static string Tick(double n) => n.ToString("G11", CultureInfo.InvariantCulture);
+    private static Token QuotedToken(Group group, int start) => group.Success ? new(start + group.Index - 1, group.Length + 2) : default;
+    private static Token[] ListTokens(Group group, int start)
+    {
+        var tokens = new List<Token>();
+        int offset = 0;
+        foreach (var item in group.Value.Split(','))
+        {
+            int leading = item.Length - item.TrimStart().Length;
+            tokens.Add(new(start + group.Index + offset + leading, item.Trim().Length));
+            offset += item.Length + 1;
+        }
+        return tokens.ToArray();
+    }
 
     private static string? Render(Chart chart, Domain v, string[] categories)
     {
@@ -123,7 +147,7 @@ internal static partial class ChartRenderer
         if (chart.Title.Length > 0)
         {
             Open(s, "title", chart.TitleLine);
-            Text(s, width / 2, 26, chart.Title, size: 18); s.Append("</g>");
+            Text(s, width / 2, 26, chart.Title, size: 18, token: chart.TitleToken); s.Append("</g>");
         }
         Open(s, "vertical-axis", v.Line);
         Line(s, left, top, left, bottom);
@@ -132,13 +156,13 @@ internal static partial class ChartRenderer
         {
             double value = v.Min + v.Step * i, y = Y(value);
             Line(s, left, y, left - 5, y);
-            Text(s, left - 10, y + 5, Tick(value), anchor: "end");
+            Text(s, left - 10, y + 5, Tick(value), anchor: "end", token: i == 0 ? v.MinToken : Math.Abs(value - v.Max) < 1e-9 ? v.MaxToken : default, kind: "number", role: "value");
         }
         if (v.Label.Length > 0)
         {
             int x = left - marginLeft + 17, y = top + 150;
             s.Append(CultureInfo.InvariantCulture, $"<g transform=\"rotate(-90 {x} {y})\">");
-            Text(s, x, y, v.Label); s.Append("</g>");
+            Text(s, x, y, v.Label, token: v.LabelToken, kind: "quoted"); s.Append("</g>");
         }
         s.Append("</g>");
         Open(s, "horizontal-axis", chart.HorizontalLine);
@@ -146,9 +170,9 @@ internal static partial class ChartRenderer
         for (int i = 0; i < categories.Length; i++)
         {
             if (i % chart.CategorySpacing != 0) continue;
-            double x = X(i); Line(s, x, zero, x, zero + 5); Text(s, x, zero + 23, categories[i]);
+            double x = X(i); Line(s, x, zero, x, zero + 5); Text(s, x, zero + 23, categories[i], token: chart.CategoryTokens[i], kind: "chart-category");
         }
-        if (chart.HorizontalLabel.Length > 0) Text(s, left + plot / 2, bottom + 48, chart.HorizontalLabel);
+        if (chart.HorizontalLabel.Length > 0) Text(s, left + plot / 2, bottom + 48, chart.HorizontalLabel, token: chart.HorizontalToken, kind: "quoted");
         s.Append("</g>");
 
         int barCount = chart.Series.Count(e => e.Kind == "bar"), barIndex = 0;
@@ -163,14 +187,15 @@ internal static partial class ChartRenderer
                 {
                     double y = Y(series.Values[i]);
                     Rect(s, X(i) - groupWidth / 2 + barIndex * groupWidth / barCount, Math.Min(zero, y), groupWidth / barCount,
-                        Math.Abs(zero - y), color, "#181818", i);
+                        Math.Abs(zero - y), color, "#181818", i, series.ValueTokens[i]);
+                    if (y == zero) Point(s, X(i) - groupWidth / 2 + (barIndex + .5) * groupWidth / barCount, y, 6, "transparent", i, series.ValueTokens[i]);
                 }
                 barIndex++;
             }
             else if (series.Kind == "scatter")
             {
                 for (int i = 0; i < categories.Length; i++)
-                    s.Append(CultureInfo.InvariantCulture, $"<circle data-point-index=\"{i}\" data-chart-marker=\"true\" data-style-name=\"scatter\" cx=\"{F(X(i))}\" cy=\"{F(Y(series.Values[i]))}\" r=\"4\" fill=\"{color}\"/>");
+                    Point(s, X(i), Y(series.Values[i]), 4, color, i, series.ValueTokens[i], true);
             }
             else
             {
@@ -180,6 +205,7 @@ internal static partial class ChartRenderer
                 for (int i = 0; i < categories.Length; i++) s.Append(CultureInfo.InvariantCulture, $"{F(X(i))},{F(Y(series.Values[i]))} ");
                 if (area) s.Append(CultureInfo.InvariantCulture, $"{F(X(categories.Length - 1))},{F(zero)}");
                 s.Append("\"/>");
+                for (int i = 0; i < categories.Length; i++) Point(s, X(i), Y(series.Values[i]), 6, "transparent", i, series.ValueTokens[i]);
             }
             s.Append("</g>");
         }
@@ -195,7 +221,7 @@ internal static partial class ChartRenderer
                 if (series.Kind == "line") Line(s, x, y + 6, x + 12, y + 6, c, 2);
                 else if (series.Kind == "scatter") s.Append(CultureInfo.InvariantCulture, $"<circle data-chart-marker=\"true\" data-style-name=\"scatter\" cx=\"{x + 6}\" cy=\"{y + 6}\" r=\"4.2\" fill=\"{c}\"/>");
                 else Rect(s, x, y, 12, 12, c, c);
-                Text(s, x + 17, y + 13, series.Label, "start"); s.Append("</g>");
+                Text(s, x + 17, y + 13, series.Label, "start", token: series.LabelToken, kind: "quoted"); s.Append("</g>");
                 if (column) y += 22; else x += SvgText.Measure(series.Label) + 36;
             }
         }
@@ -203,14 +229,32 @@ internal static partial class ChartRenderer
     }
 
     private static void Open(StringBuilder s, string kind, int line) => s.Append(CultureInfo.InvariantCulture, $"<g class=\"{kind}\" data-source-line=\"{line}\">");
-    private static void Text(StringBuilder s, double x, double y, string text, string anchor = "middle", int size = 14) =>
-        s.Append(CultureInfo.InvariantCulture, $"<text x=\"{F(x)}\" y=\"{F(y)}\" text-anchor=\"{anchor}\" font-size=\"{size}\">{SvgText.Escape(text)}</text>");
+    private static void Text(StringBuilder s, double x, double y, string text, string anchor = "middle", int size = 14, Token token = default, string kind = "text", string role = "label")
+    {
+        s.Append(CultureInfo.InvariantCulture, $"<text x=\"{F(x)}\" y=\"{F(y)}\" text-anchor=\"{anchor}\" font-size=\"{size}\"");
+        EditToken(s, token, kind, role);
+        s.Append('>').Append(SvgText.Escape(text)).Append("</text>");
+    }
     private static void Line(StringBuilder s, double x1, double y1, double x2, double y2, string color = "#181818", double weight = .5) =>
         s.Append(CultureInfo.InvariantCulture, $"<line x1=\"{F(x1)}\" y1=\"{F(y1)}\" x2=\"{F(x2)}\" y2=\"{F(y2)}\" stroke=\"{color}\" stroke-width=\"{F(weight)}\"/>");
-    private static void Rect(StringBuilder s, double x, double y, double w, double h, string color, string stroke, int index = -1)
+    private static void Rect(StringBuilder s, double x, double y, double w, double h, string color, string stroke, int index = -1, Token token = default)
     {
         s.Append(CultureInfo.InvariantCulture, $"<rect x=\"{F(x)}\" y=\"{F(y)}\" width=\"{F(w)}\" height=\"{F(h)}\" fill=\"{color}\" stroke=\"{stroke}\" stroke-width=\"0.5\"");
         if (index >= 0) s.Append(CultureInfo.InvariantCulture, $" data-point-index=\"{index}\"");
+        EditToken(s, token, "number", "value");
         s.Append("/>");
+    }
+
+    private static void Point(StringBuilder s, double x, double y, int radius, string color, int index, Token token, bool marker = false)
+    {
+        s.Append(CultureInfo.InvariantCulture, $"<circle data-point-index=\"{index}\" cx=\"{F(x)}\" cy=\"{F(y)}\" r=\"{radius}\" fill=\"{color}\"");
+        if (marker) s.Append(" data-chart-marker=\"true\" data-style-name=\"scatter\"");
+        EditToken(s, token, "number", "value");
+        s.Append("/>");
+    }
+
+    private static void EditToken(StringBuilder s, Token token, string kind, string role)
+    {
+        if (token.Length > 0) s.Append(CultureInfo.InvariantCulture, $" data-edit-start=\"{token.Start}\" data-edit-length=\"{token.Length}\" data-edit-kind=\"{kind}\" data-edit-role=\"{role}\"");
     }
 }

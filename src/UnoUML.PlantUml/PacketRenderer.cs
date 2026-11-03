@@ -4,16 +4,20 @@ namespace UnoUML.PlantUml;
 
 internal static class PacketRenderer
 {
-    private readonly record struct Field(int First, int Last, string Name, int Line);
+    private readonly record struct Field(int First, int Last, string Name, int Line, int Start);
 
     internal static string? TryRender(string source)
     {
         var fields = new List<Field>();
-        int columns = 32, stage = 0, line = -1;
+        int columns = 32, stage = 0, line = -1, offset = 0;
         bool configured = false;
         foreach (var raw in source.AsSpan().EnumerateLines())
         {
             line++;
+            int sourceStart = offset + raw.Length - raw.TrimStart().Length;
+            offset += raw.Length;
+            if (offset < source.Length && source[offset] == '\r') offset++;
+            if (offset < source.Length && source[offset] == '\n') offset++;
             var s = raw.Trim();
             if (s.IsEmpty || s.StartsWith("'")) continue;
             if (stage == 0 && s.SequenceEqual("@startpacketdiag")) { stage = 1; continue; }
@@ -39,7 +43,8 @@ internal static class PacketRenderer
             if (last < first || last >= columns * 360 || fields.Count > 0 && first <= fields[^1].Last) return null;
             string label = s[(colon+1)..].Trim().ToString();
             if (label.Length is 0 or > 256 || !SvgText.IsPlain(label) || label.Contains('[')) return null;
-            fields.Add(new(first, last, label, line));
+            int labelStart = sourceStart + s.Length - s[(colon + 1)..].TrimStart().Length;
+            fields.Add(new(first, last, label, line, labelStart));
         }
         if (stage != 4 || fields.Count == 0) return null;
         int cell = 23;
@@ -56,7 +61,7 @@ internal static class PacketRenderer
             svg.Append(CultureInfo.InvariantCulture, $"<text x=\"{16+bit*cell+cell/2}\" y=\"19\" text-anchor=\"middle\" font-size=\"11\">{bit}</text>");
         foreach (var f in fields)
         {
-            svg.Append(CultureInfo.InvariantCulture, $"<g data-source-line=\"{f.Line}\"><title>{SvgText.Escape(f.Name)}</title>");
+            svg.Append(CultureInfo.InvariantCulture, $"<g data-source-line=\"{f.Line}\" data-edit-start=\"{f.Start}\" data-edit-length=\"{f.Name.Length}\" data-edit-kind=\"packet-label\" data-edit-role=\"label\"><title>{SvgText.Escape(f.Name)}</title>");
             for (int start = f.First; start <= f.Last;)
             {
                 int row = start / columns, stop = Math.Min(f.Last + 1, (row + 1) * columns);

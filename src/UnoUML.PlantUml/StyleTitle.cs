@@ -36,7 +36,7 @@ internal sealed record StyleTitle(StyleTitle.Row[] Rows, int FontSize, int Width
     {
         int x = center - Width / 2 + Margin.Left, y = top + Margin.Top;
         int width = Width - Margin.Horizontal, height = Height - Margin.Vertical;
-        svg.Append("<g class=\"title\" data-style-name=\"title\"");
+        svg.Append("<g class=\"title\" data-style-name=\"title\" data-style-metrics=\"fontsize padding margin maximumwidth minimumwidth\"");
         if (sourceLine >= 0) svg.Append(CultureInfo.InvariantCulture, $" data-source-line=\"{sourceLine}\"");
         svg.Append('>');
         string fill = skin.Style("title", "backgroundcolor", "none"), stroke = skin.Style("title", "linecolor", "none");

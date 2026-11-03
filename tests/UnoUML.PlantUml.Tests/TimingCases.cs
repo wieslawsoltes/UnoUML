@@ -6,6 +6,7 @@ internal static class TimingCases
 {
     public static void Run()
     {
+        TimingStyleCases.Run();
         var sample = Render("""
             @startuml
             robust "Bus" as Bus
@@ -63,7 +64,7 @@ internal static class TimingCases
         var lowerTrack = Groups(below, "timing-track").Single().Element(ns+"line")!;
         Require((int)upperBox.Attribute("y")! + (int)upperBox.Attribute("height")! < (int)upperTrack.Attribute("y1")! &&
             (int)lowerBox.Attribute("y")! > (int)lowerTrack.Attribute("y1")! && (int)lowerBox.Attribute("x")! > (int)upperBox.Attribute("x")!, "legend location relative to waveform");
-        foreach (var label in new[] { "**bold**", "|Header|Value|", "!include file.puml", "<color:red>red</color>" })
+        foreach (var label in new[] { "|Header|Value|", "!include file.puml" })
             Require(!PlantUmlRenderer.TryRender(Traces("right", label), out _), "rich legend delegates to reference");
 
         var background = Render("@startuml\nrobust \"Bus\" as Bus\nskinparam backgroundcolor red\n@enduml");

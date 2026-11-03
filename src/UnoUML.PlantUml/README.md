@@ -21,10 +21,10 @@ if (PlantUmlRenderer.TryRender(source, out var diagram))
 }
 ```
 
-Reference the project directly or download the package into a local NuGet source. [UnoUML.PlantUml.0.3.0.nupkg](https://wieslawsoltes.github.io/UnoUML/packages/UnoUML.PlantUml.0.3.0.nupkg)
+Reference the project directly or download the package into a local NuGet source. [UnoUML.PlantUml.0.4.0.nupkg](https://wieslawsoltes.github.io/UnoUML/packages/UnoUML.PlantUml.0.4.0.nupkg)
 
 ```sh
-dotnet add package UnoUML.PlantUml --version 0.3.0 --source ./packages
+dotnet add package UnoUML.PlantUml --version 0.4.0 --source ./packages
 ```
 
 Build a local package with `dotnet pack src/UnoUML.PlantUml -c Release`.
@@ -33,15 +33,19 @@ Build a local package with `dotnet pack src/UnoUML.PlantUml -c Release`.
 
 Pass a single, complete `@start…` / `@end…` block. The method returns a typed diagram and a complete SVG document on success. An unrecognized statement, unsupported dialect or layout that exceeds a managed limit returns `false`. A host can use the official PlantUML renderer at that boundary. Hosts supply filesystem, network, environment and archive capabilities through render-local callbacks.
 
-The native grammars cover common sequence, structural UML, state, activity, timing, chart, Gantt, network, Salt wireframes, mind map, WBS, packet, file tree, JSON, block YAML, DOT, Creole, EBNF and regex diagrams. Chen ER, Ditaa, AsciiMath and LaTeX are rendered as vector diagrams. Built-in C4 Context, Container, Component, Deployment and ArchiMate calls have source-mapped native renderers for the supported standard-library signatures. The general TIM runtime expands additional host-provided library definitions into these grammars. Remaining diagram syntax and external engines can be delegated to the reference renderer. Geometry and typography can differ between implementations. The output includes a viewBox, dimensions, escaped user text, zero-based `data-source-line` attributes and qualified identifiers for addressable UML objects.
+The native grammars cover common sequence, structural UML, state, activity, timing, chart, Gantt, network, Salt wireframes, mind map, WBS, packet, file tree, JSON, block/flow YAML, DOT, Creole, EBNF and regex diagrams. Chen ER, Ditaa, AsciiMath and LaTeX are rendered as vector diagrams. Built-in C4 Context, Container, Component, Deployment and ArchiMate calls have source-mapped native renderers for the supported standard-library signatures. The general TIM runtime expands additional host-provided library definitions into these grammars. Remaining diagram syntax and external engines can be delegated to the reference renderer. Geometry and typography can differ between implementations. The output includes a viewBox, dimensions, escaped user text, zero-based `data-source-line` attributes and qualified identifiers for addressable UML objects.
 
 The sequence engine measures lanes and message spans before emitting SVG. Structural diagrams lay out nested containers, assign ranks and route connectors. Hierarchies use iterative subtree packing. The JSON renderer streams tokens directly into field tables and tracks source lines across UTF-8 input. The native engines execute directly in the calling process.
 
 Sequence lifecycle support includes reference frames, participant creation and destruction, activation suffixes, automatic activation and nested returns. Page splitting clips lifetimes and frames while preserving message numbering and participant identity. Ditaa uses iterative bridge detection and planar face walks to distinguish open connectors from closed shapes. Formula renderers share a baseline-aware layout tree.
 
-Managed styling includes nested and comma-separated selectors, variables, specificity, stereotypes, depth and descendant inheritance, gradients, shadows and deterministic handwritten paths. Graph, sequence and tree painters integrate font metrics, wrapping and spacing into layout. All 44 embedded themes are regression-tested on class and sequence diagrams. Other painters accept their integrated paint properties and decline layout-sensitive rules that they cannot measure.
+Managed styling includes nested and comma-separated selectors, variables, specificity, stereotypes, depth and descendant inheritance, gradients, shadows and deterministic handwritten paths. Graph, sequence, tree, activity, timing, JSON, YAML and Salt painters integrate their applicable font metrics, wrapping and spacing into layout. All 44 embedded themes are regression-tested on class and sequence diagrams. Other painters accept their integrated paint properties and decline layout-sensitive rules that they cannot measure.
 
 Integrated graph, sequence, mind-map/WBS and Creole painters support HTML and Creole font styles, headings, links, alignment, Unicode escapes, inline data-URI raster images and custom grayscale, compressed, 4096-color and SVG sprites. Declared sprites can resolve local and archive assets through host callbacks. Filename and URL forms of inline `<img>` remain on the reference path. The assembly embeds 223 OpenIconic glyphs, 1,174 Twemoji images and their named shortcuts. Sprite definitions decode lazily, repeated SVG artwork receives unique local definition IDs, and concurrent render calls have isolated resource scopes.
+
+Rich labels can embed native `<math>` and `<latex>` vectors. The formula layout supports fractions, roots, scripts, large operators, aligned arrays, colors, annotations, accents, braces, cancellation, mathematical alphabets and phantom spacing. YAML supports nested collections, quoted keys, comments, literal/folded strings and path highlighting. DOT supports scoped defaults, strict edge merging, subgraphs, nested clusters, rank constraints, ports, record labels, HTML tables, common shapes, compound arrows, gradients and hyperlinks.
+
+Literal JSON, YAML, Salt, DOT, chart, packet, timing and activity fields carry exact UTF-16 token ranges for canvas editing, including BOM-prefixed inputs and CR/LF line endings. Generated statements retain their physical-source provenance, while exact token metadata is emitted only when it maps to the source being edited.
 
 ## Multi-page sequences
 
@@ -69,7 +73,7 @@ if (PlantUmlRenderer.TryRender(input, path => files.GetValueOrDefault(path), out
     File.WriteAllText("model.svg", model.Svg);
 ```
 
-The resolver receives normalized virtual paths or explicit absolute resource identifiers and returns text or `null`. `SourceFileName` sets the base for relative includes and assets. Source rows retain their original indices. Generated statements carry `data-source-generated="true"`, and included statements also carry `data-source-file` and `data-file-line`. Missing dependencies, invalid syntax, cycles and bounded resource limits return `false` for the complete diagram.
+The resolver receives normalized virtual paths or explicit absolute resource identifiers and returns text or `null`. `SourceFileName` sets the base for relative includes and assets. Source rows retain their original indices. Generated statements carry `data-source-generated="true"`, and included statements also carry `data-source-file` and `data-file-line`. Archive members additionally carry `data-source-archive`. Missing dependencies, invalid syntax, cycles and bounded resource limits return `false` for the complete diagram.
 
 ## Host capabilities and archives
 
@@ -105,14 +109,16 @@ if (PlantUmlPreprocessor.TryProcess(archiveInput, out var expanded, options))
 }
 ```
 
-`PlantUmlResourceLibrary` stores immutable virtual files and can be shared across renders. `FromZip` reads source, JSON, SVG and supported raster resources, retains the caller's stream, and rejects entries that escape the virtual root. Raster entries resolve to data URIs. `!import` and archive sprite paths use `ImportLibrary`. The options also expose named `Definitions` for `!includedef`, file metadata, a clock, timezone, culture and a random-integer provider for reproducible execution. `SequencePages.TryRender(input, out sheets, options)` uses the same capabilities.
+`PlantUmlResourceLibrary` stores immutable virtual files and can be shared across renders. `FromZip` reads source, JSON, SVG and supported raster resources, skips opaque binary entries, retains the caller's stream, and rejects entries that escape the virtual root. Raster entries resolve to data URIs. `!import` and archive sprite paths use `ImportLibrary`. The options also expose named `Definitions` for `!includedef`, file metadata, a clock, timezone, culture and a random-integer provider for reproducible execution. `SequencePages.TryRender(input, out sheets, options)` uses the same capabilities.
 
 The TIM interpreter supports default/named/overloaded routines, recursive and multi-statement return functions, procedure retrieval and invocation, local/global scopes, legacy macros, JSON mutation and iteration, loops, conditional compilation, include selectors, subparts and themes. Its 74 built-ins cover boolean/string/Unicode operations, JSON, dates, environment and file metadata, library/theme discovery, dynamic calls, colors and HSLuv. `PreprocessedSource.Options` contains the resulting directive options.
 
-Library-expansion retries share a per-render snapshot of include text and immutable archive results, and diagnostics are delivered once. A failed fast-path attempt that consumes a clock, random-number or environment provider ends at the `false` boundary, allowing the host to select its reference-renderer path.
+Dynamic library expansion executes TIM once and records a native C4/ArchiMate layout projection from already-evaluated arguments. Clock, random-number, environment, resource and diagnostic callbacks preserve their execution order. A literal fast path verifies the exact pinned stock dependency chain before using direct layout. Customized dependencies enter the interpreter with the already-read prefix, preserving resolver call counts. The assembly embeds the pinned C4/ArchiMate source subset needed for standalone expansion.
 
 ## Compatibility boundaries
 
-The application also supplies the official JavaScript renderer and an optional JVM endpoint. Advanced Graphviz semantics, extended TeX packages, external engines, wider diagram-specific grammars and some layout-sensitive style combinations remain on those paths. Native geometry uses the library's own layout and generic font measurements. Timezone names use the English reference catalog, while date fields honor the supplied culture. Historical timezone transitions follow the host runtime's database. Regression counts describe exercised fixtures and edits.
+The application also supplies the official JavaScript renderer and an optional JVM endpoint. Non-dot Graphviz engines, overlapping clusters, some HTML-table and graph-layout attributes, extended TeX packages, YAML anchors/tags, nested Salt forms, wider diagram-specific grammars and some layout-sensitive style combinations remain on those paths. Native geometry uses the library's own layout and generic font measurements. Complete upstream language and layout parity remains unfinished. Regression counts describe exercised fixtures and edits.
 
-The NuGet package includes upstream resource notices and the original OpenIconic and Twemoji license texts under `licenses/`. The managed source continues to build with the .NET SDK and its runtime libraries.
+Localized timezone display names are pinned to the OpenJDK 17.0.20 catalog across 1,015 locale tags and 632 zone IDs. Other date fields honor the supplied `CultureInfo`. UTC offsets and historical transitions follow the host CLR `TimeZoneInfo` database. Regenerate the portable catalog with `java -Xmx512m scripts/GenerateTimezoneCatalog.java` using that pinned runtime.
+
+The NuGet package includes upstream resource notices and the original OpenIconic, Twemoji and CLDR license texts under `licenses/`. The managed source continues to build with the .NET SDK and its runtime libraries.

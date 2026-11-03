@@ -70,7 +70,10 @@ internal static class SequenceCases
 
         var roles = Render("@startuml\n" + string.Join('\n', new[] { "participant", "actor", "boundary", "control", "entity", "database", "collections", "queue" }.Select((role, i) => role + " P" + i)) + "\n@enduml");
         Require(Groups(roles).Count(x => (string?)x.Attribute("class") == "participant participant-tail") == 8, "all lifeline heads and tails");
-        foreach (var invalid in new[] { "!include <C4/C4_Context>", "skinparam sequenceUnknownThickness 3", "autonumber 1 1 \"[00]\"", "A-[#notacolor]> B", "alt missing end" })
+        var library = Render("@startuml\nparticipant A\n!include <C4/C4_Context>\n@enduml");
+        Require(Groups(library).Any(group => (string?)group.Attribute("class") == "participant participant-head" &&
+            (int?)group.Attribute("data-source-line") == 1), "standard-library initialization preserves the sequence participant source");
+        foreach (var invalid in new[] { "skinparam sequenceUnknownThickness 3", "autonumber 1 1 \"[00]\"", "A-[#notacolor]> B", "alt missing end" })
             Require(!PlantUmlRenderer.TryRender("@startuml\nparticipant A\n" + invalid + "\n@enduml", out _), "whole-document fallback for " + invalid);
     }
 

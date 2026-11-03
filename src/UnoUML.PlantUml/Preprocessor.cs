@@ -10,7 +10,8 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
     bool preserveStandardLibraries = false)
 {
     private const int MaxLine = 65536, MaxBytes = 1_048_576;
-    private readonly record struct Origin(int Root, string? File, int Line, bool Generated, string? ResourceFile = null);
+    private readonly record struct Origin(int Root, string? File, int Line, bool Generated, string? ResourceFile = null, string? Archive = null,
+        bool LiteralContinuation = false);
     private sealed class Unhandled(string? message) : Exception(message) { }
     private static Unhandled Unsupported(string? message = null) => new(message);
     private readonly Dictionary<string, Value> globals = new(StringComparer.Ordinal);
@@ -18,12 +19,13 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
     private readonly Dictionary<string, List<Routine>> routines = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<Subpart>> subparts = new(StringComparer.Ordinal);
     private readonly Dictionary<string[], HashSet<int>> transformedLines = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<string[], HashSet<int>> continuedLines = new(ReferenceEqualityComparer.Instance);
     private readonly HashSet<string> included = new(StringComparer.Ordinal), visiting = new(StringComparer.Ordinal);
     private readonly StringBuilder output = new();
     private readonly List<Origin> origins = [];
     private readonly Dictionary<string, string> renderingOptions = new(StringComparer.Ordinal);
-    private int fuel = 100_000, sourceChars;
-    private bool library;
+    private int fuel = 100_000, nativeLibraryFuel = 2_000_000, sourceChars;
+    private bool preservesOffsets;
     private string? currentFile;
     private Origin currentOrigin;
     private string? CurrentFile => currentFile ?? options?.SourceFileName;
@@ -56,6 +58,7 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
             string[] lines = PrepareLines(source);
             Run(lines, 0, lines.Length, null, null, globals, 0);
             expanded = output.ToString();
+            preservesOffsets = string.Equals(source, expanded, StringComparison.Ordinal);
             return true;
         }
         catch (Exception error) when (IsHandledFailure(error)) { return false; }
@@ -64,8 +67,9 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
     internal static bool IsHandledFailure(Exception error) => error is Unhandled or JsonException or InvalidOperationException or
         OverflowException or ArgumentException or FormatException or System.Text.RegularExpressions.RegexMatchTimeoutException or TimeZoneNotFoundException;
 
-    internal string Remap(string svg)
+    internal string Remap(string svg, bool projectedLibrary = false)
     {
+        var sourceOrigins = projectedLibrary ? libraryProjectionOrigins ?? origins : origins;
         var root = XElement.Parse(svg, LoadOptions.PreserveWhitespace);
         foreach (string option in new[] { "svg_desc", "svg_title" })
         {
@@ -76,24 +80,35 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
         }
         foreach (var node in root.DescendantsAndSelf())
         {
-            if (node.Attribute("data-json-start") != null)
+            if (!preservesOffsets && node.Attribute("data-json-start") != null)
             {
                 node.SetAttributeValue("data-json-start", null);
                 node.SetAttributeValue("data-json-length", null);
                 node.SetAttributeValue("data-json-kind", null);
                 node.SetAttributeValue("data-source-generated", "true");
             }
+            if (!preservesOffsets && (node.Attribute("data-dot-start") != null || node.Attribute("data-dot-label-start") != null || node.Attribute("data-dot-label-insert") != null))
+            {
+                node.Attributes().Where(attribute => attribute.Name.LocalName.StartsWith("data-dot-", StringComparison.Ordinal)).Remove();
+                node.SetAttributeValue("data-source-generated", "true");
+            }
+            if (!preservesOffsets && node.Attributes().Any(attribute => attribute.Name.LocalName.StartsWith("data-edit-", StringComparison.Ordinal)))
+            {
+                node.Attributes().Where(attribute => attribute.Name.LocalName.StartsWith("data-edit-", StringComparison.Ordinal)).Remove();
+                node.SetAttributeValue("data-source-generated", "true");
+            }
             foreach (var attribute in node.Attributes().ToArray())
             {
                 if (attribute.Name.LocalName is not ("data-source-line" or "data-source-end-line" or "data-start-line" or "data-end-line") ||
-                    !int.TryParse(attribute.Value, CultureInfo.InvariantCulture, out int index) || (uint)index >= (uint)origins.Count) continue;
-                var origin = origins[index];
+                    !int.TryParse(attribute.Value, CultureInfo.InvariantCulture, out int index) || (uint)index >= (uint)sourceOrigins.Count) continue;
+                var origin = sourceOrigins[index];
                 attribute.Value = origin.Root.ToString(CultureInfo.InvariantCulture);
                 if (attribute.Name.LocalName != "data-source-line" || !origin.Generated) continue;
                 node.SetAttributeValue("data-source-generated", "true");
                 if (origin.File == null) continue;
                 node.SetAttributeValue("data-source-file", origin.File);
                 node.SetAttributeValue("data-file-line", origin.Line);
+                node.SetAttributeValue("data-source-archive", origin.Archive);
             }
         }
         return root.ToString(SaveOptions.DisableFormatting);
@@ -102,12 +117,16 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
     internal int SourceLine(int renderedLine) =>
         (uint)renderedLine < (uint)origins.Count ? origins[renderedLine].Root : renderedLine;
 
-    private void Charge() { if (--fuel < 0) throw Unsupported(); }
+    private void Charge()
+    {
+        if (currentNativeLibrary ? --nativeLibraryFuel < 0 : --fuel < 0) throw Unsupported();
+    }
 
     private void Emit(string line, Origin origin)
     {
         if (line.Length > MaxLine || line.AsSpan().IndexOfAny('\u0085', '\u2028', '\u2029') >= 0 || output.Length + line.Length + 1 > MaxBytes) throw Unsupported();
         if (line.Contains('\r')) line = line.ReplaceLineEndings("\n");
+        if (projectionSuppression == 0) AppendProjection(line, origin);
         foreach (var physical in line.AsSpan().EnumerateLines())
         {
             if (origins.Count >= 32000) throw Unsupported();
@@ -168,6 +187,7 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
             transformed.Add(i);
             lines[start] = joined.ToString();
         }
+        var continued = new HashSet<int>(transformed);
         bool comment = false;
         for (int i = 0; i < lines.Length; i++)
         {
@@ -201,10 +221,12 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
             {
                 lines[i] = (filtered ?? new()).Append(line, start, line.Length - start).ToString();
                 transformed.Add(i);
+                continued.Remove(i);
             }
         }
         if (comment) throw Unsupported();
         if (transformed.Count > 0) transformedLines.Add(lines, transformed);
+        if (continued.Count > 0) continuedLines.Add(lines, continued);
         return lines;
     }
 
@@ -228,16 +250,20 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
     {
         if (depth > 64) throw Unsupported();
         string? previousFile = currentFile;
+        bool previousNativeLibrary = currentNativeLibrary;
         var previousOrigin = currentOrigin;
         currentFile = resourceParents.TryGetValue(lines, out var resourceParent) ? resourceParent : file;
+        currentNativeLibrary = nativeLibrarySources.Contains(lines);
         try
         {
             for (int i = begin; i < end; i++)
             {
                 Charge();
                 string raw = lines[i], text = CommandText(raw);
-                currentOrigin = new(callLine ?? i, file, i,
-                    callLine.HasValue || transformedLines.TryGetValue(lines, out var transformed) && transformed.Contains(i), CurrentFile);
+                currentOrigin = new(callLine ?? i, resourceMembers.GetValueOrDefault(lines) ?? file, i,
+                    callLine.HasValue || transformedLines.TryGetValue(lines, out var transformed) && transformed.Contains(i), CurrentFile,
+                    resourceArchives.GetValueOrDefault(lines),
+                    !callLine.HasValue && continuedLines.TryGetValue(lines, out var continued) && continued.Contains(i));
                 var origin = currentOrigin;
                 if (text.Length == 0 || text[0] == '\'') { if (!returning && text.Length == 0) Emit(raw, origin); continue; }
                 if (text.StartsWith("@start", StringComparison.OrdinalIgnoreCase) || text.StartsWith("@end", StringComparison.OrdinalIgnoreCase))
@@ -344,12 +370,7 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
                 if (cmd is "!include" or "!includeurl" or "!include_many" or "!include_once")
                 {
                     string requested = Substitute(rest, locals, depth).Trim();
-                    if (preserveStandardLibraries && IsDirectLibrary(requested))
-                    {
-                        library = true;
-                        Emit("!include " + requested, origin);
-                    }
-                    else Include(requested, cmd, CurrentFile, origin.Root, locals, depth + 1);
+                    Include(requested, cmd, CurrentFile, origin.Root, locals, depth + 1);
                     continue;
                 }
                 if (cmd == "!includesub") { IncludeSub(Substitute(rest, locals, depth), origin.Root, locals, depth + 1); continue; }
@@ -399,7 +420,7 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
             }
             return null;
         }
-        finally { currentFile = previousFile; currentOrigin = previousOrigin; }
+        finally { currentFile = previousFile; currentNativeLibrary = previousNativeLibrary; currentOrigin = previousOrigin; }
     }
 
     private static Value JsonString(string text)
@@ -450,6 +471,7 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
     private bool TryGetVariable(string name, Dictionary<string, Value> locals, out Value value)
     {
         if (localOverrides.TryGetValue(locals, out var overrides) && overrides.Contains(name) && locals.TryGetValue(name, out value)) return true;
+        if (currentNativeLibrary && userGlobals.Contains(name) && globals.ContainsKey(name)) DisableProjection();
         return globals.TryGetValue(name, out value) || locals.TryGetValue(name, out value);
     }
 
@@ -464,6 +486,7 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
         }
         bool overridden = localOverrides.TryGetValue(locals, out var names) && names.Contains(name);
         var target = scope == "global" || !explicitLocal && !overridden && globals.ContainsKey(name) ? globals : locals;
+        if (preserveStandardLibraries && !currentNativeLibrary && target == globals) userGlobals.Add(name);
         target[name] = value;
     }
 
@@ -508,14 +531,20 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
                     result ??= new();
                     result.Append(raw, copied, i - copied);
                     string prefix = result.ToString();
+                    string suffix = raw[(i + consumed)..];
                     int length = output.Length, count = origins.Count;
                     if (routine == null)
                     {
                         if (args.Named.Count != 0 || args.Positional.Count == 0) throw Unsupported();
-                        InvokeProcedure(args.Positional[0].Scalar, args.Positional.Skip(1).ToArray(), locals, depth);
+                        string procedureName = args.Positional[0].Scalar;
+                        args = new(args.Positional.Skip(1).ToList(), new(StringComparer.Ordinal));
+                        routine = SelectRoutine(procedureName, args);
                     }
-                    else ExecuteProcedure(routine, args, depth + 1);
-                    string suffix = raw[(i + consumed)..];
+                    bool projected = ProjectProcedure(routine, args, prefix, suffix, origin);
+                    if (projected) projectionSuppression++;
+                    else if (projectionSuppression == 0 && (!string.IsNullOrWhiteSpace(prefix) || !string.IsNullOrWhiteSpace(suffix))) DisableProjection();
+                    try { ExecuteProcedure(routine, args, depth + 1); }
+                    finally { if (projected) projectionSuppression--; }
                     if (output.Length + prefix.Length + suffix.Length > MaxBytes) throw Unsupported();
                     if (origins.Count > count)
                     {
@@ -544,40 +573,4 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
         return result == null ? raw : result.Append(raw, copied, raw.Length - copied).ToString();
     }
 
-    private string LibraryStatement(string raw, Dictionary<string, Value> locals, int depth)
-    {
-        string call = raw.Trim();
-        bool opensGroup = call.EndsWith('{');
-        if (opensGroup) call = call[..^1].TrimEnd();
-        int open = call.IndexOf('(');
-        if (open <= 0 || !call.EndsWith(')') || !LibraryMacro.Alias(call[..open])) return Substitute(raw, locals, depth);
-        string name = call[..open];
-        int identifiers = name.StartsWith("Rel", StringComparison.Ordinal) || name.StartsWith("BiRel", StringComparison.Ordinal) ||
-            name.StartsWith("Lay", StringComparison.Ordinal) ? 2 : 1;
-        var arguments = new List<string>(); int start = open + 1, parens = 0; char quote = '\0';
-        for (int i = start; i < call.Length; i++)
-        {
-            char c = call[i];
-            if (quote != '\0') { if (c == quote) quote = '\0'; continue; }
-            if (c is '\'' or '"') { quote = c; continue; }
-            if (c == '(') { parens++; continue; }
-            if (c == ')' && parens > 0) { parens--; continue; }
-            if (parens != 0 || c != ',' && i != call.Length - 1) continue;
-            string arg = call[start..i].Trim();
-            if (arg.StartsWith('$') || arg.StartsWith('%'))
-            {
-                var value = Evaluate(arg, locals, depth);
-                if (arguments.Count < identifiers) { if (!LibraryMacro.Alias(value.Scalar)) throw Unsupported(); arg = value.Scalar; }
-                else
-                {
-                    if (value.Scalar.IndexOfAny(['"', '\\', '\n', '\r']) >= 0) throw Unsupported();
-                    arg = '"' + value.Scalar + '"';
-                }
-            }
-            else arg = Substitute(arg, locals, depth);
-            arguments.Add(arg); start = i + 1;
-        }
-        if (parens != 0 || quote != '\0' || start != call.Length) throw Unsupported();
-        return name + "(" + string.Join(",", arguments) + ")" + (opensGroup ? " {" : "");
-    }
 }

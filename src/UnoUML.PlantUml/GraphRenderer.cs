@@ -24,6 +24,7 @@ internal static partial class GraphRenderer
         public int[] MemberHeights = [];
         public string[][] MemberRows = [];
         public StyleSpacing Padding = new(13, 17, 13, 17), Margin;
+        public StyleSpacing? ChildPadding;
         public bool Implicit, ExplicitFill, DeploymentGlyph, CaptionBelow;
         public bool IsStatePort => Kind == "state" && Stereotype is ("entryPoint" or "exitPoint" or "inputPin" or "outputPin");
         public bool IsInputPort => Stereotype is "entryPoint" or "inputPin";
@@ -31,8 +32,12 @@ internal static partial class GraphRenderer
         public bool IsType => !DeploymentGlyph && Kind is ("class" or "abstract class" or "abstract" or "interface" or "annotation" or "enum" or "entity" or "object" or "struct" or "exception" or "protocol" or "metaclass" or "stereotype" or "map");
     }
 
-    private sealed record Edge(Node From, Node To, string Arrow, string Caption, string Tail, string Head, int Line, string Direction, bool Hidden, EdgePaint? Paint = null);
-    private sealed record Arc(int A, int B, string Direction, bool Hidden, int LabelWidth = 0, int LabelHeight = 0);
+    private sealed record Edge(Node From, Node To, string Arrow, string Caption, string Tail, string Head, int Line, string Direction, bool Hidden, EdgePaint? Paint = null)
+    {
+        internal bool ConstrainsRank = true;
+        internal int MinimumLength = 1, LayoutLabelWidth, LayoutLabelHeight;
+    }
+    private sealed record Arc(int A, int B, string Direction, bool Hidden, int LabelWidth = 0, int LabelHeight = 0, int MinimumLength = 1);
     private sealed record Pending(Node Scope, string From, string To, string Arrow, string Caption, string Tail, string Head, int Line, string Direction, bool Hidden, EdgePaint? Paint);
     private sealed class Graph
     {
@@ -45,6 +50,8 @@ internal static partial class GraphRenderer
         public int LegendLine = -1;
         public List<string> Legend = [];
         public bool Horizontal, HideCircle, IsState;
+        public int NodeGap = 52, RankGap = 85;
+        public bool CenterRanks, EqualRanks;
     }
 
     private static readonly string[] DirectionNames = ["left", "right", "up", "down"];

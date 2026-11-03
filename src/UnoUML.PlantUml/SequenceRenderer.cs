@@ -113,7 +113,7 @@ internal static partial class SequenceRenderer
         if (source.Length > 512_000) return null;
         var diagram = new Diagram();
         if (!ModernStyle.TryExtract(source, sequence: true, diagram.Skin, out source)) return null;
-        var lines = source.Split('\n');
+        var lines = SourceLines.WithLineFeeds(source).Split('\n');
         var life = new LifeState(diagram);
         var frames = new Stack<int>();
         bool started = false, ended = false, auto = false, ignorePages = false;

@@ -1,6 +1,7 @@
 UnoUML.PlantUml resource notices
 
-Bundled theme text, standard-library metadata, icon paths and emoji paths are
+Bundled theme text, pinned C4/ArchiMate source, standard-library metadata,
+icon paths and emoji paths are
 extracted reproducibly from @plantuml/core 1.2026.9. Resource catalogs use gzip
 compression and JSON serialization. The original artwork paths are retained.
 https://www.npmjs.com/package/@plantuml/core
@@ -21,3 +22,11 @@ https://creativecommons.org/licenses/by/4.0/
 
 Additional standard libraries are loaded separately by the host. Their source
 files retain their upstream copyright and license notices.
+
+Localized timezone display names are generated from OpenJDK 17.0.20 locale
+services, which use Unicode CLDR v39 data. The generated JSON catalog
+deduplicates locale tables and retains the original display strings. Unicode
+CLDR data is copyright 1991-2021 Unicode, Inc. The complete copyright and
+permission notice supplied by OpenJDK is reproduced in CLDR.LICENSE.
+https://github.com/openjdk/jdk17u/blob/master/src/java.base/share/legal/cldr.md
+https://cldr.unicode.org/

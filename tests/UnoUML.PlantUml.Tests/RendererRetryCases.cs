@@ -9,17 +9,23 @@ internal static class RendererRetryCases
 
     internal static void Run()
     {
-        PureRetry();
-        ProviderBoundary();
-        ImportedLibraryRetry();
+        CustomLibraryExecution();
+        ProviderExecution();
+        ProviderOrdering();
+        CustomStockProcedure();
+        ImportedLibraryExecution();
         ResourceFailures();
         DirectC4();
+        NamedDirectCalls();
+        LibraryConfiguration();
+        PureStockDependencies();
+        LargeStockLibrary();
         DiagnosticBudget();
         DiagnosticFailures();
         PlainDiagram();
     }
 
-    private static void PureRetry()
+    private static void CustomLibraryExecution()
     {
         const string source = "@startuml\n!include settings.iuml\n!include <C4/C4_Context>\n!$missing=%file_exists(\"absent.iuml\")\n!log root $caption $missing\nCustom($caption)\n@enduml";
         var reads = new Dictionary<string, int>();
@@ -42,13 +48,13 @@ internal static class RendererRetryCases
         {
             logs.Clear();
             Check(PlantUmlRenderer.TryRender(source, out var diagram, options) && diagram.Kind == DiagramKind.Graph &&
-                XElement.Parse(diagram.Svg).Value.Contains("snapshot" + invocation), "pure custom C4 expanded retry");
-            Check(reads.Count == 3 && reads.Values.All(count => count == invocation), "source and missing-resource snapshots are render-local");
-            Check(logs.SequenceEqual(new[] { "library", "root snapshot" + invocation + " 0" }), "only selected attempt diagnostics are delivered");
+                XElement.Parse(diagram.Svg).Value.Contains("snapshot" + invocation), "custom C4 single execution");
+            Check(reads.Count == 3 && reads.Values.All(count => count == invocation), "source providers are called once per render");
+            Check(logs.SequenceEqual(new[] { "library", "root snapshot" + invocation + " 0" }), "library and root diagnostics retain execution order");
         }
     }
 
-    private static void ProviderBoundary()
+    private static void ProviderExecution()
     {
         foreach (string provider in new[] { "random", "clock", "environment" })
         {
@@ -72,17 +78,17 @@ internal static class RendererRetryCases
                 _ => "%getenv(\"DEMO\")"
             };
             string source = "@startuml\n!include <C4/C4_Context>\n!$caption=" + expression + "\n!log attempt\nCustom($caption)\n@enduml";
-            Check(!PlantUmlRenderer.TryRender(source, out var diagram, options) && diagram == null, provider + " prevents effectful retry");
+            Check(PlantUmlRenderer.TryRender(source, out var diagram, options) && diagram.Kind == DiagramKind.Graph, provider + " custom library renders natively");
             Check(randomCalls == (provider == "random" ? 1 : 0) && clockCalls == (provider == "clock" ? 1 : 0) &&
-                environmentCalls == (provider == "environment" ? 1 : 0) && archiveCalls == 0 && libraryReads == 0,
+                environmentCalls == (provider == "environment" ? 1 : 0) && archiveCalls == 0 && libraryReads == 1,
                 provider + " provider runs once without replay");
-            Check(logs.SequenceEqual(new[] { "attempt" }), provider + " diagnostics delivered once");
+            Check(logs.SequenceEqual(new[] { "library", "attempt" }), provider + " diagnostics delivered once");
             if (provider == "random") expectedRandom.Next(0, 100);
             Check(random.Next(0, 100) == expectedRandom.Next(0, 100), provider + " preserves seeded random state");
         }
     }
 
-    private static void ImportedLibraryRetry()
+    private static void ImportedLibraryExecution()
     {
         const string source = "@startuml\n!import extras.zip\n!include <C4/C4_Context>\n!log root\nCustom(\"archive\")\n@enduml";
         int imports = 0;
@@ -94,8 +100,84 @@ internal static class RendererRetryCases
             Log = logs.Add
         };
         Check(PlantUmlRenderer.TryRender(source, out var diagram, options) && diagram.Kind == DiagramKind.Graph &&
-            XElement.Parse(diagram.Svg).Value.Contains("archive"), "imported custom C4 retries natively");
-        Check(imports == 1 && logs.SequenceEqual(new[] { "library", "root" }), "immutable archive snapshot and diagnostics reused across retry");
+            XElement.Parse(diagram.Svg).Value.Contains("archive"), "imported custom C4 executes natively");
+        Check(imports == 1 && logs.SequenceEqual(new[] { "library", "root" }), "archive import and diagnostics execute once");
+    }
+
+    private static void ProviderOrdering()
+    {
+        const string library = """
+            !log library
+            !$libraryEnvironment=%getenv("VALUE")
+            !procedure Custom($text,$declared=%random(100))
+            !log procedure
+            rectangle "$text / $declared / $libraryEnvironment" as A
+            !endprocedure
+            """;
+        const string source = """
+            @startuml
+            !log root
+            !include <C4/C4_Context>
+            !function next()
+            !log next
+            !return %random(100)
+            !endfunction
+            Custom(%string(next()) + " / " + %string(next()) + " / " + %now() + " / " + %now() + " / " + %getenv("VALUE") + " / " + %getenv("VALUE"))
+            @enduml
+            """;
+        var events = new List<string>();
+        var random = new Random(1729);
+        var expected = new Random(1729);
+        int declared = expected.Next(100), first = expected.Next(100), second = expected.Next(100);
+        int clocks = 0, environments = 0;
+        var options = new PlantUmlRenderOptions
+        {
+            ResolveInclude = path => { events.Add("include " + path); return library; },
+            RandomInteger = (minimum, maximum) => { events.Add("random"); return random.Next(minimum, maximum); },
+            UtcNow = () => { events.Add("clock"); return DateTimeOffset.FromUnixTimeSeconds(++clocks); },
+            ResolveEnvironment = _ => { events.Add("environment"); return "env" + ++environments; },
+            Log = message => events.Add("log " + message)
+        };
+        Check(PlantUmlRenderer.TryRender(source, out var diagram, options) && diagram.Kind == DiagramKind.Graph,
+            "stateful library expressions render natively");
+        Check(events.SequenceEqual(new[] { "log root", "include <c4/c4_context>", "log library", "environment", "random", "log next", "random",
+            "log next", "random", "clock", "clock", "environment", "environment", "log procedure" }), "provider calls retain TIM execution order");
+        Check(XElement.Parse(diagram!.Svg).Value.Contains($"{first} / {second} / 1 / 2 / env2 / env3 / {declared} / env1"),
+            "identical provider signatures retain separate values");
+        Check(random.Next(100) == expected.Next(100), "single execution consumes exactly three seeded draws");
+    }
+
+    private static void CustomStockProcedure()
+    {
+        const string library = "!unquoted procedure Person($alias,$label)\n!log custom $alias\nrectangle \"Custom $label\" as $alias\n!endprocedure";
+        var messages = new List<string>();
+        Check(PlantUmlRenderer.TryRender("@startuml\n!include <C4/C4_Context>\nPerson(user,\"User\")\n@enduml", out var diagram,
+            new() { ResolveInclude = _ => library, Log = messages.Add }) && diagram.Kind == DiagramKind.Graph &&
+            XElement.Parse(diagram.Svg).Value.Contains("Custom User") && messages.SequenceEqual(new[] { "custom user" }),
+            "host-provided definitions replace stock procedure semantics");
+    }
+
+    private static void NamedDirectCalls()
+    {
+        const string source = "@startuml\r\n!include <C4/C4_Context>\r\nPerson(\\\r\n $label=\"Customer\",\\\r\n $alias=user)\r\nSystem(app,\"Portal\")\r\nRel($label=\"Visits\",$to=app,$from=user)\r\n@enduml";
+        Check(PlantUmlRenderer.TryRender(source, out var diagram) && diagram.Kind == DiagramKind.C4, "continued named C4 calls use direct layout");
+        var nodes = XElement.Parse(diagram!.Svg).Descendants();
+        var person = nodes.Single(element => (string?)element.Attribute("data-c4-alias") == "user");
+        var system = nodes.Single(element => (string?)element.Attribute("data-c4-alias") == "app");
+        Check((int?)person.Attribute("data-source-line") == 2 && person.Attribute("data-source-generated") == null && (int?)system.Attribute("data-source-line") == 5 &&
+            system.Attribute("data-source-generated") == null, "continued C4 calls preserve following literal source identity");
+        Check(nodes.Any(element => (string?)element.Attribute("class") == "link" && (int?)element.Attribute("data-source-line") == 6 &&
+            element.Attribute("data-source-generated") == null), "named relationship literals remain editable");
+    }
+
+    private static void LibraryConfiguration()
+    {
+        const string source = "@startuml\n!$PERSON_BG_COLOR=\"#FF0000\"\n!include <C4/C4_Context>\nPerson(user,\"User\")\n@enduml";
+        Check(PlantUmlRenderer.TryRender(source, out var diagram) && diagram.Kind == DiagramKind.Graph &&
+            XElement.Parse(diagram.Svg).Descendants().Any(element => (string?)element.Attribute("fill") == "#FF0000"),
+            "library configuration is honored by expanded layout");
+        Check(PlantUmlPreprocessor.TryProcess("@startuml\n!include <C4/C4_Context>\nA -> B : C4Version()\n@enduml", out var expanded) &&
+            expanded.Source.Contains("A -> B : 2.14.0"), "embedded native library routines are available to the public preprocessor");
     }
 
     private static void DirectC4()
@@ -105,7 +187,7 @@ internal static class RendererRetryCases
         var logs = new List<string>();
         var options = new PlantUmlRenderOptions
         {
-            ResolveInclude = _ => { libraryReads++; return CustomLibrary; },
+            ResolveInclude = _ => { libraryReads++; return null; },
             ImportLibrary = _ => { archiveCalls++; return new PlantUmlResourceLibrary([]); },
             RandomInteger = (minimum, maximum) => { randomCalls++; return minimum; },
             UtcNow = () => { clockCalls++; return DateTimeOffset.UnixEpoch; },
@@ -113,7 +195,7 @@ internal static class RendererRetryCases
             Log = logs.Add
         };
         Check(PlantUmlRenderer.TryRender(source, out var diagram, options) && diagram.Kind == DiagramKind.C4, "direct C4 remains native with providers");
-        Check(randomCalls == 1 && clockCalls == 1 && environmentCalls == 1 && archiveCalls == 1 && libraryReads == 0 &&
+        Check(randomCalls == 1 && clockCalls == 1 && environmentCalls == 1 && archiveCalls == 1 && libraryReads == 2 &&
             logs.SequenceEqual(new[] { "direct" }), "direct C4 providers run once");
         var svg = XElement.Parse(diagram!.Svg);
         var generated = svg.Descendants().Single(element => (string?)element.Attribute("data-c4-alias") == "user");
@@ -121,6 +203,69 @@ internal static class RendererRetryCases
         Check((int?)generated.Attribute("data-source-line") == 7 && (string?)generated.Attribute("data-source-generated") == "true" &&
             (int?)literal.Attribute("data-source-line") == 8 && literal.Attribute("data-source-generated") == null,
             "direct C4 preserves original editable source identity");
+    }
+
+    private static void LargeStockLibrary()
+    {
+        string source = "@startuml\n!include <C4/C4_Context>\n" +
+            string.Join('\n', Enumerable.Range(0, 1000).Select(index => $"System(n{index},\"Node {index}\")")) + "\n@enduml";
+        Check(PlantUmlRenderer.TryRender(source, out var diagram) && diagram.Kind == DiagramKind.C4 &&
+            XElement.Parse(diagram.Svg).Descendants().Count(element => element.Attribute("data-c4-alias") != null) == 1000,
+            "trusted library execution retains the direct renderer's thousand-node range");
+        Check(PlantUmlPreprocessor.TryProcess(source, out var expanded) && expanded.Source.Contains("Node 999", StringComparison.Ordinal),
+            "full trusted library expansion supports a thousand-node source");
+        Check(!PlantUmlPreprocessor.TryProcess("@startuml\n!include <C4/C4_Context>\n!while 1\n!$n=1\n!endwhile\n@enduml", out _),
+            "trusted library availability retains the bounded user-code budget");
+    }
+
+    private static void PureStockDependencies()
+    {
+        foreach (var (module, statement, dependencies) in new[]
+        {
+            ("C4/C4_Context", "Person(a,\"A\")", new[] { "<c4/c4_context>", "<c4/c4>" }),
+            ("C4/C4_Container", "Container(a,\"A\")", new[] { "<c4/c4_container>", "<c4/c4_context>", "<c4/c4>" }),
+            ("C4/C4_Component", "Component(a,\"A\")", new[] { "<c4/c4_component>", "<c4/c4_container>", "<c4/c4_context>", "<c4/c4>" }),
+            ("C4/C4_Deployment", "Deployment_Node(a,\"A\")", new[] { "<c4/c4_deployment>", "<c4/c4_container>", "<c4/c4_context>", "<c4/c4>" }),
+            ("archimate/Archimate", "Business_Actor(a,\"A\")", new[] { "<archimate/archimate>", "<archimate/themes/shared_style>" })
+        })
+        {
+            var reads = new List<string>();
+            var logs = new List<string>();
+            var options = new PlantUmlRenderOptions
+            {
+                ResolveInclude = path => { reads.Add(path); return null; },
+                Log = logs.Add,
+                UtcNow = () => throw new InvalidOperationException("Pure stock code read the clock."),
+                RandomInteger = (_, _) => throw new InvalidOperationException("Pure stock code consumed randomness."),
+                ResolveEnvironment = _ => throw new InvalidOperationException("Pure stock code read the environment.")
+            };
+            string literal = "@startuml\n!include <" + module + ">\n" + statement + "\n@enduml";
+            Check(PlantUmlRenderer.TryRender(literal, out var diagram, options) &&
+                diagram.Kind is DiagramKind.C4 or DiagramKind.ArchiMate && reads.SequenceEqual(dependencies) && logs.Count == 0,
+                "literal specialization validates the ordered pinned dependencies for " + module);
+            reads.Clear();
+            Check(PlantUmlPreprocessor.TryProcess(literal, out var expanded, options) && expanded.Options.Count == 0 &&
+                reads.SequenceEqual(dependencies) && logs.Count == 0,
+                "the full pinned library contract has the same observable effects for " + module);
+        }
+
+        const string source = "@startuml\n!include <C4/C4_Context>\nPerson(a,\"A\")\n@enduml";
+        var events = new List<string>();
+        var custom = new PlantUmlRenderOptions
+        {
+            ResolveInclude = path =>
+            {
+                events.Add("include " + path);
+                return path == "<c4/c4>" ? "!log custom dependency\n!assert 0 : stop" : null;
+            },
+            Log = text => events.Add("log " + text)
+        };
+        Check(!PlantUmlRenderer.TryRender(source, out _, custom) && events.SequenceEqual(new[]
+            { "include <c4/c4_context>", "include <c4/c4>", "log custom dependency" }),
+            "overridden nested dependencies enter TIM without repeating provider reads");
+        int failures = 0;
+        Check(!PlantUmlRenderer.TryRender(source, out _, new() { ResolveInclude = _ => { failures++; throw new InvalidOperationException("unavailable"); } }) &&
+            failures == 1, "pure-library provider failures retain the ordinary failure boundary");
     }
 
     private static void ResourceFailures()
@@ -148,11 +293,11 @@ internal static class RendererRetryCases
             "\"\n!$index=0\n!while $index < 40\n!log $message\n!$index=$index+1\n!endwhile\nCustom(\"More\")\n@enduml";
         var options = new PlantUmlRenderOptions
         {
-            ResolveInclude = _ => { libraryReads++; return CustomLibrary; },
+            ResolveInclude = _ => { libraryReads++; return CustomLibrary.Replace("!log library\n", ""); },
             Log = message => { messages++; Check(message.Length == 32768, "bounded diagnostic content"); }
         };
-        Check(!PlantUmlRenderer.TryRender(source, out _, options), "streaming diagnostic overflow disables replay");
-        Check(messages == 40 && libraryReads == 0, "bounded diagnostics stream exactly once");
+        Check(PlantUmlRenderer.TryRender(source, out _, options), "streaming diagnostics preserve native library execution");
+        Check(messages == 40 && libraryReads == 1, "bounded diagnostics stream exactly once");
     }
 
     private static void DiagnosticFailures()
@@ -179,7 +324,7 @@ internal static class RendererRetryCases
             Log = _ => { streamedMessages++; throw new InvalidOperationException("stream unavailable"); }
         };
         Check(!PlantUmlRenderer.TryRender(overflow, out var result, streaming) && result == null && streamedMessages == 1,
-            "a failed overflow flush discards its remaining diagnostic queue");
+            "a diagnostic failure stops execution immediately");
     }
 
     private static void PlainDiagram()
@@ -196,6 +341,6 @@ internal static class RendererRetryCases
 
     private static void Check(bool valid, string label)
     {
-        if (!valid) throw new Exception("Renderer retry: " + label);
+        if (!valid) throw new Exception("Library execution: " + label);
     }
 }

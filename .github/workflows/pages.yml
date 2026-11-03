@@ -52,7 +52,7 @@ jobs:
           mkdir -p packages
           cp "$GITHUB_WORKSPACE/docs/packages/"*.nupkg packages/
           cp "$RUNNER_TEMP/packages/"*.nupkg packages/
-          test -s packages/UnoUML.PlantUml.0.3.0.nupkg
+          test -s packages/UnoUML.PlantUml.0.4.0.nupkg
       - name: Exercise the published desktop and mobile workspace
         run: CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/workspace.mjs "$RUNNER_TEMP/site/wwwroot"
       - uses: actions/upload-pages-artifact@v3

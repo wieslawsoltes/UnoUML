@@ -3,7 +3,7 @@ import { indexHits, parseSvg } from './svg.js';
 import { download, includeFiles, includeRevision } from './files.js';
 import { beginResourcePass, prepareResources } from './resources.js';
 export { readResource } from './resources.js';
-export { openFile, saveFile, importIncludes, readInclude, listIncludes, updateInclude, openArchive, saveArchive, readArchive, readArchiveVersion } from './files.js';
+export { openFile, saveFile, importIncludes, readInclude, listIncludes, updateInclude, openArchive, saveArchive, readArchive, readArchiveVersion, listArchives, updateArchive, downloadArchive } from './files.js';
 
 import { getServerEndpoint, getServerTransport, layoutOnServer } from './server.js';
 export { setServerEndpoint } from './server.js';
@@ -164,7 +164,7 @@ class Viewport {
     this.objects = [...this.index.hits].filter(([el, hit]) => {
       // Lifelines and tails refer to the same participant as its header.
       if (el.matches('.participant-lifeline,.participant-tail')) return false;
-      const key = hit.token ? 'token:' + hit.token.start : hit.id ? 'id:' + hit.id : 'line:' + hit.line;
+      const key = hit.token ? 'token:' + hit.token.start : hit.field ? 'field:' + hit.field.start : hit.id ? 'id:' + hit.id : 'line:' + hit.line;
       if (visited.has(key)) return false;
       visited.add(key); return true;
     }).map(([el]) => el);
