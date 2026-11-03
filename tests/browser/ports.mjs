@@ -72,6 +72,15 @@ export async function verifyPorts(page) {
   assert.match(printed[1].text,/Deliver receipt/);
   assert.equal(printed[1].pageBreak,'page');
   assert.ok(printed.every(sheet=>!sheet.positioned));
+  await source.fill('@startuml\nbroken ???\n@enduml');
+  await page.getByText(/Syntax Error/).first().waitFor();
+  assert.equal(await picker.isDisabled(),true);
+  await picker.dispatchEvent('change');
+  await source.fill(sequence);
+  await page.waitForFunction(() => [...document.querySelectorAll('[id]')].some(e=>{
+    const sheet=e.shadowRoot?.querySelector('.sheet-picker');
+    return sheet && !sheet.hidden && !sheet.disabled;
+  }));
 
   await page.evaluate(async () => {
     const ui = await import(new URL('uml/viewport.js',document.baseURI));

@@ -87,6 +87,7 @@ class Viewport {
     const key = this.localMode + '\0' + transport + endpoint + '\0' + includeRevision + '\0' + source;
     if (this.pristine && key === this.displayKey) return;
     this.pristine = null;
+    this.sheetPicker.disabled = true;
     let svg = this.cache.get(key);
     if (!svg) {
       if (!endpoint && this.localMode === 'auto' && /^\s*!include(?:_once|_many)?[ \t]+(?![ \t<])/m.test(source)) {
@@ -122,6 +123,7 @@ class Viewport {
     }
     if (version !== this.version) return;
     this.pristine = svg;
+    this.sheetPicker.disabled = false;
     this.displayKey = key;
     this.paper.dataset.renderer = svg.backend;
     this.emit('renderer', { backend: svg.backend });
@@ -142,6 +144,7 @@ class Viewport {
     this.showSheet(keep && previousIndex > 0 ? previousIndex : 0);
   }
   showSheet(index) {
+    if (!this.pristine) return;
     const svg = this.sheets[index-1] || this.pristine;
     this.sheetPicker.selectedIndex = index;
     this.exportSource = svg;
