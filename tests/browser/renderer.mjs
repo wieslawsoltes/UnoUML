@@ -112,6 +112,18 @@ try {
     if (indexHits(c4Svg(),duplicate).byId.has('ctrl')) throw Error('Ambiguous C4 alias became editable');
     const dynamic=indexHits(c4Svg(),c4Source.replace('Component (','!if %true()\nComponent (').replace('\n@enduml','\n!endif\n@enduml'));
     if (![...dynamic.hits.values()][0].generated) throw Error('Reference preprocessing output must remain source-editable');
+    for (const id of ['other.ctrl','ctrl']) {
+      const mixed='@startuml\n!include <C4/C4_Context>\nPerson(ctrl, "Controller")\nrectangle '+id+'\n@enduml';
+      const svg=parseSvg('<svg xmlns="http://www.w3.org/2000/svg"><g data-qualified-name="'+id+'" data-source-line="3"><text>Rectangle</text></g></svg>');
+      const hit=[...indexHits(svg,mixed).hits.values()][0];
+      if (hit.id!==id || hit.line!==3 || hit.generated) throw Error('Ordinary node was rebound to a C4 macro');
+    }
+    const dotted='@startuml\n!include <C4/C4_Context>\nPerson(ctrl, "Controller")\nSystem(other.ctrl, "Other")\n@enduml';
+    for (const id of ['other.ctrl','boundary.other.ctrl']) {
+      const svg=parseSvg('<svg xmlns="http://www.w3.org/2000/svg"><g data-qualified-name="'+id+'" data-source-line="999"><text>Other</text></g></svg>');
+      const hit=[...indexHits(svg,dotted).hits.values()][0];
+      if (hit.id!==id || hit.line!==3 || hit.generated) throw Error('Dotted C4 alias was rebound to another macro');
+    }
   });
   if (process.env.UNOUML_CATALOG) {
     const fixtures = JSON.parse(await readFile(process.env.UNOUML_CATALOG, 'utf8'));

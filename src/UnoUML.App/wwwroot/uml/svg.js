@@ -42,7 +42,8 @@ export function indexHits(svg, source, exactSourceMap = false) {
   const lines = exactSourceMap ? [] : source.split(/\r\n|\r|\n/);
   const labels = new Map(), repeated = new Set(), macroAliases = new Map(), c4Aliases = new Map();
   const c4Node = /^(?:Person(?:_Ext)?|(?:System|Container|Component)(?:Db|Queue)?(?:_Ext)?|(?:Enterprise|System|Container)_Boundary|Boundary|(?:Deployment_)?Node)$/;
-  let staticC4 = true;
+  const c4Relation = /^(?:BiRel|Rel)(?:_(?:R|Right|L|Left|U|Up|D|Down|Neighbor|Back|Back_Neighbor))?$/;
+  let staticC4 = true, dynamicC4 = false;
   // Text-only diagrams may omit all semantic groups. Only associate a label
   // with a statement if its source line is unambiguous.
   const addLabel = (name, i) => {
@@ -56,7 +57,10 @@ export function indexHits(svg, source, exactSourceMap = false) {
     previousClose[i] = lastClose;
     if (/^\s*\}/.test(line)) lastClose = i;
     const t = line.trim();
-    if (t.startsWith('!') && !/^!include\s+<c4\/c4_(?:context|container|component|deployment)>\s*(?:'.*)?$/i.test(t)) staticC4 = false;
+    if (t.startsWith('!') && !/^!include\s+<c4\/c4_(?:context|container|component|deployment)>\s*(?:'.*)?$/i.test(t)) {
+      staticC4 = false;
+      dynamicC4 = true;
+    }
     if (!t || /^['!@]/.test(t)) continue;
     const quoted = [...t.matchAll(/"([^"]+)"/g)];
     for (const m of quoted) addLabel(m[1], i);
@@ -67,11 +71,18 @@ export function indexHits(svg, source, exactSourceMap = false) {
     const tail = t.indexOf(':');
     if (tail >= 0) addLabel(t.slice(tail + 1).trim().replace(/;$/, ''), i);
     const macro = /^(\w+)\s*\(\s*([\w.$]+)\s*,/.exec(t);
+    // A mixed diagram can contain an ordinary node such as other.ctrl alongside
+    // the global C4 alias ctrl. Suffixes are unique only within a pure C4 source.
+    if (macro ? !c4Node.test(macro[1]) && !c4Relation.test(macro[1]) :
+        !/^}(?:\s*'.*)?$|^title\s|^LAYOUT_(?:LEFT_RIGHT|TOP_DOWN)\(\)\s*(?:'.*)?$/.test(t)) staticC4 = false;
     if (macro) {
       const alias = macro[2];
-      macroAliases.set(alias, macroAliases.has(alias) ? -1 : i);
-      if (c4Node.test(macro[1]) && /^[a-zA-Z_]\w*$/.test(alias))
-        c4Aliases.set(alias, c4Aliases.has(alias) ? -1 : i);
+      if (!/^(?:BiRel|Rel)(?:_|$)/.test(macro[1]))
+        macroAliases.set(alias, macroAliases.has(alias) ? -1 : i);
+      if (c4Node.test(macro[1])) {
+        if (/^[a-zA-Z_]\w*$/.test(alias)) c4Aliases.set(alias, c4Aliases.has(alias) ? -1 : i);
+        else staticC4 = false;
+      }
     }
   }
   const hits = new Map(), byId = new Map(), byLine = new Map(), byToken = new Map();
@@ -80,7 +91,7 @@ export function indexHits(svg, source, exactSourceMap = false) {
     el.setAttribute('data-uml-hit', '');
     const hit = { id, line, label };
     if (exactSourceMap && el.getAttribute('data-source-generated') === 'true') hit.generated = true;
-    if (!exactSourceMap && !staticC4 && c4Aliases.has(id.slice(id.lastIndexOf('.') + 1))) hit.generated = true;
+    if (!exactSourceMap && dynamicC4 && c4Aliases.has(id.slice(id.lastIndexOf('.') + 1))) hit.generated = true;
     if (exactSourceMap && el.hasAttribute('data-json-start')) {
       const start = Number(el.getAttribute('data-json-start')), length = Number(el.getAttribute('data-json-length'));
       const kind = el.getAttribute('data-json-kind');
@@ -109,7 +120,7 @@ export function indexHits(svg, source, exactSourceMap = false) {
     if (!exactSourceMap && line >= lines.length) line = -1;
     // Preprocessing replaces lines. Prefer an original macro invocation over
     // a coincidentally in-bounds expanded line number.
-    if ((macroAliases.get(id) ?? -1) >= 0) line = macroAliases.get(id);
+    if ((macroAliases.get(id) ?? -1) >= 0 && (staticC4 || !c4Aliases.has(id))) line = macroAliases.get(id);
     if (!exactSourceMap && staticC4) {
       const alias = id.slice(id.lastIndexOf('.') + 1);
       if ((c4Aliases.get(alias) ?? -1) >= 0) {
