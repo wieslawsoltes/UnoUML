@@ -24,9 +24,12 @@ export async function verifySaltEditing(page, source) {
   await paper.locator(`[data-edit-kind="salt-state"][data-edit-start="${markerAt}"][data-edit-length="3"]`).waitFor();
   await paper.locator('.salt-choice').first().locator('text').first().click();
   await page.getByText('Choose dropdown value…',{exact:true}).last().click();
-  await page.getByRole('combobox',{name:'Selected value'}).click();
-  await page.getByText('Professional',{exact:true}).last().click();
-  await page.getByText('Apply',{exact:true}).last().click();
+  const dialog = page.getByRole('dialog',{name:'Dropdown value',exact:true});
+  await dialog.getByRole('combobox',{name:'Selected value',exact:true}).click();
+  // The rendered Salt form contains the same caption behind the modal. Select
+  // the native picker item, whose popup is hosted outside the dialog subtree.
+  await page.locator('.uno-comboboxitem').filter({hasText:/^Professional$/}).click();
+  await dialog.getByRole('button',{name:'Apply',exact:true}).click();
   const selected = checked.replace('^Basic^^','^Professional^^');
   assert.equal(await source.inputValue(),selected);
   await paper.locator('.salt-choice').filter({hasText:/Professional/}).waitFor();
