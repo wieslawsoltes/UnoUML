@@ -44,6 +44,22 @@ export function indexHits(svg, source, exactSourceMap = false) {
   const c4Node = /^(?:Person(?:_Ext)?|(?:System|Container|Component)(?:Db|Queue)?(?:_Ext)?|(?:Enterprise|System|Container)_Boundary|Boundary|(?:Deployment_)?Node)$/;
   const c4Relation = /^(?:BiRel|Rel)(?:_(?:R|Right|L|Left|U|Up|D|Down|Neighbor|Back|Back_Neighbor))?$/;
   let staticC4 = true, dynamicC4 = false;
+  let continuedUntil = -1;
+  const c4Alias = text => {
+    let quote = '', start = text.indexOf('(') + 1;
+    const arguments_ = [];
+    for (let i = start; i < text.length; i++) {
+      const character = text[i];
+      if (quote) { if (character === quote) quote = ''; continue; }
+      if (character === '"' || character === "'") { quote = character; continue; }
+      if (character !== ',' && character !== ')') continue;
+      arguments_.push(text.slice(start, i).trim()); start = i + 1;
+      if (character === ')') break;
+    }
+    const named = arguments_.find(argument => /^\$alias\s*=/.test(argument));
+    const alias = named ? named.replace(/^\$alias\s*=\s*/, '') : arguments_[0];
+    return /^[a-zA-Z_][\w.]*$/.test(alias || '') ? alias : '';
+  };
   // Text-only diagrams may omit all semantic groups. Only associate a label
   // with a statement if its source line is unambiguous.
   const addLabel = (name, i) => {
@@ -56,7 +72,16 @@ export function indexHits(svg, source, exactSourceMap = false) {
   for (const [i, line] of lines.entries()) {
     previousClose[i] = lastClose;
     if (/^\s*\}/.test(line)) lastClose = i;
-    const t = line.trim();
+    if (i <= continuedUntil) continue;
+    let t = line.trim();
+    const startingCall = /^(\w+)\s*\(/.exec(t);
+    if (startingCall && (c4Node.test(startingCall[1]) || c4Relation.test(startingCall[1]))) {
+      let last = i;
+      while (t.endsWith('\\') && last + 1 < lines.length && last < i + 256) {
+        t = t.slice(0, -1) + ' ' + lines[++last].trim();
+      }
+      continuedUntil = last;
+    }
     if (t.startsWith('!') && !/^!include\s+<c4\/c4_(?:context|container|component|deployment)>\s*(?:'.*)?$/i.test(t)) {
       staticC4 = false;
       dynamicC4 = true;
@@ -71,15 +96,18 @@ export function indexHits(svg, source, exactSourceMap = false) {
     const tail = t.indexOf(':');
     if (tail >= 0) addLabel(t.slice(tail + 1).trim().replace(/;$/, ''), i);
     const macro = /^(\w+)\s*\(\s*([\w.$]+)\s*,/.exec(t);
+    const call = /^(\w+)\s*\(/.exec(t);
     // A mixed diagram can contain an ordinary node such as other.ctrl alongside
     // the global C4 alias ctrl. Suffixes are unique only within a pure C4 source.
-    if (macro ? !c4Node.test(macro[1]) && !c4Relation.test(macro[1]) :
+    if (call ? !c4Node.test(call[1]) && !c4Relation.test(call[1]) :
         !/^}(?:\s*'.*)?$|^title\s|^LAYOUT_(?:LEFT_RIGHT|TOP_DOWN)\(\)\s*(?:'.*)?$/.test(t)) staticC4 = false;
-    if (macro) {
-      const alias = macro[2];
-      if (!/^(?:BiRel|Rel)(?:_|$)/.test(macro[1]))
+    if (macro || call && c4Node.test(call[1])) {
+      const name = call?.[1] || macro[1];
+      const alias = c4Node.test(name) ? c4Alias(t) : macro[2];
+      if (!alias) { staticC4 = false; continue; }
+      if (!/^(?:BiRel|Rel)(?:_|$)/.test(name))
         macroAliases.set(alias, macroAliases.has(alias) ? -1 : i);
-      if (c4Node.test(macro[1])) {
+      if (c4Node.test(name)) {
         if (/^[a-zA-Z_]\w*$/.test(alias)) c4Aliases.set(alias, c4Aliases.has(alias) ? -1 : i);
         else staticC4 = false;
       }
@@ -91,6 +119,12 @@ export function indexHits(svg, source, exactSourceMap = false) {
     el.setAttribute('data-uml-hit', '');
     const hit = { id, line, label };
     if (exactSourceMap && el.getAttribute('data-source-generated') === 'true') hit.generated = true;
+    if (exactSourceMap && el.hasAttribute('data-source-file') && el.hasAttribute('data-file-line')) {
+      const fileLine = Number(el.getAttribute('data-file-line'));
+      if (Number.isSafeInteger(fileLine) && fileLine >= 0) {
+        hit.sourceFile = el.getAttribute('data-source-file'); hit.fileLine = fileLine;
+      }
+    }
     if (!exactSourceMap && dynamicC4 && c4Aliases.has(id.slice(id.lastIndexOf('.') + 1))) hit.generated = true;
     if (exactSourceMap && el.hasAttribute('data-json-start')) {
       const start = Number(el.getAttribute('data-json-start')), length = Number(el.getAttribute('data-json-length'));

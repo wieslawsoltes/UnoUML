@@ -25,7 +25,12 @@ if (args is ["--catalog", var path])
 }
 
 PreprocessorCases.Run();
+TimRuntimeCases.Run();
+BuiltinCases.Run();
+SpriteCases.Run();
+CreoleCases.Run();
 ModernStyleCases.Run();
+RichTextCases.Run();
 MathCases.Run();
 ChenCases.Run();
 DitaaCases.Run();
@@ -58,14 +63,16 @@ foreach (var (kind, tag) in new[] { (DiagramKind.MindMap,"mindmap"), (DiagramKin
     var identities = document.Descendants(ns+"g").Attributes("data-source-line").Select(a => (int)a).ToArray();
     if (!identities.SequenceEqual(new[] {2,3,4,5,6}) || !document.Value.Contains("Target & marker")) throw new Exception("Outline lost source mapping.");
     Reject($"@start{tag}\n* Root\n*** Missing parent\n@end{tag}");
-    Reject($"@start{tag}\n* Root\n** [[external]]\n@end{tag}");
+    var linked = Render($"@start{tag}\n* Root\n** [[https://example.org/ External]]\n@end{tag}", kind);
+    if (!linked.Descendants(ns + "a").Any(link => (string?)link.Attribute("href") == "https://example.org/")) throw new Exception("Tree hyperlink missing.");
 }
 var dot = Render("@startdot\ndigraph Test {rankdir=LR; A -> B -> C [label=\"data\"]; B [shape=box,label=\"Middle\"]; }\n@enddot", DiagramKind.Dot);
 if (!dot.Value.Contains("Middle") || dot.Descendants(ns+"g").Count(e => (string?)e.Attribute("class") == "link") != 2) throw new Exception("DOT lost a chained edge or an explicit label.");
 Reject("@startdot\ndigraph { a -> b [color=red] }\n@enddot");
 var creole = Render("@startcreole\n= Notes\n* **One** and //two//\n@endcreole", DiagramKind.Creole);
 if (!creole.Descendants(ns+"tspan").Any(x => (string?)x.Attribute("font-style") == "italic" && x.Value == "two")) throw new Exception("Creole did not preserve inline formatting.");
-Reject("@startcreole\n<color:red>Advanced</color>\n@endcreole");
+var coloredCreole = Render("@startcreole\n<color:red>Advanced</color>\n@endcreole", DiagramKind.Creole);
+if (!coloredCreole.Descendants(ns + "tspan").Any(t => (string?)t.Attribute("fill") == "red" && t.Value == "Advanced")) throw new Exception("Creole rich text lost its inline color.");
 var packet = Render("@startpacketdiag\n{\ncolwidth = 8\n0-3: Type\n4-10: Data\n}\n@endpacketdiag", DiagramKind.Packet);
 if (packet.Descendants(ns+"rect").Count() != 3) throw new Exception("Packet field crosses row boundary.");
 Reject("@startpacketdiag\n{\n0-7: First\n7-8: Overlap\n}\n@endpacketdiag");
@@ -79,7 +86,9 @@ var yaml = Render("@startyaml\nname: Studio\nformats:\n  - UML\n  - JSON\n@endya
 if (!yaml.Value.Contains("JSON") || !yaml.Value.Contains("formats")) throw new Exception("YAML table lost a child.");
 Reject("@startyaml\nbase: &base editor\ncopy: *base\n@endyaml");
 Reject("@startjson\n{broken}\n@endjson");
-Reject("@startuml\n!include <C4/C4_Context>\n!$name = %getenv(\"HOME\")\nPerson(a,$name)\n@enduml");
+if (!PlantUmlRenderer.TryRender("@startuml\n!include <C4/C4_Context>\n!$name = %getenv(\"USER\")\nPerson(a,$name)\n@enduml", out var environmentDiagram,
+    new PlantUmlRenderOptions { ResolveEnvironment = name => name == "USER" ? "Port user" : null }) || !environmentDiagram.Svg.Contains("Port user", StringComparison.Ordinal))
+    throw new Exception("Host environment callback did not reach the native C4 renderer.");
 Reject("@startmindmap\n* root\n@endmindmap\n@startuml\nclass A\n@enduml");
 Reject("@startuml\nA -> B: bad\u0001\n@enduml");
 int partialInputs = EditingInputs.Run();

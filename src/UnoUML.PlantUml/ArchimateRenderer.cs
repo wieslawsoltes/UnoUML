@@ -114,16 +114,7 @@ internal static partial class GraphRenderer
             s.Append(CultureInfo.InvariantCulture, $"<g class=\"entity archimate\" data-source-line=\"{element.Line}\" data-qualified-name=\"{element.Id}\"><title>{SvgText.Escape(element.Label)}</title><rect x=\"{n.X}\" y=\"{n.Y}\" width=\"{n.Width}\" height=\"{n.Height}\" rx=\"{radius}\" fill=\"{element.Fill}\" stroke=\"#181818\" stroke-width=\"0.5\"/>");
             SemanticLabel(s,n.X+n.Width/2-8,n.Y+18,element.Stereotype,12,"#000000");
             SemanticLabel(s,n.X+n.Width/2,n.Y+39,element.Label,14,"#000000");
-            string glyph = element.Type switch
-            {
-                "Business_Actor" => "M8 1a2.4 2.4 0 1 0 .01 0M8 6v5m-5-3h10m-5 3-4 5m4-5 4 5",
-                "Business_Role" => "M4 4h8c4 0 4 8 0 8H4C0 12 0 4 4 4zM12 4c-3 0-3 8 0 8",
-                "Business_Process" => "M1 5h8V2l6 6-6 6v-3H1z",
-                "Business_Service" => "M5 4h6a4 4 0 0 1 0 8H5a4 4 0 0 1 0-8z",
-                "Application_Component" => "M4 2h10v12H4zM1 5h5v2H1zM1 9h5v2H1z",
-                "Application_DataObject" => "M2 2h12v12H2zM2 6h12",
-                _ => "M1 5l4-3h10v9l-4 3H1zM1 5h10l4-3m-4 3v9"
-            };
+            string glyph = TypeGlyph(element.Type);
             s.Append(CultureInfo.InvariantCulture, $"<path class=\"archimate-type-glyph\" transform=\"translate({n.X+n.Width-21} {n.Y+5})\" d=\"{glyph}\" fill=\"none\" stroke=\"#181818\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/></g>");
         }
         if (titleLine >= 0)
@@ -132,6 +123,57 @@ internal static partial class GraphRenderer
         }
         int width = right-left, height = bottom-top;
         return width is <=0 or >32768 || height is <=0 or >32768 ? null : FormattableString.Invariant($"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"{left} {top} {width} {height}\" font-family=\"sans-serif\">{s}</svg>");
+    }
+
+    private static string TypeGlyph(string stereotype)
+    {
+        string name = stereotype.Replace('_', '-').ToLowerInvariant();
+        int separator = name.IndexOf('-');
+        if (separator >= 0 && name[..separator] is "business" or "application" or "technology" or "physical" or "strategy" or "motivation" or "implementation")
+            name = name[(separator + 1)..];
+        return name switch
+        {
+            "actor" or "stakeholder" => "M8 1a2.4 2.4 0 1 0 .01 0M8 6v5m-5-3h10m-5 3-4 5m4-5 4 5",
+            "role" => "M4 4h8c4 0 4 8 0 8H4C0 12 0 4 4 4zM12 4c-3 0-3 8 0 8",
+            "collaboration" => "M6 3a5 5 0 1 0 .01 0M11 3a5 5 0 1 0 .01 0",
+            "interface" => "M8 1a5 5 0 1 0 .01 0M8 11v4",
+            "process" or "courseofaction" or "course-of-action" => "M1 5h8V2l6 6-6 6v-3H1z",
+            "function" => "M2 12V4h12v8l-6-4z",
+            "interaction" => "M2 3h4v10H2M14 3h-4v10h4M6 6h4m-4 4h4",
+            "event" or "implementationevent" or "implementation-event" => "M1 3h10l4 5-4 5H1l4-5z",
+            "service" => "M5 4h6a4 4 0 0 1 0 8H5a4 4 0 0 1 0-8z",
+            "component" => "M4 2h10v12H4zM1 5h5v2H1zM1 9h5v2H1z",
+            "dataobject" or "data-object" or "object" => "M2 2h12v12H2zM2 6h12",
+            "contract" => "M2 2h12v12H2zM2 6h12M5 9h6m-6 3h6",
+            "representation" => "M2 2h12v10c-4-3-8 3-12 0z",
+            "product" => "M2 2h12v12H2zM2 6h7V2",
+            "node" => "M1 5l4-3h10v9l-4 3H1zM1 5h10l4-3m-4 3v9",
+            "device" => "M1 2h14v9H1zM5 14h6M8 11v3",
+            "systemsoftware" or "system-software" => "M3 4h10v8H3zM1 2h10m-10 0v8M5 6h10v8H5z",
+            "path" => "M1 6h14m-14 4h14M4 3L1 6l3 3m8-2 3 3-3 3",
+            "communicationnetwork" or "communication-network" or "network" or "distributionnetwork" or "distribution-network" => "M2 2h4v4H2zM10 10h4v4h-4zM2 10h4v4H2zM6 4h6v6M4 6v4",
+            "artifact" or "deliverable" => "M2 1h8l4 4v10H2zM10 1v4h4M5 8h6m-6 3h6",
+            "equipment" => "M1 5l4-3h10v9l-4 3H1zM1 5h10l4-3M11 5v9M4 7h4v4H4z",
+            "facility" => "M1 14V6l7-5 7 5v8zM6 14V9h4v5",
+            "material" => "M2 3h12v10H2zM2 3l12 10M2 13 14 3",
+            "resource" => "M1 4h14v9H1zM1 7h14",
+            "capability" => "M1 4h14v9H1zM5 4v9m6-9v9",
+            "driver" => "M8 1a7 7 0 1 0 .01 0M8 1v14M1 8h14",
+            "assessment" => "M1 1h14v14H1zM8 4v5m0 3v1",
+            "goal" => "M8 1a7 7 0 1 0 .01 0M8 5a3 3 0 1 0 .01 0",
+            "outcome" => "M8 1l7 7-7 7-7-7zM4 8h8",
+            "principle" => "M1 4h14m-7-3v13M1 14h14M3 4l-2 6h4zM13 4l-2 6h4z",
+            "requirement" => "M1 4l4-3h10v10l-4 3H1zM4 6h8m-8 3h8",
+            "constraint" => "M1 4l4-3h10v10l-4 3H1zM4 8h8",
+            "meaning" => "M1 5c0-4 5-5 7-2 3-4 8-2 7 2 3 3-1 7-4 5-2 4-7 4-8 0-4 0-4-4-2-5z",
+            "value" => "M8 2c9 0 9 12 0 12S-1 2 8 2z",
+            "workpackage" or "work-package" => "M1 4h5V2h4v2h5v10H1zM1 8h14",
+            "plateau" => "M1 6l4-3h10v8l-4 3H1zM1 6h10l4-3m-4 3v8M1 10h10l4-3",
+            "gap" => "M2 1v14m12-14v14M2 8h12M5 5 2 8l3 3m6-6 3 3-3 3",
+            "location" => "M8 1c-7 0-7 8 0 14 7-6 7-14 0-14zM8 4a2 2 0 1 0 .01 0",
+            "grouping" => "M1 4h6V2h8v12H1z",
+            _ => ""
+        };
     }
 
     private static Point Marker(StringBuilder s,Point tip,Point neighbor,string kind)

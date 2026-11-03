@@ -30,7 +30,8 @@ internal static class ArchimateCases
         Require(Link("Realization").Elements(ns+"polyline").Any(p=>(string?)p.Attribute("stroke-dasharray")=="1,3") &&
             (string?)Link("Realization").Element(ns+"polygon")?.Attribute("class")=="hollow-triangle","dotted realization and hollow triangle");
         Require(Link("Flow").Elements(ns+"polyline").Any(p=>(string?)p.Attribute("stroke-dasharray")=="7,7"),"dashed flow");
-        foreach (string extra in new[]{"!define CUSTOM 1","!theme archimate-alternate","!include <archimate/ArchimateSprites>","Business_Role(x, \"Order\", 1)","Business_Future(x, \"Unknown\")","Rel_Assignment(a, unknown)","Rel_Fancy(a, a)"})
+        Require(PlantUmlRenderer.TryRender("@startuml\n!include <archimate/Archimate>\n!define CUSTOM Client\nBusiness_Actor(a, \"CUSTOM\")\n@enduml", out var defined) && defined.Svg.Contains(">Client</text>", StringComparison.Ordinal), "legacy macro substitution");
+        foreach (string extra in new[]{"!theme archimate-alternate","!include <archimate/ArchimateSprites>","Business_Role(x, \"Order\", 1)","Business_Future(x, \"Unknown\")","Rel_Assignment(a, unknown)","Rel_Fancy(a, a)"})
             Require(!PlantUmlRenderer.TryRender("@startuml\n!include <archimate/Archimate>\nBusiness_Actor(a, \"Client\")\n" + extra + "\n@enduml",out _), "compatibility for " + extra);
     }
 

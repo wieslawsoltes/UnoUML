@@ -20,13 +20,12 @@ internal static partial class GraphRenderer
         _ => ("C", "#add1b2")
     };
 
-    private static bool DrawDeploymentSymbol(StringBuilder s, Node n, ref int labelY)
+    private static bool DrawDeploymentSymbol(StringBuilder s, Node n, ref int labelY, string fill, string stroke)
     {
         int x = n.X, y = n.Y, w = n.Width, h = n.Height;
         int cx = x + w / 2, cy = y + h / 2, right = x + w, bottom = y + h;
-        string fill = n.Fill;
         void Circle(int ox, int oy, int radius) =>
-            s.Append(CultureInfo.InvariantCulture, $"<circle cx=\"{ox}\" cy=\"{oy}\" r=\"{radius}\" fill=\"{fill}\" stroke=\"{Ink}\"/>");
+            s.Append(CultureInfo.InvariantCulture, $"<circle cx=\"{ox}\" cy=\"{oy}\" r=\"{radius}\" fill=\"{fill}\" stroke=\"{stroke}\"/>");
         switch (n.Kind)
         {
             case "label":
@@ -55,7 +54,7 @@ internal static partial class GraphRenderer
                 int center = n.Kind == "boundary" ? cx + 9 : cx;
                 Circle(center, y + 15, 12);
                 if (n.Kind == "boundary") Path(s, $"M{center - 29} {y + 3}v24m0 -12h17");
-                if (n.Kind == "control") Path(s, $"M{cx - 4} {y + 3}l7 -5 -2 5 2 5Z", Ink);
+                if (n.Kind == "control") Path(s, $"M{cx - 4} {y + 3}l7 -5 -2 5 2 5Z", stroke);
                 if (n.Kind == "entity") Path(s, $"M{cx - 13} {y + 30}h26");
                 labelY = y + 46;
                 return true;

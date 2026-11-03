@@ -40,8 +40,14 @@ internal static class C4EditCases
 
         controller = document.Find("ctrl")!;
         edge = document.Objects.Single(o => o.Arrow == "Rel_R");
-        foreach (string unsafeLabel in new[] { "line\nbreak", "quote\"value", "path\\value", "$computed", "%date()" })
-            check(!document.Rename(controller, unsafeLabel) && !document.Rename(edge, unsafeLabel) && document.Source == source, "C4 computed or structurally unsafe replacement stays a source edit");
+        foreach (string literalLabel in new[] { "line\nbreak", "quote\"value", "path\\value", "$computed", "%date()" })
+        {
+            check(document.Rename(document.Find("ctrl")!, literalLabel) && document.Find("ctrl")!.Label == literalLabel,
+                "C4 display text escapes literal quotes, slashes, newlines and preprocessor sigils");
+            check(document.Undo() && document.Source == source, "C4 escaped label undo is exact");
+        }
+        controller = document.Find("ctrl")!;
+        edge = document.Objects.Single(o => o.Arrow == "Rel_R");
         check(!document.UpdateConnection(edge, null, null, "*--") && !document.UpdateConnection(edge, null, null, "Rel_Unknown"), "C4 rejects connectors with unsupported macro semantics");
         check(!controller.CanSetFill && !controller.CanInsertMember && !document.SetFill(controller, "#123456") && !document.InsertMember(controller, "field"), "C4 macro metadata cannot enable ordinary UML member or color insertion");
         check(!document.Group([controller], "Group") && !document.PlaceRelative(controller, document.Find("data")!, "right") &&

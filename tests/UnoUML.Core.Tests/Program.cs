@@ -152,4 +152,5 @@ Check(jsonEditor.ApplyJsonField(typed,"null") && jsonEditor.Source == jsonBaseli
 C4EditCases.Run(Check);
 LegacyEditCases.Run(Check);
 SequenceEditCases.Run(Check);
+BlockEditCases.Run(Check);
 Console.WriteLine($"PASS {assertions} assertions, {StudioCatalog.Templates.Count} templates, {StudioCatalog.Tools.Count} tools.");

@@ -59,8 +59,8 @@ internal static class PreprocessorCases
         Check((int?)receipt.Attribute("data-source-line")==1 && (string?)receipt.Attribute("data-source-file")=="parts/shared.iuml" &&
             (int?)receipt.Attribute("data-file-line")==0, "nested virtual include origin");
         foreach (var body in new[] {"!include missing.iuml", "!include ../outside", "!include https://example.org/x", "!include cycle", "!if 1\nclass A",
-            "!$x = 1/0", "!$x = 2147483647 + 1", "!while 1\nclass A\n!endwhile", "!procedure $again()\n$again()\n!endprocedure\n$again()",
-            "!theme plain", "!$x = %size({\"a\":1})", "!$x = %unknown(1)", "!$x = %upper(\"straße\")", "!function $bad(\n!endfunction"})
+            "!$x = 1/0", "!while 1\nclass A\n!endwhile", "!procedure $again()\n$again()\n!endprocedure\n$again()",
+            "!$x = %size({\"a\":1})", "!$x = %unknown(1)", "!function $bad(\n!endfunction"})
             Check(!PlantUmlRenderer.TryRender("@startuml\n"+body+"\n@enduml", key => key == "cycle" ? "!include cycle" : null, out _),"fallback for "+body);
         var truth = Render("@startuml\n!if \"\"\nA -> B : wrong\n!else\nA -> B : empty false\n!endif\nA -> B : %not(\"\") / %not(\"0\")\n@enduml");
         Check(truth.Value.Contains("empty false") && truth.Value.Contains("1 / 0") && !truth.Value.Contains("wrong"), "empty-string TIM truth");
@@ -79,6 +79,9 @@ internal static class PreprocessorCases
         Check(spacedInclude.Value.Contains("User"), "standard include whitespace normalization");
         var boundary = Render("@startuml\n!include <C4/C4_Context>\n!$name=\"Alice, Bob\"\nSystem_Boundary(group,$name) {\nPerson(user,\"User\")\n}\n@enduml");
         Check(boundary.Value.Contains("Alice, Bob"), "typed library arguments on opening boundaries");
+        var boundaryGroup = boundary.Descendants().Single(element => (string?)element.Attribute("data-c4-alias") == "group");
+        Check((int?)boundaryGroup.Attribute("data-source-line") == 3 && (int?)boundaryGroup.Attribute("data-source-end-line") == 5,
+            "C4 boundary original line range after preprocessing");
         Check(!PlantUmlRenderer.TryRender("""
             @startuml
             !include <C4/C4_Context>
@@ -88,6 +91,7 @@ internal static class PreprocessorCases
             }
             @enduml
             """, out _), "boundary arguments retain typed value boundaries");
+        RendererRetryCases.Run();
     }
 
     private static XElement Render(string source, Func<string,string?>? resolver = null)

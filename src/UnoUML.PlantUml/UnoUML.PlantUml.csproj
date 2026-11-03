@@ -3,11 +3,15 @@
     <TargetFramework>net10.0</TargetFramework>
     <Description>Dependency-free PlantUML parsing, diagram layout and editable SVG rendering for .NET.</Description>
     <RepositoryUrl>https://github.com/wieslawsoltes/UnoUML</RepositoryUrl>
-    <VersionPrefix>0.2.0</VersionPrefix>
+    <VersionPrefix>0.3.0</VersionPrefix>
     <Authors>UnoUML contributors</Authors>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>plantuml;uml;svg;diagram;webassembly</PackageTags>
     <IsTrimmable>true</IsTrimmable>
   </PropertyGroup>
   <ItemGroup><None Update="README.md" Pack="true" PackagePath="/" /></ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources/*.json.gz" />
+    <None Update="Resources/*.LICENSE;Resources/NOTICE.txt" Pack="true" PackagePath="licenses/" />
+  </ItemGroup>
 </Project>

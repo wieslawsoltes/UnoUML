@@ -18,7 +18,7 @@ internal static partial class RailroadRenderer
 
     private sealed record Rule(string Name, int Line, Rail Root);
 
-    internal static string? TryRender(string source, bool regex)
+    internal static string? TryRender(string source, bool regex, IReadOnlyDictionary<string, string>? options = null)
     {
         if (source.Length > 65536) return null;
         var body = new StringBuilder();
@@ -47,11 +47,11 @@ internal static partial class RailroadRenderer
                 trimmed.StartsWith("<style", StringComparison.Ordinal) || trimmed.StartsWith("skinparam ", StringComparison.Ordinal)) return null;
             if (!regex) { body.Append(raw).Append('\n'); continue; }
             if (trimmed.IsEmpty) continue;
-            // PlantUML options and multiline regex replacement are delegated to the reference engine.
+            // Each regex production keeps the source line supplied by preprocessing.
             if (rows.Count != 0 || !raw.SequenceEqual(trimmed)) return null;
             try
             {
-                var parser = new Reader(raw.ToString(), line, true);
+                var parser = new Reader(raw.ToString(), line, true, options);
                 var root = parser.Pattern();
                 if (!parser.AtEnd) return null;
                 rows.Add(new("", line, root));
@@ -63,7 +63,7 @@ internal static partial class RailroadRenderer
         {
             try
             {
-                var parser = new Reader(body.ToString(), firstLine, false);
+                var parser = new Reader(body.ToString(), firstLine, false, options);
                 while (!parser.AtEnd)
                 {
                     if (rows.Count >= 256) return null;
@@ -78,9 +78,11 @@ internal static partial class RailroadRenderer
     // Internal parse failures only occur after recognizing the dialect; a partially parsed diagram is never displayed.
     private sealed class InvalidRail : Exception;
 
-    private sealed class Reader(string source, int firstLine, bool regex)
+    private sealed class Reader(string source, int firstLine, bool regex, IReadOnlyDictionary<string, string>? options)
     {
         private int pos, line = firstLine, count, depth, capture;
+        private bool insideCharacterSet;
+        private readonly string[]? descriptions = DescriptiveNames(options);
         private char Current => pos < source.Length ? source[pos] : '\0';
         public bool AtEnd { get { Skip(); return pos == source.Length; } }
         private void Skip()
@@ -99,7 +101,7 @@ internal static partial class RailroadRenderer
         private Rail Make(Kind kind, int at, string text = "", params Rail[] children)
         {
             if (++count > 3600 || text.Length > 512) throw new InvalidRail();
-            return new(kind, at, text, children);
+            return new(kind, at, insideCharacterSet ? text : Describe(text, descriptions), children);
         }
         private Rail Many(Kind kind, int at, List<Rail> items)
         {
@@ -256,6 +258,7 @@ internal static partial class RailroadRenderer
         private Rail CharacterSet()
         {
             int begin = line;
+            insideCharacterSet = true;
             bool negate = Take('^');
             var tokens = new List<Rail>();
             while (Current is not ('\0' or ']'))
@@ -276,6 +279,7 @@ internal static partial class RailroadRenderer
             }
             Need(']');
             if (tokens.Count == 0) throw new InvalidRail();
+            insideCharacterSet = false;
             return Make(Kind.Set, begin, negate ? "^" : "", tokens.ToArray());
         }
     }

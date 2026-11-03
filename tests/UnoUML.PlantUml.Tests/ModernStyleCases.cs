@@ -8,6 +8,7 @@ internal static class ModernStyleCases
 
     public static void Run()
     {
+        AdvancedStyleCases.Run();
         string classes = """
             @startuml
             <style>
@@ -121,15 +122,15 @@ internal static class ModernStyleCases
         Reject("class A {\n<style>\nroot { FontColor red }\n</style>\n}");
         Reject("A -> B: Hello\nlegend\n<style>\nroot { FontColor red }\n</style>\nendlegend");
         Check(!PlantUmlRenderer.TryRender("@startuml\nclass A\n@enduml\n<style>\nroot { FontColor red }\n</style>", out _), "style outside document");
-        Reject("<style>\nclass { Padding 20 }\n</style>\nclass A");
+        Render("@startuml\n<style>\nclass { Padding 20 }\n</style>\nclass A\n@enduml", DiagramKind.Graph);
         Reject("<style>\nclass { LineThickness NaN }\n</style>\nclass A");
         Reject("<style>\nclass { FontColor url(http://example.invalid) }\n</style>\nclass A");
         Reject("<style>\nunknownSelector { FontColor red }\n</style>\nclass A");
         Reject("<style>\nclass { FontColor red\n</style>\nclass A");
         Reject("<style>\nclass { FontColor red }\nclass A");
-        Reject("<style>\nroot { BackgroundColor red }\n</style>\nclass A");
-        Reject("<style>\nparticipant { FontColor red }\n</style>\ndatabase A\nA -> B");
-        Reject("<style>\nclassDiagram { arrow { LineColor red } }\n</style>\nrectangle A\nrectangle B\nA --> B");
+        Render("@startuml\n<style>\nroot { BackgroundColor red }\n</style>\nclass A\n@enduml", DiagramKind.Graph);
+        Render("@startuml\n<style>\nparticipant { FontColor red }\n</style>\ndatabase A\nA -> B\n@enduml", DiagramKind.Sequence);
+        Render("@startuml\n<style>\nclassDiagram { arrow { LineColor red } }\n</style>\nrectangle A\nrectangle B\nA --> B\n@enduml", DiagramKind.Graph);
     }
 
     private static XElement Render(string source, DiagramKind expected)

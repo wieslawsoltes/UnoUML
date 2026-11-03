@@ -6,6 +6,7 @@ public sealed partial class DiagramViewport
 {
     public string ActiveRenderer { get; private set; } = "";
     public bool NativeEnabled { get; private set; } = true;
+    public string? SourceFileName { get; set; }
 
     public void SetNativeEnabled(bool enabled)
     {
@@ -13,6 +14,11 @@ public sealed partial class DiagramViewport
         if (mounted) BrowserBridge.SetLocalMode(HostId, enabled);
     }
 
-    private static string RenderManaged(string source) =>
-        PlantUmlRenderer.TryRender(source, BrowserBridge.ReadInclude, out var diagram) ? diagram.Svg : "";
+    private string RenderManaged(string source) =>
+        PlantUmlRenderer.TryRender(source, out var diagram, new PlantUmlRenderOptions
+        {
+            ResolveInclude = BrowserBridge.ReadResource,
+            ImportLibrary = BrowserIncludes.ImportLibrary,
+            SourceFileName = SourceFileName
+        }) ? diagram.Svg : "";
 }

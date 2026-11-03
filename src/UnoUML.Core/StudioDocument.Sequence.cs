@@ -33,9 +33,15 @@ internal sealed partial class DiagramIndex
 {
     private DiagramObject? SequenceText(int line, int end, int parent, string code)
     {
-        // A multiline reference remains one opaque source block. Its body may
-        // contain arbitrary PlantUML-looking text, URLs or formatting commands.
-        if (line != end) return null;
+        if (line != end)
+        {
+            if (!SequenceSyntax.Reference().IsMatch(code)) return null;
+            int start = Lines[line].Next, stop = end == line + 1 ? start : Lines[end - 1].End;
+            return new(_source, Lines[line].Start, Lines[end].End, line, end, parent, SequenceSyntax.ReferenceKind, _source[start..stop])
+            {
+                LabelAt = start - Lines[line].Start, LabelLength = stop - start, MultilineLabel = true
+            };
+        }
         var match = SequenceSyntax.Return().Match(code);
         string kind = SequenceSyntax.ReturnKind;
         if (!match.Success)
@@ -105,6 +111,7 @@ public sealed partial class StudioDocument
 
     private bool RenameSequenceText(DiagramObject item, string label)
     {
+        if (item.MultilineLabel) return RenameBlock(item, label);
         if (!Current(item) || !item.CanRename || !OneLine(label) || label.Length == 0 || label == item.Label) return false;
         bool separator = item.Kind == SequenceSyntax.ReturnKind && item.LabelLength == 0 && item.LabelAt > 0 &&
             !char.IsWhiteSpace(Source[item.Offset + item.LabelAt - 1]);

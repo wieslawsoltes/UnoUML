@@ -18,6 +18,12 @@ internal static partial class GraphRenderer
         public List<Node> Children { get; } = [];
         public List<Arc> Arcs { get; } = [];
         public int X, Y, Width, Height;
+        public int LabelSize = 14, MemberSize = 13, StereotypeSize = 12, HeaderHeight = 40, MemberHeight = 20;
+        public string[] LabelRows = [label];
+        public int LabelHeight = 14, SpotRadius = 10, SpotSize = 12;
+        public int[] MemberHeights = [];
+        public string[][] MemberRows = [];
+        public StyleSpacing Padding = new(13, 17, 13, 17), Margin;
         public bool Implicit, ExplicitFill, DeploymentGlyph, CaptionBelow;
         public bool IsStatePort => Kind == "state" && Stereotype is ("entryPoint" or "exitPoint" or "inputPin" or "outputPin");
         public bool IsInputPort => Stereotype is "entryPoint" or "inputPin";
@@ -26,7 +32,7 @@ internal static partial class GraphRenderer
     }
 
     private sealed record Edge(Node From, Node To, string Arrow, string Caption, string Tail, string Head, int Line, string Direction, bool Hidden, EdgePaint? Paint = null);
-    private sealed record Arc(int A, int B, string Direction, bool Hidden);
+    private sealed record Arc(int A, int B, string Direction, bool Hidden, int LabelWidth = 0, int LabelHeight = 0);
     private sealed record Pending(Node Scope, string From, string To, string Arrow, string Caption, string Tail, string Head, int Line, string Direction, bool Hidden, EdgePaint? Paint);
     private sealed class Graph
     {
@@ -35,6 +41,7 @@ internal static partial class GraphRenderer
         public readonly List<Edge> Edges = [];
         public readonly List<Node> Nodes = [];
         public string Title = "", LegendAlign = "center";
+        public StyleTitle? Heading;
         public int LegendLine = -1;
         public List<string> Legend = [];
         public bool Horizontal, HideCircle, IsState;
@@ -44,9 +51,11 @@ internal static partial class GraphRenderer
     private const string Identifier = @"[\p{L}_$][\p{L}\p{N}_$]*";
     private const string Name = "(?:\"[^\"\\r\\n]+\"|" + Identifier + ")";
     private const string Terminal = "(?:" + Name + "|\\[\\*\\]|" + Identifier + @"(?:\." + Identifier + ")+)";
-    private const string Kinds = "abstract class|abstract|class|struct|exception|protocol|metaclass|stereotype|object|interface|annotation|enum|entity|map|component|database|rectangle|actor/|actor|usecase/|usecase|state|package|namespace|node|artifact|folder|action|agent|boundary|card|circle|cloud|collections|control|file|frame|hexagon|label|person|process|queue|stack|storage|note";
+    private const string Kinds = "archimate|abstract class|abstract|class|struct|exception|protocol|metaclass|stereotype|object|interface|annotation|enum|entity|map|component|database|rectangle|actor/|actor|usecase/|usecase|state|package|namespace|node|artifact|folder|action|agent|boundary|card|circle|cloud|collections|control|file|frame|hexagon|label|person|process|queue|stack|storage|note";
 
-    [GeneratedRegex("^(" + Kinds + @")\s+(" + Name + @")(?:\s+as\s+(" + Name + @"))?(?:\s*<<([^<>]+)>>)?(?:\s+(#[\da-fA-F]{6}|#[\da-fA-F]{3}))?\s*(\{)?$", RegexOptions.CultureInvariant)]
+    private const string DeclarationStereotypes = @"(?:\s*<<(?<stereotype>[^<>\r\n]+)>>)*";
+    [GeneratedRegex("^(?<kind>" + Kinds + @")\s+(?:(?<fill>#[\w]+)\s+)?(?<name>" + Name + ")" + DeclarationStereotypes +
+        @"(?:\s+as\s+(?<alias>" + Name + "))?" + DeclarationStereotypes + @"(?:\s+(?<fill>#[\w]+))?\s*(?<open>\{)?$", RegexOptions.CultureInvariant)]
     private static partial Regex DeclarationPattern();
     [GeneratedRegex("^(" + Terminal + ")\\s*(?:\"([^\"]*)\"\\s*)?([<|o*]*(?>[-.]+)(?:\\[[a-zA-Z0-9#,=. ]+\\])?(?:left|right|up|down)?[-.]*[>|o*]*)\\s*(?:\"([^\"]*)\"\\s*)?(" + Terminal + ")(?:\\s*:\\s*(.*))?$", RegexOptions.CultureInvariant)]
     private static partial Regex EdgePattern();
@@ -139,11 +148,13 @@ internal static partial class GraphRenderer
             var declaration = DeclarationPattern().Match(text);
             if (declaration.Success)
             {
-                string kind = declaration.Groups[1].Value, name = declaration.Groups[2].Value, second = declaration.Groups[3].Value;
+                string kind = declaration.Groups["kind"].Value, name = declaration.Groups["name"].Value, second = declaration.Groups["alias"].Value;
                 string label = Unquote(name), alias = second.Length > 0 ? Unquote(second) : label;
                 if (second.StartsWith('"') && !name.StartsWith('"')) (label, alias) = (Unquote(second), name);
-                string stereo = declaration.Groups[4].Value;
-                if (!Plain(label) || !Plain(stereo) || !Plain(alias) || alias.Contains('.') || graph.Nodes.Count >= 1800) return null;
+                var stereotypes = declaration.Groups["stereotype"].Captures.Select(c => c.Value).ToArray();
+                if (stereotypes.Length > 16 || !stereotypes.All(Plain)) return null;
+                string stereo = string.Join(">><<", stereotypes);
+                if (!Plain(label) || !Plain(alias) || alias.Contains('.') || graph.Nodes.Count >= 1800) return null;
                 var node = new Node(kind, alias, label, line, parent) { Stereotype = stereo };
                 if (!aliases.TryAdd(alias, node)) return null;
                 if (kind == "note") node.Fill = "#fff6bd";
@@ -154,9 +165,13 @@ internal static partial class GraphRenderer
                         return null; // A root-level border port is invalid PlantUML.
                 }
                 if (node.Qualified != alias && !aliases.TryAdd(node.Qualified, node)) return null;
-                if (declaration.Groups[5].Success) { node.Fill = declaration.Groups[5].Value; node.ExplicitFill = true; }
+                if (declaration.Groups["fill"].Success)
+                {
+                    if (ManagedSkin.Color(declaration.Groups["fill"].Value) is not { } color) return null;
+                    node.Fill = color; node.ExplicitFill = true;
+                }
                 graph.Nodes.Add(node); parent.Children.Add(node);
-                if (declaration.Groups[6].Success)
+                if (declaration.Groups["open"].Success)
                 {
                     if (node.IsType) body = node;
                     else if (!node.IsSpecial && !node.IsStatePort && kind is ("package" or "namespace" or "node" or "rectangle" or "folder" or "frame" or "state")) { if (++depth > 12) return null; parent = node; }
@@ -197,11 +212,10 @@ internal static partial class GraphRenderer
             pending.Add(new(parent, Unquote(edge.Groups[1].Value), Unquote(edge.Groups[5].Value), arrow, caption, tail, head, line, direction, hidden, paint));
         }
         if (!opened || !closed || inLegend || skinBlock != null || depth != 0 || body is not null || (!structural && !graph.IsState)) return null;
-        if (graph.Skin.HasModernStyles && graph.Nodes.Any(n => n.Kind == "map" ||
-            !n.IsType && n.Kind is not ("package" or "namespace" or "note") ||
-            n.Stereotype.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '_' or '-')))) return null;
         bool architecture = graph.Nodes.Any(n => !n.IsType && n.Kind is not ("package" or "namespace" or "note"))
             && !graph.Nodes.Any(n => n.IsType && n.Kind is not ("interface" or "entity"));
+        graph.Skin.Diagram = graph.IsState ? "statediagram" : architecture ? "componentdiagram" :
+            graph.Nodes.Any(n => n.Kind == "object") && !graph.Nodes.Any(n => n.IsType && n.Kind != "object") ? "objectdiagram" : "classdiagram";
         if (architecture)
             foreach (var node in graph.Nodes.Where(n => n.Kind is "interface" or "entity" && n.Members.Count == 0))
                 node.DeploymentGlyph = true;
@@ -237,9 +251,9 @@ internal static partial class GraphRenderer
     }
 
     private static bool SupportedArrow(string token) => token is "--" or "-" or ".." or "-->" or "->" or "<--" or "<-" or "<-->" or "<->"
-        or "..>" or "<.." or "<..>" or "--|>" or "<|--" or "..|>" or "<|.." or "*--" or "--*" or "o--" or "--o";
+        or "..>" or "<.." or "<..>" or "--|>" or "<|--" or "..|>" or "<|.." or "*--" or "--*" or "o--" or "--o" or "-->>" or "->>" or "<<--" or "<<-";
     private static string Unquote(string value) => value.StartsWith('"') ? value[1..^1] : value;
-    private static bool Plain(string text) => SvgText.IsPlain(text) && !text.Contains('\\') && !text.Any(char.IsControl);
+    private static bool Plain(string text) => SvgText.IsSupported(text) && !text.Any(char.IsControl);
     private static bool PlainMember(string text) => Plain(text) && !text.StartsWith('!') && !text.StartsWith('@') && !text.Contains('{') && !text.Contains('}')
         && !text.StartsWith("--", StringComparison.Ordinal) && !text.StartsWith("..", StringComparison.Ordinal) && !text.StartsWith("==", StringComparison.Ordinal)
         && !text.StartsWith("__", StringComparison.Ordinal) && !text.StartsWith("/'", StringComparison.Ordinal);

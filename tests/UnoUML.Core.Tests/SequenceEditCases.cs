@@ -67,8 +67,9 @@ internal static class SequenceEditCases
             string source = "@startuml\nparticipant A\nref#blue over \"Database: primary\", A\nclass ThisIsReferenceText\n" + close + "\nA -> A: after\n@enduml";
             var opaque = new StudioDocument(source);
             var reference = opaque.Find(null, 2)!;
-            check(reference.Kind == "Source" && reference.EndLine == 4 && !reference.CanRename && opaque.Find("ThisIsReferenceText") == null && opaque.Find(null, 5)?.Kind == "Relationship", "multiline reference is opaque with " + close);
-            check(!opaque.Rename(reference, "Unsafe") && opaque.Source == source, "multiline reference label remains a whole-source edit");
+            check(reference.Kind == "Reference" && reference.EndLine == 4 && reference.CanRename && reference.MultilineLabel && opaque.Find("ThisIsReferenceText") == null && opaque.Find(null, 5)?.Kind == "Relationship", "multiline reference has an editable opaque body with " + close);
+            check(opaque.Rename(reference, "First line\nSecond line") && opaque.Source == source.Replace("class ThisIsReferenceText", "First line\nSecond line"), "multiline reference preserves its header and closing delimiter");
+            check(opaque.Undo() && opaque.Source == source && !opaque.Rename(opaque.Find(null, 2)!, "line\nend ref\nclass Injected"), "multiline reference undo and delimiter protection");
         }
         var aliasReference = new StudioDocument("@startuml\nparticipant A\n@enduml");
         check(!aliasReference.PasteSelection("participant A\nref over A: shared"), "clipboard declines alias remapping through an unparsed reference participant list");

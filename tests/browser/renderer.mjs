@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { verifyCanvasEvents } from './direct-editing.mjs';
 import { verifyServerRendering } from './server-cases.mjs';
+import { verifyResourceLoading } from './resources.mjs';
+import { verifyArchiveFiles } from './archive.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
@@ -8,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const wwwroot = fileURLToPath(new URL('../../src/UnoUML.App/wwwroot/', import.meta.url));
+await verifyResourceLoading();
 const mime = { '.js': 'text/javascript', '.html': 'text/html', '.css': 'text/css' };
 const server = createServer(async (req, res) => {
   try {
@@ -28,7 +31,8 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 try {
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, headless: true });
-  const page = await browser.newPage({ hasTouch: true });
+  const context = await browser.newContext({ hasTouch: true });
+  const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
   await page.goto('http://127.0.0.1:' + server.address().port + '/');
@@ -98,6 +102,12 @@ try {
   assert.equal(await imported,1);
   await render('@startuml\n!include common.iuml\n@enduml');
   assert.equal(await page.locator('.paper [data-qualified-name="LoadedFromFile"]').count(),1);
+  assert.deepEqual(await page.evaluate(async () => JSON.parse(await ui.listIncludes())), ['common.iuml']);
+  assert.deepEqual(await page.evaluate(async () => JSON.parse(await ui.updateInclude('common.iuml', 'class LoadedFromFile', 'class UpdatedFromFile'))), {updated:true,persisted:true});
+  assert.deepEqual(await page.evaluate(async () => JSON.parse(await ui.updateInclude('common.iuml', 'class LoadedFromFile', 'class StaleFile'))), {updated:false,persisted:false});
+  await render('@startuml\n!include common.iuml\n@enduml');
+  assert.equal(await page.locator('.paper [data-qualified-name="UpdatedFromFile"]').count(),1);
+  await verifyArchiveFiles(page);
   await assert.rejects(render('@startuml\nbroken ???\n@enduml'),/Syntax Error/i);
   await page.evaluate(async () => {
     const {parseSvg,indexHits}=await import('/uml/svg.js');
@@ -108,6 +118,12 @@ try {
     const mapped=indexHits(c4Svg(),c4Source);
     const node=mapped.byId.get('ctrl');
     if (!node || mapped.hits.get(node).line!==2) throw Error('Nested C4 source alias lost to qualified name, wrapped text or relationship use');
+    const continued=c4Source.replace('Component (ctrl, "Request handler", "C#", $tags="external")', 'Component(\\\n $label="Request handler",\\\n $alias=ctrl, $techn="C#")');
+    const named=indexHits(c4Svg(),continued);
+    if (!named.byId.get('ctrl') || named.hits.get(named.byId.get('ctrl')).line!==2) throw Error('Continued named C4 alias was not mapped to its invocation');
+    const included=parseSvg('<svg xmlns="http://www.w3.org/2000/svg"><g data-qualified-name="Invoice" data-source-line="1" data-source-generated="true" data-source-file="model/invoice.iuml" data-file-line="3"><text>Invoice</text></g></svg>');
+    const provenance=[...indexHits(included,'@startuml\n!include model/invoice.iuml\n@enduml',true).hits.values()][0];
+    if (!provenance.generated || provenance.sourceFile!=='model/invoice.iuml' || provenance.fileLine!==3) throw Error('Include provenance was lost in canvas selection');
     const duplicate=c4Source.replace('Rel(ctrl, other, "Calls")','Component(ctrl, "Duplicate", "C#")');
     if (indexHits(c4Svg(),duplicate).byId.has('ctrl')) throw Error('Ambiguous C4 alias became editable');
     const dynamic=indexHits(c4Svg(),c4Source.replace('Component (','!if %true()\nComponent (').replace('\n@enduml','\n!endif\n@enduml'));

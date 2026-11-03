@@ -170,7 +170,7 @@ internal static partial class ChartRenderer
             else if (series.Kind == "scatter")
             {
                 for (int i = 0; i < categories.Length; i++)
-                    s.Append(CultureInfo.InvariantCulture, $"<circle data-point-index=\"{i}\" cx=\"{F(X(i))}\" cy=\"{F(Y(series.Values[i]))}\" r=\"4\" fill=\"{color}\"/>");
+                    s.Append(CultureInfo.InvariantCulture, $"<circle data-point-index=\"{i}\" data-chart-marker=\"true\" data-style-name=\"scatter\" cx=\"{F(X(i))}\" cy=\"{F(Y(series.Values[i]))}\" r=\"4\" fill=\"{color}\"/>");
             }
             else
             {
@@ -193,6 +193,7 @@ internal static partial class ChartRenderer
                 string c = series.Color ?? (series.Kind is "line" or "scatter" ? "#181818" : "#F1F1F1");
                 Open(s, "legend", series.Line);
                 if (series.Kind == "line") Line(s, x, y + 6, x + 12, y + 6, c, 2);
+                else if (series.Kind == "scatter") s.Append(CultureInfo.InvariantCulture, $"<circle data-chart-marker=\"true\" data-style-name=\"scatter\" cx=\"{x + 6}\" cy=\"{y + 6}\" r=\"4.2\" fill=\"{c}\"/>");
                 else Rect(s, x, y, 12, 12, c, c);
                 Text(s, x + 17, y + 13, series.Label, "start"); s.Append("</g>");
                 if (column) y += 22; else x += SvgText.Measure(series.Label) + 36;

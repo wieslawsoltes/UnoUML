@@ -70,7 +70,7 @@ internal static class SequenceCases
 
         var roles = Render("@startuml\n" + string.Join('\n', new[] { "participant", "actor", "boundary", "control", "entity", "database", "collections", "queue" }.Select((role, i) => role + " P" + i)) + "\n@enduml");
         Require(Groups(roles).Count(x => (string?)x.Attribute("class") == "participant participant-tail") == 8, "all lifeline heads and tails");
-        foreach (var invalid in new[] { "!include <C4/C4_Context>", "skinparam sequenceUnknownThickness 3", "autonumber 1 1 \"[00]\"", "A -> B : **bold**", "A-[#notacolor]> B", "A -> B : [[https://example.com link]]", "alt missing end" })
+        foreach (var invalid in new[] { "!include <C4/C4_Context>", "skinparam sequenceUnknownThickness 3", "autonumber 1 1 \"[00]\"", "A-[#notacolor]> B", "alt missing end" })
             Require(!PlantUmlRenderer.TryRender("@startuml\nparticipant A\n" + invalid + "\n@enduml", out _), "whole-document fallback for " + invalid);
     }
 
@@ -132,8 +132,9 @@ internal static class SequenceCases
         Require(SequencePages.TryRender(ignored, out var one) && one.Count == 1 && !XElement.Parse(one[0].Svg).Elements(ns+"svg").Any(), "ignore newpage preserves single canvas");
         const string literal = "@startuml\nA -> B: one\nnote over A\nnewpage is text here\nend note\nnewpage\nignore newpage\nnewpage ignored\nA -> B: two\n@enduml";
         Require(SequencePages.TryRender(literal, out var two) && two.Count == 2 && XElement.Parse(two[0].Svg).Value.Contains("newpage is text here", StringComparison.Ordinal), "page directives follow parser scope and ignore takes effect prospectively");
-        Require(!SequencePages.TryRender("@startuml\nA -> B: test\nnewpage **styled**\n@enduml", out _) &&
-            !SequencePages.TryRender("@startuml\nclass A\n@enduml", out _), "conservative page API");
+        Require(SequencePages.TryRender("@startuml\nA -> B: test\nnewpage **styled**\n@enduml", out var styledPages) && styledPages.Count == 2 &&
+            XElement.Parse(styledPages[1].Svg).Descendants(ns + "tspan").Any(t => t.Value == "styled" && (string?)t.Attribute("font-weight") == "bold"), "rich page title");
+        Require(!SequencePages.TryRender("@startuml\nclass A\n@enduml", out _), "conservative page API");
     }
 
     private static XElement Render(string text)

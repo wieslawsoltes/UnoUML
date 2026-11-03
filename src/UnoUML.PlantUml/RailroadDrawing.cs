@@ -57,7 +57,7 @@ internal static partial class RailroadRenderer
                 node.Below = node.Children.Sum(c => c.Above + c.Below) + Track * (node.Children.Length - 1) - node.Above;
                 break;
             case Kind.Set:
-                node.Width = Math.Max(34, node.Children.Max(c => SvgText.Measure(c.Text, 13)) + 22);
+                node.Width = Math.Max(34, node.Children.Max(c => SvgText.MeasurePlain(c.Text, 13)) + 22);
                 node.Above = 14;
                 node.Below = 14 + (node.Children.Length - 1) * 18 + (node.Text == "^" ? 18 : 0);
                 break;
@@ -65,12 +65,12 @@ internal static partial class RailroadRenderer
             case Kind.Loop:
             case Kind.Capture:
                 var inner = node.Children[0];
-                node.Width = Math.Max(inner.Width, SvgText.Measure(node.Text, 11) + 20) + Track * 2;
+                node.Width = Math.Max(inner.Width, SvgText.MeasurePlain(node.Text, 11) + 20) + Track * 2;
                 node.Above = inner.Above + (node.Kind == Kind.Option ? Track : node.Kind == Kind.Capture ? 6 : 0);
                 node.Below = inner.Below + (node.Kind == Kind.Loop ? (node.Text.Length > 0 ? 36 : Track) : node.Kind == Kind.Capture ? 6 : 0);
                 break;
             default:
-                node.Width = Math.Max(28, SvgText.Measure(node.Text, 14) + 20); node.Above = node.Below = 14;
+                node.Width = Math.Max(28, SvgText.MeasurePlain(node.Text, 14) + 20); node.Above = node.Below = 14;
                 break;
         }
         return node.Width <= 31968 && node.Above + node.Below <= 31968;

@@ -57,8 +57,13 @@
   position: absolute; z-index: 2; pointer-events: auto; box-sizing: border-box;
   border: 2px solid #6554c6; border-radius: 5px; background: #fff; color: #29243d;
   outline: none; padding: 3px 6px; margin: 0; text-align: center; user-select: text;
-  font: 16px/1.2 system-ui, sans-serif; box-shadow: 0 2px 10px #30284c22;
+  font: 16px/1.2 system-ui, sans-serif; box-shadow: 0 2px 10px #30284c22; resize: none;
 }
+.canvas-block-editor { text-align:left; font-family:ui-monospace,monospace; line-height:20px; padding:8px; tab-size:4; }
+.canvas-edit-actions { position:absolute; z-index:3; display:flex; gap:4px; flex-wrap:wrap; pointer-events:auto; }
+.canvas-edit-actions button { padding:4px 8px; border:1px solid #d3cde8; background:#fff; color:#403563; border-radius:5px; font:12px/1.5 system-ui; cursor:pointer; }
+.canvas-edit-actions button:hover { background:#eeeafa; }
+.canvas-edit-actions button:focus-visible { outline:2px solid #6554c6; outline-offset:1px; }
 @media (pointer: coarse) { .connection-port { width: 30px; height: 30px; } }
 .connection-port.retargetFrom, .connection-port.retargetTo {
   right: auto; transform: translate(-50%, -50%); width: 18px; height: 18px;

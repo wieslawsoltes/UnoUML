@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using UnoUML.App.Rendering;
 using UnoUML.Core;
 
 namespace UnoUML.App;
@@ -106,7 +107,16 @@ public sealed partial class MainPage
         var item = selected;
         SelectionType.Text = item == null ? "DIAGRAM" : item.Kind.ToUpperInvariant();
         SelectionTitle.Text = item?.Label ?? doc.Page.Title;
-        if (JsonSelection is { } field)
+        if (item == null && GeneratedSelection is { } generated)
+        {
+            SelectionType.Text = "GENERATED OBJECT";
+            SelectionTitle.Text = generated.Label;
+            Properties.Children.Add(Caption(generated.SourceFile is { Length: > 0 } file ?
+                $"Source file   {file}\nLine   {generated.FileLine + 1}" : $"Source invocation   L{doc.Page.StartLine + generated.Line + 1}"));
+            Properties.Children.Add(Item(generated.SourceFile != null && BrowserIncludes.Read(generated.SourceFile) != null ?
+                "Edit included source…" : "Edit source invocation…", "source", () => EditGeneratedSource(generated)));
+        }
+        else if (JsonSelection is { } field)
         {
             SelectionType.Text = "JSON " + field.Kind.ToUpperInvariant();
             SelectionTitle.Text = field.Text;
@@ -124,6 +134,7 @@ public sealed partial class MainPage
             Grid.SetColumn(value, 1); info.Children.Add(type); info.Children.Add(value);
             Properties.Children.Add(info);
             Properties.Children.Add(Caption("Select an object on the canvas to edit its properties, or choose it from the outline."));
+            if (doc.Drawing is { } drawing) Properties.Children.Add(Item("Edit ASCII drawing…", "edit", () => { selected = drawing; BeginCanvasEdit(drawing); }));
         }
         else
         {
@@ -131,11 +142,15 @@ public sealed partial class MainPage
             {
                 string labelCaption = item.Kind == "Relationship" ? "Relationship label" : "Display name";
                 if (item.Kind == "Relationship" && doc.Page.Family == "Chen") labelCaption = "Cardinality";
+                if (item.Kind is "Formula" or "ASCII drawing") labelCaption = item.Kind;
                 Properties.Children.Add(Caption(labelCaption));
-                var rename = new TextBox { Text = item.EditableLabel, Style = (Style)Resources["Field"], PlaceholderText = "Display name" };
+                var rename = new TextBox { Style = (Style)Resources["Field"], AcceptsReturn = item.MultilineLabel,
+                    Text = item.EditableLabel, PlaceholderText = labelCaption, MaxHeight = item.MultilineLabel ? 180 : double.PositiveInfinity,
+                    TextWrapping = item.MultilineLabel ? TextWrapping.Wrap : TextWrapping.NoWrap };
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(rename, "Object display name");
                 Properties.Children.Add(rename);
                 Properties.Children.Add(Item("Apply label", "edit", () => EditProperty(item, () => doc.Rename(item, rename.Text))));
+                if (item.MultilineLabel || item.Kind == "Formula") Properties.Children.Add(Item("Edit on canvas…", "edit", () => BeginCanvasEdit(item)));
             }
             if (item.CanSetFill)
             {
@@ -161,9 +176,9 @@ public sealed partial class MainPage
             Properties.Children.Add(Item("Edit statement…", "source", () => _ = EditStatementAsync(item)));
             if (item.IsConnectable) Properties.Children.Add(Item("Connect to…", "connect", () => _ = ConnectAsync(item)));
             var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
-            if (item.Kind is not ("ASCII label" or "Chen attribute"))
+            if (item.Kind is not ("ASCII label" or "ASCII drawing" or "Chen attribute"))
                 actions.Children.Add(Command("Duplicate object", "copy", () => Edit(() => doc.Duplicate(item))));
-            if (item.Kind != "ASCII label" && doc.Page.Family != "C4")
+            if (item.Kind is not ("ASCII label" or "ASCII drawing") && doc.Page.Family != "C4")
             {
                 actions.Children.Add(Command("Move up", "up", () => Edit(() => doc.Move(item, -1))));
                 actions.Children.Add(Command("Move down", "down", () => Edit(() => doc.Move(item, 1))));
@@ -231,7 +246,7 @@ public sealed partial class MainPage
         return await dialog.ShowAsync();
     }
 
-    TextBox StatementField(string text, string hint) => new() { Text = text, PlaceholderText = hint, AcceptsReturn = true,
+    TextBox StatementField(string text, string hint) => new() { AcceptsReturn = true, Text = text, PlaceholderText = hint,
         TextWrapping = TextWrapping.Wrap, MinHeight = 100, MaxHeight = 250, IsSpellCheckEnabled = false, FontFamily = new FontFamily("monospace"), FontSize = 13 };
 
     async Task EditStatementAsync(DiagramObject item)

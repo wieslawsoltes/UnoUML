@@ -1,7 +1,9 @@
 import { DirectEditing } from './direct-editing.js';
 import { indexHits, parseSvg } from './svg.js';
 import { download, includeFiles, includeRevision } from './files.js';
-export { openFile, saveFile, importIncludes, readInclude } from './files.js';
+import { beginResourcePass, prepareResources } from './resources.js';
+export { readResource } from './resources.js';
+export { openFile, saveFile, importIncludes, readInclude, listIncludes, updateInclude, openArchive, saveArchive, readArchive, readArchiveVersion } from './files.js';
 
 import { getServerEndpoint, getServerTransport, layoutOnServer } from './server.js';
 export { setServerEndpoint } from './server.js';
@@ -78,23 +80,30 @@ class Viewport {
     this.resize.observe(host);
   }
   dispose() { this.direct.finishLabel(false); this.resize.disconnect(); this.version++; this.host.shadowRoot.replaceChildren(); this.cache.clear(); }
-  async render(source) {
+  async render(source, fileName = '') {
     this.direct.finishLabel(false);
     const version = ++this.version;
     this.fetchJob?.abort();
     const endpoint = getServerEndpoint();
     const transport = getServerTransport();
-    const key = this.localMode + '\0' + transport + endpoint + '\0' + includeRevision + '\0' + source;
+    const key = this.localMode + '\0' + transport + endpoint + '\0' + includeRevision + '\0' + fileName + '\0' + source;
     if (this.pristine && key === this.displayKey) return;
     this.pristine = null;
     this.sheetPicker.disabled = true;
     let svg = this.cache.get(key);
     if (!svg) {
-      if (!endpoint && this.localMode === 'auto' && /^\s*!include(?:_once|_many)?[ \t]+(?![ \t<])/m.test(source)) {
+      if (!endpoint && this.localMode === 'auto' && /!include|!theme|!import|%load_json|%file_exists/.test(source)) {
         await includeFiles();
         if (version !== this.version) return;
       }
+      beginResourcePass();
       let output = !endpoint && this.localMode === 'auto' ? this.renderManaged?.(source) : null;
+      for (let pass = 0; !output && !endpoint && this.localMode === 'auto' && pass < 64; pass++) {
+        if (!await prepareResources()) break;
+        if (version !== this.version) return;
+        beginResourcePass();
+        output = this.renderManaged?.(source);
+      }
       const backend = endpoint ? 'jvm' : output ? 'managed' : 'javascript';
       if (!output) {
         const controller = endpoint ? new AbortController() : null;
@@ -385,7 +394,7 @@ export function setTool(id, value) { views.get(id)?.setTool(value); }
 export function setSelection(id, name, line) { views.get(id)?.select(name,line); }
 export function zoom(id, factor) { views.get(id)?.zoom(factor); }
 export function fit(id) { views.get(id)?.fit(); }
-export async function render(id, source) { await views.get(id).render(source); }
+export async function render(id, source, fileName = '') { await views.get(id).render(source, fileName); }
 export async function exportDiagram(id, format, fileName) {
   const view = views.get(id);
   const svg = view?.pristine && view.exportSource;
@@ -428,7 +437,7 @@ export async function exportDiagram(id, format, fileName) {
 
 export function setAdditionalSelection(id, lines, clipboard) { views.get(id)?.setAdditional(lines, clipboard); }
 
-export function beginLabelEdit(id, label, revision) { return views.get(id)?.direct.beginLabel(label, revision) ?? false; }
+export function beginLabelEdit(id, label, revision, multiline = false, language = 'text') { return views.get(id)?.direct.beginLabel(label, revision, multiline, language) ?? false; }
 export function setConnectable(id, value) { const v = views.get(id); if (v) v.direct.port.hidden = !value; }
 
 export function setLocalMode(id, nativeEnabled) { const view = views.get(id); if (view) view.localMode = nativeEnabled ? 'auto' : 'reference'; }

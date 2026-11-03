@@ -35,7 +35,8 @@ internal static class C4Cases
         Require((int?)ext.Element(ns+"rect")?.Attribute("x") > (int?)c.Element(ns+"rect")?.Attribute("x"), "directional right relation");
         CheckScopedComponents();
         CheckDeployment();
-        foreach (string extra in new[] { "!include <C4/C4_Container>", "!define MY_COLOR red", "UpdateElementStyle(svc, $bgColor=\"red\")", "Container(db, \"DB\")", "System(svc, \"Name\", \"Desc\", $tags=\"red\")", "Rel(unknown,svc,\"Uses\")", "System(bad, \"<$icon>\")", "System_Boundary(b, \"Boundary\") {" })
+        Require(PlantUmlRenderer.TryRender("@startuml\n!include <C4/C4_Context>\n!define NAME App\nSystem(svc, \"NAME\")\n@enduml", out _), "legacy macro with native C4");
+        foreach (string extra in new[] { "!include <C4/C4_Container>", "UpdateElementStyle(svc, $bgColor=\"red\")", "Container(db, \"DB\")", "System(svc, \"Name\", \"Desc\", $tags=\"red\")", "Rel(unknown,svc,\"Uses\")", "System(bad, \"<$icon>\")", "System_Boundary(b, \"Boundary\") {" })
             Require(!PlantUmlRenderer.TryRender("@startuml\n!include <C4/C4_Context>\nSystem(svc, \"App\")\n" + extra + "\n@enduml", out _), "whole-document compatibility fallback: " + extra);
     }
     private static void CheckScopedComponents()

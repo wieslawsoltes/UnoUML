@@ -83,6 +83,16 @@ internal sealed partial class DiagramIndex
     private List<DiagramObject> DitaaObjects(DiagramPage page)
     {
         var result = new List<DiagramObject>();
+        if (page.EndLine > page.StartLine + 1)
+        {
+            int first = page.StartLine + 1, last = page.EndLine - 1;
+            int start = Lines[first].Start, end = Lines[last].End;
+            result.Add(new(_source, start, end, first, last, -1, "ASCII drawing", "ASCII drawing")
+            {
+                Alias = "ditaa:drawing", LabelAt = 0, LabelLength = end - start,
+                MultilineLabel = true, EditorLanguage = "ditaa", EditableContent = _source[start..end]
+            });
+        }
         for (int line = page.StartLine + 1; line < page.EndLine; line++)
         {
             var row = Lines[line];

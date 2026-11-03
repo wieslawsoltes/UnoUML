@@ -71,7 +71,7 @@ internal static partial class MathRenderer
                 var glyph = new Box(e, fontSize, face with { Italic = face.Italic || (e.Atom == Atom.Variable && !face.Roman && !face.Double) })
                 {
                     Text = text,
-                    Width = Math.Max(0, fontSize * SvgText.Measure(text, 100) / 100d),
+                    Width = Math.Max(0, fontSize * SvgText.MeasurePlain(text, 100) / 100d),
                     Up = fontSize * .81,
                     Down = fontSize * .24
                 };

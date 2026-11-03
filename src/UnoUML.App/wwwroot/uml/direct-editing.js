@@ -77,16 +77,20 @@ export class DirectEditing {
     }
   }
 
-  beginLabel(label, revision) {
-    const { marked, surface } = this.view;
+  beginLabel(label, revision, multiline = false, language = 'text') {
+    const { surface } = this.view;
+    const marked = language === 'ditaa' ? this.view.paper.querySelector('svg') : this.view.marked;
     if (!marked?.isConnected || !surface.clientWidth) return false;
     this.finishLabel(false);
-    const input = document.createElement('input');
-    input.type = 'text';
+    const input = document.createElement('textarea');
     input.className = 'canvas-label-editor';
     input.setAttribute('aria-label', 'Edit diagram label');
     input.setAttribute('enterkeyhint', 'done');
     input.spellcheck = false;
+    input.rows = 1;
+    input.maxLength = 1048576;
+    input.wrap = language === 'ditaa' ? 'off' : 'soft';
+    input.classList.toggle('canvas-block-editor', multiline || language !== 'text' && language !== 'creole');
     input.value = label;
 
     // Locate the actual glyphs where possible, including when the clicked hit is a
@@ -98,21 +102,84 @@ export class DirectEditing {
         || texts.find(el => el.textContent.trim().endsWith(label) && label.length > 0)
         || marked;
     }
-    this.field = { input, original: label, revision, anchor };
+    const panel = document.createElement('div');
+    panel.className = 'canvas-edit-actions';
+    panel.setAttribute('role', 'toolbar');
+    panel.setAttribute('aria-label', 'Diagram editing tools');
+    const command = (caption, title, action) => {
+      const button = document.createElement('button');
+      button.type = 'button'; button.textContent = caption; button.title = title;
+      button.setAttribute('aria-label', title);
+      button.addEventListener('pointerdown', event => { event.preventDefault(); event.stopPropagation(); });
+      button.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); action(); });
+      panel.append(button);
+      return button;
+    };
+    const insert = template => {
+      const selection = input.value.slice(input.selectionStart, input.selectionEnd);
+      const text = template.replace('$', () => selection || 'x');
+      input.setRangeText(text, input.selectionStart, input.selectionEnd, 'select');
+      input.focus({preventScroll: true}); this.positionField();
+    };
+    const format = (open, close = open) => {
+      const start = input.selectionStart, end = input.selectionEnd;
+      const selection = input.value.slice(start, end);
+      const wrapped = selection.startsWith(open) && selection.endsWith(close) && selection.length >= open.length + close.length;
+      input.setRangeText(wrapped ? selection.slice(open.length, -close.length) : open + (selection || 'text') + close, start, end, 'select');
+      input.focus({preventScroll:true}); this.positionField();
+    };
+    if (language === 'asciimath' || language === 'tex') {
+      const tex = language === 'tex';
+      command('a/b', 'Insert fraction', () => insert(tex ? '\\frac{$}{b}' : '($)/(b)'));
+      command('√', 'Insert square root', () => insert(tex ? '\\sqrt{$}' : 'sqrt($)'));
+      command('x²', 'Insert exponent', () => insert(tex ? '{$}^{2}' : '($)^2'));
+      command('∑', 'Insert sum', () => insert(tex ? '\\sum_{i=1}^{n}{$}' : 'sum_(i=1)^n ($)'));
+    } else if (language === 'ditaa') {
+      command('□', 'Insert ASCII box', () => insert('+--------+\n| Box    |\n+--------+'));
+      command('→', 'Insert ASCII connector', () => insert('---->'));
+    } else if (language === 'creole') {
+      command('B', 'Bold (Ctrl+B)', () => format('**')).style.fontWeight = 'bold';
+      command('I', 'Italic (Ctrl+I)', () => format('//')).style.fontStyle = 'italic';
+      command('U', 'Underline (Ctrl+U)', () => format('__')).style.textDecoration = 'underline';
+      command('S', 'Strikethrough', () => format('--')).style.textDecoration = 'line-through';
+      command('{}', 'Monospaced text', () => format('<font:monospaced>', '</font>'));
+    }
+    command('Apply', multiline ? 'Apply diagram content (Ctrl+Enter)' : 'Apply diagram label (Enter)', () => this.finishLabel(true, true));
+    command('Cancel', 'Cancel diagram edit (Escape)', () => this.finishLabel(false, true));
+    this.field = { input, panel, original: label, revision, anchor, multiline, language };
     const stop = e => e.stopPropagation();
     for (const type of ['pointerdown','pointerup','pointermove','click','dblclick','cut','copy','paste','keyup','wheel'])
       input.addEventListener(type, stop);
     input.addEventListener('keydown', e => {
       e.stopPropagation();
       if (e.isComposing || e.keyCode === 229) return;
-      if (e.key === 'Escape' || e.key === 'Enter' || e.key === 'Tab') {
+      if (e.altKey && e.key === 'F10') {
+        e.preventDefault(); panel.querySelector('button').focus(); return;
+      }
+      if (language === 'creole' && (e.ctrlKey || e.metaKey) && !e.altKey && ['b','i','u'].includes(e.key.toLowerCase())) {
+        e.preventDefault(); format({b:'**',i:'//',u:'__'}[e.key.toLowerCase()]); return;
+      }
+      if (e.key === 'Tab' && language === 'ditaa') {
+        e.preventDefault(); insert('    '); return;
+      }
+      if (e.key === 'Escape' || e.key === 'Enter' && (e.ctrlKey || e.metaKey || !multiline && !e.shiftKey) || e.key === 'Tab' && language !== 'ditaa') {
         e.preventDefault();
         this.finishLabel(e.key !== 'Escape', true);
       }
     });
-    input.addEventListener('blur', () => this.finishLabel(true));
+    input.addEventListener('blur', event => {
+      if (!panel.contains(event.relatedTarget)) this.finishLabel(true);
+    });
+    panel.addEventListener('keydown', event => {
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); this.finishLabel(false, true); }
+    });
+    panel.addEventListener('focusout', event => {
+      if (event.relatedTarget !== input && !panel.contains(event.relatedTarget)) this.finishLabel(true);
+    });
     input.addEventListener('input', () => this.positionField());
     surface.append(input);
+    surface.append(panel);
     this.positionField();
     input.focus({preventScroll: true});
     input.select();
@@ -125,6 +192,7 @@ export class DirectEditing {
     this.field = null;
     const text = field.input.value;
     field.input.remove();
+    field.panel.remove();
     if (refocus) this.view.surface.focus({preventScroll: true});
     if (commit && text !== field.original)
       this.view.emit('label', {revision: field.revision, text});
@@ -132,17 +200,23 @@ export class DirectEditing {
 
   positionField() {
     if (!this.field) return;
-    const { input, anchor } = this.field;
+    const { input, panel, anchor, multiline, language } = this.field;
     const bounds = this.view.rect(), target = anchor.getBoundingClientRect();
-    const size = Math.max(13, Math.min(24, target.height * .78));
-    const width = Math.max(1, Math.min(bounds.width - 8, Math.max(100, target.width + 18, input.value.length * size * .6 + 20)));
-    const height = Math.min(40, Math.max(30, size + 14));
+    const block = multiline || language !== 'text' && language !== 'creole' || input.value.includes('\n');
+    const size = block ? 14 : Math.max(13, Math.min(24, target.height * .78));
+    const lines = input.value.split('\n');
+    let longest = 0;
+    for (const line of lines) longest = Math.max(longest, line.length);
+    const width = Math.max(1, Math.min(bounds.width - 8, Math.max(block ? 320 : 150, target.width + 18, longest * size * .6 + 24)));
+    const height = Math.min(Math.max(40, bounds.height - 64), block ? Math.max(80, Math.min(320, lines.length * 20 + 20)) : Math.max(30, size + 14));
     const within = (n, max) => Math.max(4, Math.min(max - 4, n));
     Object.assign(input.style, {
       width: width + 'px', height: height + 'px', fontSize: size + 'px',
       left: within(target.left - bounds.left + (target.width - width) / 2, bounds.width - width) + 'px',
       top: within(target.top - bounds.top + (target.height - height) / 2, bounds.height - height) + 'px'
     });
+    Object.assign(panel.style, { left: input.style.left, maxWidth: width + 'px' });
+    panel.style.top = Math.max(4, Math.min(bounds.height - panel.getBoundingClientRect().height - 4, parseFloat(input.style.top) + height + 4)) + 'px';
   }
 
   marquee(drag, x, y) {

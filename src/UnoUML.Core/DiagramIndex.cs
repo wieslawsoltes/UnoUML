@@ -27,9 +27,14 @@ public sealed class DiagramObject
     public int Line { get; }
     public int EndLine { get; }
     public string Statement => _document[Offset..End];
-    public bool IsConnectable => Alias.Length > 0 && !Ambiguous && Kind is not (LegacySyntax.AsciiLabel or LegacySyntax.ChenAttribute);
+    public bool IsConnectable => Alias.Length > 0 && !Ambiguous && Kind is not (LegacySyntax.AsciiLabel or LegacySyntax.ChenAttribute or "ASCII drawing");
     public bool CanRename => LabelAt >= 0 && !Ambiguous && !Unclosed;
-    public string EditableLabel => (Kind == "Relationship" || SequenceSyntax.TextKind(Kind)) && LabelLength == 0 ? "" : Label;
+    public bool MultilineLabel { get; internal set; }
+    public string EditorLanguage { get; internal set; } = "text";
+    public string MacroName => C4Macro;
+    public string EditableLabel => EditableContent ?? ((Kind == "Relationship" || SequenceSyntax.TextKind(Kind)) && LabelLength == 0 ? "" : Label);
+    internal string? EditableContent { get; set; }
+    internal string ClosingKeyword { get; set; } = "";
     internal bool Ambiguous { get; set; }
     internal bool PlainName { get; set; }
     internal bool SequenceCreation { get; set; }
@@ -248,6 +253,7 @@ internal sealed partial class DiagramIndex
         if (_cache.TryGetValue(pageIndex, out var cached)) return cached;
         var page = Pages[pageIndex];
         if (page.Family == "Ditaa") return _cache[pageIndex] = DitaaObjects(page);
+        if (page.Family is "Math" or "LaTeX") return _cache[pageIndex] = FormulaObjects(page);
         var result = new List<DiagramObject>();
         var stack = new Stack<(int Line, string End, bool Opaque)>();
         var ends = new Dictionary<int, int>();
@@ -278,8 +284,14 @@ internal sealed partial class DiagramIndex
                     continue;
                 }
             }
-            parents[i] = stack.TryPeek(out var parent) ? branches.GetValueOrDefault(parent.Line, parent.Line) : -1;
-            if (BlockEnd(code, page.Family) is { } block) stack.Push((i, block.End, block.Opaque));
+            int statementLine = i;
+            if (page.Family == "C4")
+            {
+                code = C4Code(i, page.EndLine, out int last).Trim();
+                if (last > i) { ends[i] = last; i = last; }
+            }
+            parents[statementLine] = stack.TryPeek(out var parent) ? branches.GetValueOrDefault(parent.Line, parent.Line) : -1;
+            if (BlockEnd(code, page.Family) is { } block) stack.Push((statementLine, block.End, block.Opaque));
         }
         foreach (var pending in stack) unclosed.Add(pending.Line);
         var aliases = new Dictionary<string, DiagramObject>(StringComparer.Ordinal);
@@ -318,8 +330,8 @@ internal sealed partial class DiagramIndex
         if (code.Equals(end, StringComparison.OrdinalIgnoreCase)) return true;
         if (end == "endref" && code.Equals("end", StringComparison.OrdinalIgnoreCase)) return true;
         if (end is "repeat while" or "endwhile") return code.StartsWith(end + " ", StringComparison.OrdinalIgnoreCase);
-        return end.StartsWith("end", StringComparison.Ordinal) && code.StartsWith("end ", StringComparison.OrdinalIgnoreCase)
-            && code.AsSpan(4).Equals(end.AsSpan(3), StringComparison.OrdinalIgnoreCase);
+        return end.StartsWith("end", StringComparison.Ordinal) && code.StartsWith("end", StringComparison.OrdinalIgnoreCase)
+            && string.Concat(code.Where(c => !char.IsWhiteSpace(c))).Equals(end.Replace(" ", "", StringComparison.Ordinal), StringComparison.OrdinalIgnoreCase);
     }
 
     private static (string End, bool Opaque)? BlockEnd(string code, string family)
@@ -364,7 +376,7 @@ internal sealed partial class DiagramIndex
         string text = code.TrimStart();
         DiagramObject New(string kind, string label) => new(_source, row.Start, Lines[end].End, line, end, parent, kind, label);
         if (family == "Chen") return ChenObject(line, end, parent, code) ?? New("Source", text);
-        if (family == "C4" && C4Object(line, end, parent, code) is { } macro) return macro;
+        if (family == "C4" && C4Object(line, end, parent, C4Code(line, end, out _)) is { } macro) return macro;
         if (inMemberBody && line == end && !text.StartsWith('!') && !text.StartsWith('@')
             && !text.StartsWith("--") && !text.StartsWith("==") && !text.StartsWith("..") && !text.StartsWith("__"))
         {
@@ -399,6 +411,7 @@ internal sealed partial class DiagramIndex
         }
         bool sequence = family is "Sequence" or "UML";
         if (sequence && SequenceText(line, end, parent, code) is { } sequenceText) return sequenceText;
+        if (CaptionObject(line, end, parent, code) is { } caption) return caption;
         var declaration = Declaration().Match(code);
         bool creation = !declaration.Success && sequence;
         if (creation) declaration = SequenceSyntax.Creation().Match(code);

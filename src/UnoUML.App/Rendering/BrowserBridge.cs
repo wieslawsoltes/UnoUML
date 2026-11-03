@@ -20,12 +20,13 @@ internal static partial class BrowserBridge
     }
 
     [JSImport("readInclude", Module)] internal static partial string? ReadInclude(string path);
+    [JSImport("readResource", Module)] internal static partial string? ReadResource(string path);
     [JSImport("mount", Module)]
     internal static partial void Mount(string id, [JSMarshalAs<JSType.Function<JSType.String>>] Action<string> receive,
         [JSMarshalAs<JSType.Function<JSType.String, JSType.String>>] Func<string, string> renderManaged);
     [JSImport("setLocalMode", Module)] internal static partial void SetLocalMode(string id, bool nativeEnabled);
     [JSImport("unmount", Module)] internal static partial void Unmount(string id);
-    [JSImport("render", Module)] internal static partial Task Render(string id, string source);
+    [JSImport("render", Module)] internal static partial Task Render(string id, string source, string? fileName);
     [JSImport("setTool", Module)] internal static partial void SetTool(string id, string tool);
     [JSImport("setSelection", Module)] internal static partial void SetSelection(string id, string name, int line);
     [JSImport("zoom", Module)] internal static partial void Zoom(string id, double factor);

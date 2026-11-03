@@ -23,6 +23,7 @@ internal static partial class ActivityRenderer
         internal List<Lane> Lanes = [];
         internal bool Continues = kind is not (Kind.Stop or Kind.End);
         internal bool JoinAsDecision;
+        internal bool Debug;
     }
 
     [GeneratedRegex(@"^(if|while)\s+\((.*?)\)\s+(then|is)(?:\s+\((.*)\))?$", RegexOptions.CultureInvariant)]
@@ -30,8 +31,10 @@ internal static partial class ActivityRenderer
     [GeneratedRegex(@"^repeat while\s+\((.*?)\)(?:\s+is\s+\((.*?)\))?(?:\s+not\s+\((.*?)\))?$", RegexOptions.CultureInvariant)]
     private static partial Regex RepeatTest();
 
-    internal static string? TryRender(string source)
+    internal static string? TryRender(string source, IReadOnlyDictionary<string, string>? options = null)
     {
+        bool debug = options != null && options.TryGetValue("debug", out string? debugValue) &&
+            string.Equals(debugValue, "true", StringComparison.OrdinalIgnoreCase);
         var root = new Lane();
         Lane? current = root;
         var frames = new Stack<(Step Node, Lane Parent)>();
@@ -140,7 +143,7 @@ internal static partial class ActivityRenderer
             {
                 string action = s[1..^1].Trim();
                 if (action.Length == 0 || action.Contains(';') || !Plain(action)) return null;
-                current.Steps.Add(new(Kind.Action, line, action) { Swimlane = currentSwim }); continue;
+                current.Steps.Add(new(Kind.Action, line, action) { Swimlane = currentSwim, Debug = debug }); continue;
             }
 
             Step next;
@@ -324,6 +327,8 @@ internal static partial class ActivityRenderer
         switch (step.Kind)
         {
             case Kind.Action:
+                if (step.Debug)
+                    svg.Append(CultureInfo.InvariantCulture, $"<rect class=\"activity-debug\" x=\"{x - step.Width / 2}\" y=\"{y}\" width=\"{step.Width}\" height=\"36\" fill=\"none\" stroke=\"#0000FF\" stroke-width=\"2\"/>");
                 svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x - step.Width / 2}\" y=\"{y}\" width=\"{step.Width}\" height=\"36\" rx=\"11\" fill=\"#f1f1f1\" stroke=\"#242424\"/>");
                 Text(svg,x,y+23,step.Label); break;
             case Kind.Start:

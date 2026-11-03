@@ -1,0 +1,23 @@
+UnoUML.PlantUml resource notices
+
+Bundled theme text, standard-library metadata, icon paths and emoji paths are
+extracted reproducibly from @plantuml/core 1.2026.9. Resource catalogs use gzip
+compression and JSON serialization. The original artwork paths are retained.
+https://www.npmjs.com/package/@plantuml/core
+https://github.com/plantuml/plantuml
+
+PlantUML and its listed contributors provide the MIT-licensed JavaScript
+distribution. The distribution's complete notice is in PlantUML.LICENSE.
+
+Open Iconic artwork is copyright 2014 Waybury and distributed under the MIT
+license. The complete license is in OpenIconic.LICENSE.
+https://github.com/iconic/open-iconic
+
+Twemoji graphics are copyright Twitter, Inc. and other contributors, licensed
+under Creative Commons Attribution 4.0 International. The complete license is
+in Twemoji.LICENSE. Rendering can apply user-selected size and color changes.
+https://github.com/twitter/twemoji
+https://creativecommons.org/licenses/by/4.0/
+
+Additional standard libraries are loaded separately by the host. Their source
+files retain their upstream copyright and license notices.

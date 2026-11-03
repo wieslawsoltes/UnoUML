@@ -14,9 +14,17 @@ public static class SequencePages
 
     /// <summary>Renders sheets with the same bounded preprocessing and virtual local includes as the single-SVG renderer.</summary>
     public static bool TryRender(string source, Func<string, string?>? resolveInclude, [NotNullWhen(true)] out IReadOnlyList<SequencePage>? pages)
+        => TryRender(source, out pages, new PlantUmlRenderOptions { ResolveInclude = resolveInclude });
+
+    public static bool TryRender(string source, [NotNullWhen(true)] out IReadOnlyList<SequencePage>? pages, PlantUmlRenderOptions options)
     {
+        ArgumentNullException.ThrowIfNull(options);
         pages = null;
-        if (!PlantUmlRenderer.TryPrepare(source, resolveInclude, out source, out var kind, out var preprocessor) || kind != DiagramKind.Sequence) return false;
+        if (!PlantUmlRenderer.TryPrepare(source, options, out source, out var kind, out var preprocessor) || kind != DiagramKind.Sequence) return false;
+        Preprocessor? resourceResolver = preprocessor;
+        string? ResolveAsset(string path, int line) => (resourceResolver ??= new(options.Resolve, options)).ResolveAsset(path, line);
+        if (!SpriteCatalog.TryExtract(source, ResolveAsset, out source, out var sprites)) return false;
+        using var spriteScope = sprites.BeginScope();
         var rendered = SequenceRenderer.RenderIndividual(source);
         if (rendered == null) return false;
         pages = preprocessor == null ? rendered : rendered.Select(page => page with
@@ -32,6 +40,7 @@ public static class SequencePages
 internal static partial class SequenceRenderer
 {
     private const int PageGutter = 20;
+    private static int Scaled(Diagram diagram, int value) => (int)Math.Ceiling(value * diagram.Skin.Dpi / 96.0);
     // Repeated headers and lifelines can otherwise amplify small page-break-only source into gigantic exports.
     private const int MaximumRepeatedElements = 32_768;
 
@@ -44,17 +53,17 @@ internal static partial class SequenceRenderer
         if (d.Breaks.Count == 0) return WriteSvg(d);
         var slices = SplitPages(d);
         if (slices == null) return null;
-        int height = slices.Sum(p => p.Sheet.Height) + PageGutter * (slices.Count - 1);
+        int height = slices.Sum(p => Scaled(p.Sheet, p.Sheet.Height)) + PageGutter * (slices.Count - 1);
         if (height > MaximumExtent) return null;
 
         var svg = new StringBuilder();
-        svg.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{d.Width}\" height=\"{height}\" viewBox=\"0 0 {d.Width} {height}\">");
+        svg.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{Scaled(d, d.Width)}\" height=\"{height}\" viewBox=\"0 0 {Scaled(d, d.Width)} {height}\">");
         int y = 0;
         for (int i = 0; i < slices.Count; i++)
         {
             var sheet = slices[i].Sheet;
             svg.Append(WriteSvg(sheet, PageAttributes(sheet, i, y)));
-            y += sheet.Height + PageGutter;
+            y += Scaled(sheet, sheet.Height) + PageGutter;
         }
         return svg.Append("</svg>").ToString();
     }
@@ -63,14 +72,14 @@ internal static partial class SequenceRenderer
     {
         var d = Parse(source);
         if (d == null) return null;
-        if (d.Breaks.Count == 0) return [new(d.Title, d.FirstLine, d.LastLine, d.Width, d.Height, WriteSvg(d))];
+        if (d.Breaks.Count == 0) return [new(d.Title, d.FirstLine, d.LastLine, Scaled(d, d.Width), Scaled(d, d.Height), WriteSvg(d))];
         var slices = SplitPages(d);
         if (slices == null) return null;
         var result = new SequencePage[slices.Count];
         for (int i = 0; i < result.Length; i++)
         {
             var sheet = slices[i].Sheet;
-            result[i] = new(sheet.Title, sheet.FirstLine, sheet.LastLine, sheet.Width, sheet.Height, WriteSvg(sheet, PageAttributes(sheet, i, 0)));
+            result[i] = new(sheet.Title, sheet.FirstLine, sheet.LastLine, Scaled(sheet, sheet.Width), Scaled(sheet, sheet.Height), WriteSvg(sheet, PageAttributes(sheet, i, 0)));
         }
         return result;
     }
@@ -97,15 +106,16 @@ internal static partial class SequenceRenderer
             int limit = last ? d.Steps.Count : d.Breaks[i];
             Step? boundary = last ? null : d.Steps[limit];
             int end = boundary?.Top ?? d.LifelineEnd;
-            int header = d.HeaderHeight + HeadingHeight(title);
+            var heading = StyleTitle.Measure(title, d.Skin, 18);
+            int header = d.HeaderHeight + HeadingHeight(heading);
             int dy = header + (i == 0 ? 0 : 10) - start;
             int lifelineEnd = Math.Max(header + 20, end + dy + (last ? 0 : 6));
             int height = lifelineEnd + (d.Footbox ? d.HeaderHeight : 0) + 10;
-            if (d.Legend != null) height += 22 + 17 * d.Legend.Length;
+            if (d.Legend != null) height += 26 + StyleText.Height(d.Legend, d.Skin.Size("legendfontsize", 13));
             if (height > MaximumExtent) return null;
             var sheet = new Diagram
             {
-                Title = title, TitleLine = titleLine, FirstLine = firstLine, LastLine = boundary?.Line - 1 ?? d.LastLine,
+                Title = title, Heading = heading, TitleLine = titleLine, FirstLine = firstLine, LastLine = boundary?.Line - 1 ?? d.LastLine,
                 Legend = d.Legend, LegendLine = d.LegendLine, LegendWidth = d.LegendWidth, LegendAlignment = d.LegendAlignment,
                 Skin = d.Skin, Width = d.Width, Height = height, HeaderHeight = d.HeaderHeight, HeadBottom = header,
                 LifelineEnd = lifelineEnd, Footbox = d.Footbox, IdPrefix = FormattableString.Invariant($"p{i+1}-")

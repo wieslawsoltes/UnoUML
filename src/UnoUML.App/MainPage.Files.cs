@@ -121,6 +121,7 @@ public sealed partial class MainPage
         {
             // Flush debounced source input and force the exact current page before exporting.
             int request = revision;
+            viewport.SourceFileName = fileName;
             if (renderedRevision != request) await viewport.RenderAsync(doc.Page.Source);
             if (revision != request) { Status("The diagram changed during export. Export the updated version.", true); return; }
             var stem = System.IO.Path.GetFileNameWithoutExtension(fileName);
@@ -142,6 +143,8 @@ public sealed partial class MainPage
         menu.Items.Add(new MenuFlyoutSeparator());
         MenuAction(menu, "Load include files…", () => _ = LoadIncludesAsync(false));
         MenuAction(menu, "Load include folder…", () => _ = LoadIncludesAsync(true));
+        MenuAction(menu, "Load ZIP archive…", () => _ = LoadArchiveAsync());
+        MenuAction(menu, "Edit imported include…", () => _ = BrowseIncludesAsync());
         MenuAction(menu, "Rendering engine…", ShowRendererSettings);
         menu.ShowAt((FrameworkElement)LibraryActions.Children[0]);
     }
@@ -156,6 +159,19 @@ public sealed partial class MainPage
             if (renderedRevision == revision || mode == "Source") Status($"Loaded {count} include file(s)");
         }
         catch (Exception ex) { Status(ex.Message, true); }
+    }
+
+    async Task LoadArchiveAsync()
+    {
+        try
+        {
+            var archive = await BrowserIncludes.LoadArchiveAsync();
+            if (archive.Name == null) return;
+            revision++; await RenderPageAsync();
+            string session = archive.Persisted ? "" : " for this session";
+            Status($"Loaded {archive.Name} · {archive.Count} resources{session}. Use !import {archive.Name} in a diagram.");
+        }
+        catch (Exception error) { Status(error.Message, true); }
     }
 
     async Task AddSnippetAsync()

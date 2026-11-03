@@ -123,7 +123,7 @@ public sealed partial class MainPage : Page
         {
             case VirtualKey.F2: BeginCanvasEdit(item); break;
             case VirtualKey.Delete: Edit(() => doc.Remove(item)); break;
-            case VirtualKey.Escape: additionalSelection.Clear(); selected = null; ShowInspector(); SyncCanvasSelection(); break;
+            case VirtualKey.Escape: additionalSelection.Clear(); selected = null; selectedGenerated = null; ShowInspector(); SyncCanvasSelection(); break;
             default: return;
         }
         e.Handled = true;
@@ -293,6 +293,7 @@ public sealed partial class MainPage : Page
         try
         {
             Status("Rendering…");
+            viewport.SourceFileName = fileName;
             await viewport.RenderAsync(input);
             if (request != revision) return;
             renderedRevision = request;
@@ -331,8 +332,9 @@ public sealed partial class MainPage : Page
 
     DiagramObject? Resolve(DiagramHit hit)
     {
-        if (hit.Generated) return null;
         var item = doc.Find(hit.Id, hit.Line >= 0 ? hit.Line + doc.Page.StartLine : null);
+        if (hit.Generated && (item is not { CanRename: true, MacroName.Length: > 0 } ||
+            item.IsConnectable && (hit.Id.Length == 0 || hit.Id != item.Alias && !hit.Id.EndsWith("." + item.Alias, StringComparison.Ordinal)))) return null;
         // An implicit lifeline may carry the source line of its first message. Its
         // header cannot safely be treated as that message's editable label.
         return hit.Participant && item?.IsConnectable != true ? doc.Find(hit.Id) : item;
@@ -341,16 +343,19 @@ public sealed partial class MainPage : Page
     void OnHit(DiagramHit hit)
     {
         if (renderedRevision != revision) return;
-        if (hit.Generated)
+        if (hit.Generated && Resolve(hit) == null)
         {
             selectedJsonField = null; additionalSelection.Clear(); selected = null;
+            selectedGenerated = hit; generatedRevision = revision;
             ShowInspector(); SyncCanvasSelection();
-            if (hit.Kind == "edit") SetMode("Split");
+            if (hit.Kind == "edit") EditGeneratedSource(hit);
             int line = doc.Page.StartLine + hit.Line;
             if (mode == "Split" && doc.Find(null,line) is { } origin) SelectSource(origin);
-            Status($"Generated from line {line + 1}. Edit the invocation or included source to change this object.");
+            Status(hit.SourceFile is { Length: > 0 } file ? $"Generated from {file}, line {hit.FileLine + 1}." :
+                $"Generated from line {line + 1}. Edit the invocation to change this object.");
             return;
         }
+        selectedGenerated = null;
         SelectJsonField(hit.Token);
         if (hit.Kind == "toggle" && JsonSelection == null) { ToggleSelection(Resolve(hit)); return; }
         additionalSelection.Clear();
@@ -397,7 +402,7 @@ public sealed partial class MainPage : Page
 
     void Select(DiagramObject item)
     {
-        selectedJsonField = null; additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
+        selectedGenerated = null; selectedJsonField = null; additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
         if (mode != "Design") SelectSource(item);
     }
 

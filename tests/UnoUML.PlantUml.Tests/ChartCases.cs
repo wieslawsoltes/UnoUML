@@ -39,7 +39,7 @@ internal static class ChartCases
         var second = Elements(mixed, "g").Where(x => (string?)x.Attribute("class") == "series bar").Skip(1).First().Elements().First();
         Require((double?)first.Attribute("width") == 80 && (double?)first.Attribute("height") == 112.5, "negative grouped bar");
         Require((double?)first.Attribute("x") + (double?)first.Attribute("width") == (double?)second.Attribute("x"), "group adjacency");
-        Require(Elements(mixed, "circle").Count() == 2 && Elements(mixed, "polyline").Count() == 1 && Elements(mixed, "polygon").Count() == 1, "mixed series");
+        Require(Elements(mixed, "circle").Count(e => e.Attribute("data-point-index") != null) == 2 && Elements(mixed, "polyline").Count() == 1 && Elements(mixed, "polygon").Count() == 1, "mixed series");
         foreach (string directive in new[] { "v2-axis 0 --> 20", "orientation horizontal", "bar \"x\" [NaN,2]", "line \"x\" [2,3,4]", "stack bar \"x\" [1,2]", "legend nowhere" })
             Require(!PlantUmlRenderer.TryRender("@startchart\nh-axis [a,b]\nv-axis 0 --> 10\nbar [2,4]\n" + directive + "\n@endchart", out _), "compatibility path: " + directive);
         Require(!PlantUmlRenderer.TryRender("@startchart\nh-axis [a]\nv-axis 0 --> 1 spacing 0.000001\nbar [0]\n@endchart", out _), "bounded tick count");

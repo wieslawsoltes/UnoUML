@@ -1,4 +1,5 @@
 import { indexStandardLibrary } from "./index-stdlib.mjs";
+import { materializeResources } from "./resource-bundles.mjs";
 // Copy the npm-distributed renderer and materialize upstream's on-demand libraries.
 // Packages are deploy-time assets. A diagram only requests the libraries it uses.
 import { createHash } from 'node:crypto';
@@ -35,3 +36,5 @@ async function copyLibraries() {
 await Promise.all(Array.from({ length: 4 }, copyLibraries));
 console.log('Prepared PlantUML, Viz.js, and ' + Object.keys(blobs).length + ' verified support bundles.');
 console.log('Indexed ' + await indexStandardLibrary(output, Object.keys(blobs)) + ' standard library include paths.');
+const resources = await materializeResources(output, Object.keys(blobs), new URL('../src/UnoUML.PlantUml/Resources/', import.meta.url));
+console.log('Prepared ' + resources.resources + ' managed library resources and ' + resources.themes + ' theme definitions.');

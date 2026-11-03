@@ -191,7 +191,9 @@ export async function verifyPorts(page) {
 
   const chooser = page.waitForEvent('filechooser');
   const importing = page.evaluate(async () => (await import(new URL('uml/viewport.js',document.baseURI))).importIncludes(false));
-  await (await chooser).setFiles({name:'model.iuml',mimeType:'text/plain',buffer:Buffer.from('class IncludedInvoice')});
+  const originalInclude = "' Imported model\r\nclass IncludedInvoice\r\n";
+  const changedInclude = originalInclude.replace('class IncludedInvoice','class "Invoice record" as IncludedInvoice');
+  await (await chooser).setFiles({name:'model.iuml',mimeType:'text/plain',buffer:Buffer.from(originalInclude)});
   assert.equal(await importing,1);
   const input = '@startuml\n!include model.iuml\nclass Order\nOrder --> IncludedInvoice\n@enduml';
   await source.fill(input);
@@ -202,5 +204,25 @@ export async function verifyPorts(page) {
   await invoice.locator('text').filter({hasText:'IncludedInvoice'}).first().dblclick();
   assert.equal(await page.getByRole('textbox',{name:'Edit diagram label'}).count(),0);
   assert.equal(await source.inputValue(),input);
+  await page.getByText('Edit imported include',{exact:true}).waitFor();
+  const includeEditor = page.locator('textarea').last();
+  assert.equal(await includeEditor.inputValue(),originalInclude.replaceAll('\r\n','\n'));
+  assert.equal(await includeEditor.evaluate(n => n.selectionStart),"' Imported model\n".length);
+  await includeEditor.fill(changedInclude.replaceAll('\r\n','\n'));
+  await click('Apply');
+  await paper.locator('[data-qualified-name="IncludedInvoice"] text').filter({hasText:/^Invoice record$/}).first().waitFor();
+  assert.equal(await source.inputValue(),input);
+  await paper.locator('[data-qualified-name="IncludedInvoice"] text').filter({hasText:/^Invoice record$/}).first().dblclick();
+  assert.equal(await includeEditor.inputValue(),changedInclude.replaceAll('\r\n','\n'));
+  const [includedFile] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByText('Download include',{exact:true}).click()
+  ]);
+  assert.equal(includedFile.suggestedFilename(),'model.iuml');
+  assert.equal(await readFile(await includedFile.path(),'utf8'),changedInclude);
+  await includeEditor.press('Control+z');
+  assert.equal(await includeEditor.inputValue(),originalInclude.replaceAll('\r\n','\n'));
+  await click('Cancel');
+  assert.equal(await page.evaluate(async () => (await import(new URL('uml/viewport.js',document.baseURI))).readInclude('model.iuml')), changedInclude);
   console.log('Verified Chen/Ditaa label editing, cardinalities, native/reference C4 macro editing, connector reattachment, sequence lifecycle labels, modern styles, AsciiMath, TeX, include provenance, repeated sequence selection, SVG/PNG sheet exports and print pagination.');
 }

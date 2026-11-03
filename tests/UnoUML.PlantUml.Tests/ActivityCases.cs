@@ -15,6 +15,12 @@ internal static class ActivityCases
         var shapes = doc.Descendants().Where(e => (string?)e.Attribute("class") == "activity-Action").ToArray();
         if (shapes.Length != 3 || (int?)shapes[1].Attribute("data-source-line") != 5) throw new InvalidOperationException("Activity source mapping");
         if (doc.ToString() != Render(split).ToString()) throw new InvalidOperationException("Activity layout must be deterministic");
+        var debugging = Render("!option debug\nstart\n:Inspect;\nif (Ready?) then (yes)\n:Run;\nendif\nstop");
+        var debugBoxes = debugging.Descendants().Where(element => (string?)element.Attribute("class") == "activity-debug").ToArray();
+        if (debugBoxes.Length != 2 || debugBoxes.Any(element => (string?)element.Attribute("stroke") != "#0000FF" || (int?)element.Attribute("stroke-width") != 2))
+            throw new InvalidOperationException("Activity debug outlines must follow the action bounds");
+        if (Render("!option debug false\nstart\n:Inspect;\nstop").Descendants().Any(element => (string?)element.Attribute("class") == "activity-debug"))
+            throw new InvalidOperationException("Activity debug option must be render-local and disableable");
         Render("start\nfork\n:First;\nfork again\n:Second;\nend fork\nstop");
         Render("start\nswitch (choice)\ncase (a)\n:Option A;\ncase (b)\nstop\nendswitch\n:Only from A;\nend");
         Render("repeat\n:Send;\nrepeat while (Retry?) is (yes) not (no)\nwhile (Continue?) is (yes)\n:Process;\nendwhile (no)\nstop");

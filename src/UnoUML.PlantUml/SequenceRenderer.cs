@@ -12,7 +12,7 @@ internal static partial class SequenceRenderer
     private const string Color = @"#[\w]+";
     private const RegexOptions Grammar = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
 
-    [GeneratedRegex(@"^(participant|actor|boundary|control|entity|database|collections|queue)\s+(" + Token + @")(?:\s+as\s+(" + Token + @"))?(?:\s+(" + Color + @"))?$", Grammar)]
+    [GeneratedRegex(@"^(participant|actor|boundary|control|entity|database|collections|queue)\s+(" + Token + @")(?:\s+as\s+(" + Token + @"))?(?:\s*<<(?<stereotype>[^<>]+)>>)?(?:\s+(" + Color + @"))?$", Grammar)]
     private static partial Regex ParticipantDeclaration();
     [GeneratedRegex(@"^(" + Token + @")\s*(-{1,2}(?:\[#[a-zA-Z0-9]+\]-?)?>{1,2}|<{1,2}(?:-?\[#[a-zA-Z0-9]+\])?-{1,2})\s*(" + Token + @")(?:\s*(--\+\+|\+\+--|\+\+|--|\*\*|!!))?(?:\s*(" + Color + @"))?\s*(?::\s*(.*))?$", Grammar)]
     private static partial Regex MessageStatement();
@@ -25,9 +25,14 @@ internal static partial class SequenceRenderer
     [GeneratedRegex(@"^ref(?<color>#[\w]+)?\s+over\s+(?<participant>" + Token + @")(?:\s*,\s*(?<participant>" + Token + @"))*\s*(?::\s*(?<text>.*))?$", Grammar)]
     private static partial Regex Reference();
 
-    private sealed class Lane(string id, string name, string kind, string? fill, int line)
+    private sealed class Lane(string id, string name, string kind, string? fill, int line, string stereotype = "")
     {
-        internal readonly string Id = id, Name = name, Kind = kind;
+        internal readonly string Id = id, Name = name, Kind = kind, Stereotype = stereotype;
+        internal int FontSize = 14, StereotypeSize = 12, HeaderHeight = 27;
+        internal bool ShowStereotype;
+        internal StyleSpacing Padding = new(6, 10, 6, 10), Margin;
+        internal string[] Rows = [name];
+        internal int TextHeight = 14;
         internal readonly string? Fill = fill;
         internal readonly int Line = line;
         internal int Width = Math.Max(38, SvgText.Measure(name) + 20);
@@ -49,6 +54,10 @@ internal static partial class SequenceRenderer
         internal readonly string Text = text, Variant = variant;
         internal readonly string? Color = color;
         internal int Top, Bottom, Anchor, Number, Nest, End, TextWidth, FromDepth, ToDepth;
+        internal int FontSize = 13;
+        internal string[] Rows = [text];
+        internal int TextHeight = 13, HeaderSize = 13, HeaderWidth;
+        internal StyleSpacing Padding, HeaderPadding, Margin;
         internal bool Creates, Standalone;
         internal Step Translate(int dy)
         {
@@ -76,6 +85,7 @@ internal static partial class SequenceRenderer
         internal readonly Dictionary<string, int> Names = new(StringComparer.Ordinal);
         internal ManagedSkin Skin = new();
         internal string? Title;
+        internal StyleTitle? Heading;
         internal string[]? Legend;
         internal string LegendAlignment = "right";
         internal int LegendLine, LegendWidth;
@@ -90,10 +100,10 @@ internal static partial class SequenceRenderer
             return Declare(id, id, "participant", null, line);
         }
 
-        internal int Declare(string id, string name, string kind, string? fill, int line)
+        internal int Declare(string id, string name, string kind, string? fill, int line, string stereotype = "")
         {
             if (Lanes.Count >= 1024 || name.Length == 0 || !Plain(name) || !Names.TryAdd(id, Lanes.Count)) return -1;
-            Lanes.Add(new(id, name, kind, fill, line));
+            Lanes.Add(new(id, name, kind, fill, line, stereotype));
             return Lanes.Count - 1;
         }
     }
@@ -225,7 +235,7 @@ internal static partial class SequenceRenderer
                 string? color = null;
                 if (declaration.Groups[4].Success && (color = ManagedSkin.Color(declaration.Groups[4].Value)) == null) return null;
                 int lane = creates && declarationText == name && diagram.Names.TryGetValue(id, out int existing)
-                    ? existing : diagram.Declare(id, Unquote(name), declaration.Groups[1].Value.ToLowerInvariant(), color, i);
+                    ? existing : diagram.Declare(id, Unquote(name), declaration.Groups[1].Value.ToLowerInvariant(), color, i, declaration.Groups["stereotype"].Value);
                 if (lane < 0 || creates && !life.Create(lane)) return null;
                 continue;
             }
@@ -327,7 +337,6 @@ internal static partial class SequenceRenderer
         }
 
         if (!ended || skin != null || frames.Count != 0 || life.PendingCreate >= 0 || diagram.Lanes.Count == 0 || !Arrange(diagram)) return null;
-        if (diagram.Skin.ModernParticipantStyle && diagram.Lanes.Any(l => l.Kind is not ("participant" or "actor"))) return null;
         return diagram;
     }
 
@@ -340,7 +349,7 @@ internal static partial class SequenceRenderer
     }
 
     private static string Unquote(string value) => value.Length >= 2 && value[0] == '"' ? value[1..^1] : value;
-    private static bool Plain(string text) => text.Length <= 8192 && SvgText.IsPlain(text);
+    private static bool Plain(string text) => text.Length <= 8192 && SvgText.IsSupported(text);
     private static bool IsReferenceEnd(string line) => line.Equals("end ref", StringComparison.OrdinalIgnoreCase) || line.Equals("endref", StringComparison.OrdinalIgnoreCase) || line.Equals("end", StringComparison.OrdinalIgnoreCase);
     private static bool NumberMessage(Step step, bool enabled, ref int number, int increment)
     {

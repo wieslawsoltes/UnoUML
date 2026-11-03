@@ -20,7 +20,17 @@ internal static partial class GraphRenderer
             string direction = edge.Direction;
             if (direction.Length == 0) direction = edge.Arrow.EndsWith("|>", StringComparison.Ordinal) ? "up" :
                 edge.Arrow is "-" or "->" or "<-" or "<->" ? "right" : "down";
-            a.Parent!.Arcs.Add(new(slots[a], slots[b], direction, edge.Hidden));
+            int labelWidth = 0, labelHeight = 0;
+            if (!edge.Hidden && edge.Caption.Length != 0)
+            {
+                int size = graph.Skin.Size("arrowfontsize", 13), maximum = graph.Skin.Number("arrow", "maximumwidth", 0);
+                var padding = StyleSpacing.Parse(graph.Skin.Style("arrow", "padding", "0"));
+                var margin = StyleSpacing.Parse(graph.Skin.Style("arrow", "margin", "0"));
+                var rows = StyleText.Wrap(edge.Caption, size, maximum == 0 ? 0 : Math.Max(size, maximum - padding.Horizontal));
+                labelWidth = rows.Max(row => SvgText.Measure(row, size)) + padding.Horizontal + margin.Horizontal;
+                labelHeight = StyleText.Height(rows, size) + padding.Vertical + margin.Vertical;
+            }
+            a.Parent!.Arcs.Add(new(slots[a], slots[b], direction, edge.Hidden, labelWidth, labelHeight));
         }
         foreach (var container in graph.Nodes.Prepend(graph.Root))
         {
@@ -30,10 +40,30 @@ internal static partial class GraphRenderer
             var constrained = container.Arcs.Where(arc => arc.Hidden).Select(arc => (Math.Min(arc.A, arc.B), Math.Max(arc.A, arc.B))).ToHashSet();
             container.Arcs.RemoveAll(arc => !arc.Hidden && constrained.Contains((Math.Min(arc.A, arc.B), Math.Max(arc.A, arc.B))));
         }
+        graph.Heading = StyleTitle.Measure(graph.Title, graph.Skin, 19);
         MeasureNode(graph.Root, graph);
-        OffsetChildren(graph.Root, 32, graph.Title.Length == 0 ? 24 : 64);
+        OffsetChildren(graph.Root, 32, graph.Heading == null ? 24 : 45 + graph.Heading.Height);
+        ApplyMargins(graph.Root, 0, 0);
         return graph.Root.Width < 32000 && graph.Root.Height < 32000;
     }
+
+    private static void ApplyMargins(Node parent, int dx, int dy)
+    {
+        foreach (var node in parent.Children)
+        {
+            node.X += dx + node.Margin.Left;
+            node.Y += dy + node.Margin.Top;
+            node.Width -= node.Margin.Horizontal;
+            node.Height -= node.Margin.Vertical;
+            ApplyMargins(node, dx + node.Margin.Left, dy + node.Margin.Top);
+        }
+    }
+
+    private static string StyleCategory(Node node) => node.IsType && node.Kind is not ("object" or "map") ? "class" :
+        node.Kind == "namespace" ? "package" : node.Kind == "initial" || node.Kind == "state" && node.Stereotype == "start" ? "circle start" :
+        node.Kind == "final" || node.Kind == "state" && node.Stereotype == "end" ? "circle end" : node.Kind == "state" && node.Stereotype == "choice" ? "diamond" : node.Kind;
+
+    private static string SpotCategory(string kind) => "spot spot" + (kind is "abstract" or "abstract class" ? "abstractclass" : kind);
 
     private static int Depth(Node node)
     {
@@ -57,15 +87,39 @@ internal static partial class GraphRenderer
         if (node.Kind == "measured-card") return;
         if (node.Kind == "measured-group") { MeasureChildren(node, graph); return; }
         if (node.IsStatePort) { node.Width = node.Height = 12; return; }
-        int textWidth = SvgText.Measure(node.Label);
-        int labelWidth = Math.Max(textWidth, node.Stereotype.Length == 0 ? 0 : SvgText.Measure("«" + node.Stereotype + "»", 12));
-        node.Width = Math.Max(68, labelWidth + 34);
-        node.Height = node.Stereotype.Length == 0 ? 40 : 58;
+        string scope = StyleCategory(node);
+        node.LabelSize = graph.Skin.Number(scope, "fontsize", 14, node.Stereotype, node.IsType ? "header" : "");
+        node.MemberSize = graph.Skin.Number(scope, "fontsize", 13, node.Stereotype, "body");
+        node.StereotypeSize = graph.Skin.Number(scope, "fontsize", 12, node.Stereotype, "stereotype");
+        node.Padding = StyleSpacing.Parse(graph.Skin.Style(scope, "padding", "13 17", node.Stereotype));
+        node.Margin = node == graph.Root ? default : StyleSpacing.Parse(graph.Skin.Style(scope, "margin", "0", node.Stereotype));
+        int maximum = graph.Skin.Number(scope, "maximumwidth", 0, node.Stereotype);
+        node.LabelRows = StyleText.Wrap(node.Label, node.LabelSize, maximum == 0 ? 0 : Math.Max(node.LabelSize, maximum - node.Padding.Horizontal));
+        string fontStyle = graph.Skin.Style(scope, "fontstyle", "normal", node.Stereotype);
+        int textWidth = node.LabelRows.Max(row => StyleText.Measure(row, node.LabelSize, fontStyle));
+        bool showStereotype = node.Stereotype.Length != 0 && graph.Skin.Style(scope, "showstereotype", "true", node.Stereotype) != "false";
+        int labelWidth = Math.Max(textWidth, showStereotype ? SvgText.Measure(ManagedSkin.StereotypeLabel(node.Stereotype), node.StereotypeSize) : 0);
+        node.Width = Math.Max(graph.Skin.Number(scope, "minimumwidth", 68, node.Stereotype), labelWidth + node.Padding.Horizontal + (node.Kind == "archimate" ? 24 : 0));
+        node.LabelHeight = StyleText.Height(node.LabelRows, node.LabelSize);
+        node.HeaderHeight = node.LabelHeight + node.Padding.Vertical + (showStereotype ? node.StereotypeSize + 6 : 0);
+        node.MemberHeight = node.MemberSize + 7;
+        node.Height = node.HeaderHeight;
         if (node.IsType || node.Kind == "state" && node.Members.Count > 0)
         {
-            if (!graph.HideCircle && node.Kind is not ("object" or "map") && node.IsType) node.Width += 24;
-            foreach (var member in node.Members) node.Width = Math.Max(node.Width, SvgText.Measure(member.Text, 13) + 28);
-            if (node.Members.Count != 0) node.Height += 10 + 20 * node.Members.Count;
+            if (!graph.HideCircle && node.Kind is not ("object" or "map") && node.IsType)
+            {
+                node.SpotSize = graph.Skin.Number(SpotCategory(node.Kind), "fontsize", 12, node.Stereotype);
+                node.SpotRadius = graph.Skin.CircledCharacterRadius;
+                node.Width += node.SpotRadius * 2 + 4;
+                node.HeaderHeight = Math.Max(node.HeaderHeight, node.SpotRadius * 2 + Math.Min(20, node.Padding.Vertical));
+                node.Height = node.HeaderHeight;
+            }
+            node.MemberRows = node.Members.Select(m => node.Kind == "map" ? [m.Text] :
+                StyleText.Wrap(graph.Skin.VisibilityIconSize > 0 && m.Text.Length > 0 && m.Text[0] is '+' or '-' or '#' or '~' ? m.Text[1..].TrimStart() : m.Text, node.MemberSize, maximum == 0 ? 0 : Math.Max(node.MemberSize, maximum - Math.Max(28, node.Padding.Horizontal)))).ToArray();
+            node.MemberHeights = node.MemberRows.Select(rows => Math.Max(StyleText.Height(rows, node.MemberSize), graph.Skin.VisibilityIconSize) + 7).ToArray();
+            foreach (var rows in node.MemberRows)
+                node.Width = Math.Max(node.Width, rows.Max(row => StyleText.Measure(row, node.MemberSize, graph.Skin.Style(scope, "fontstyle", "normal", node.Stereotype, "body"))) + Math.Max(28, node.Padding.Horizontal) + graph.Skin.VisibilityIconSize);
+            if (node.Members.Count != 0) node.Height += 10 + node.MemberHeights.Sum();
         }
         else if (node.Kind is "actor" or "actor/") node.Height += 44;
         else if (node.Kind is "database" or "artifact" or "package" or "folder" or "node") node.Height += 12;
@@ -81,8 +135,8 @@ internal static partial class GraphRenderer
             foreach (var (_, text) in node.Members)
             {
                 var properties = text.Split("=>", StringSplitOptions.TrimEntries);
-                keyWidth = Math.Max(keyWidth, SvgText.Measure(properties[0], 13));
-                valueWidth = Math.Max(valueWidth, SvgText.Measure(properties[1], 13));
+                keyWidth = Math.Max(keyWidth, SvgText.Measure(properties[0], node.MemberSize));
+                valueWidth = Math.Max(valueWidth, SvgText.Measure(properties[1], node.MemberSize));
             }
             node.Width = Math.Max(node.Width, keyWidth + valueWidth + 44);
         }
@@ -97,6 +151,8 @@ internal static partial class GraphRenderer
             };
         }
         MeasureChildren(node, graph);
+        node.Width += node.Margin.Horizontal;
+        node.Height += node.Margin.Vertical;
     }
 
     private static void MeasureChildren(Node node, Graph graph)
@@ -141,12 +197,21 @@ internal static partial class GraphRenderer
         var peers = new Disjoint(n);
         var vertical = new List<(int From, int To)>();
         var lateral = new List<(int From, int To)>();
+        int gap = 52, rankGap = 85;
         foreach (var arc in arcs)
         {
             int a = local[arc.A], b = local[arc.B];
             if (arc.Direction is "left" or "up") (a, b) = (b, a);
-            if (arc.Direction is "left" or "right") { peers.Merge(a, b); lateral.Add((a, b)); }
-            else vertical.Add((a, b));
+            if (arc.Direction is "left" or "right")
+            {
+                peers.Merge(a, b); lateral.Add((a, b));
+                gap = Math.Max(gap, (horizontal ? arc.LabelHeight * 2 : arc.LabelWidth) + 24);
+            }
+            else
+            {
+                vertical.Add((a, b));
+                rankGap = Math.Max(rankGap, (horizontal ? arc.LabelWidth : arc.LabelHeight * 2) + 24);
+            }
         }
         // Horizontal constraints identify equivalent ranks. A deterministic feedback-edge break
         // retains all edges for drawing while ensuring cyclic graphs terminate.
@@ -189,7 +254,6 @@ internal static partial class GraphRenderer
 
         int Primary(Node v) => horizontal ? v.Width : v.Height;
         int Cross(Node v) => horizontal ? v.Height : v.Width;
-        const int gap = 52;
         var breadth = layers.Select(row => row.Sum(i => Cross(nodes[ids[i]])) + (row.Count - 1) * gap).ToArray();
         int wide = breadth.Max(), main = 0;
         for (int level = 0; level < layers.Count; level++)
@@ -201,7 +265,7 @@ internal static partial class GraphRenderer
                 (v.X, v.Y) = horizontal ? (main, cross) : (cross, main);
                 thickness = Math.Max(thickness, Primary(v)); cross += Cross(v) + gap;
             }
-            main += thickness + (level + 1 < layers.Count ? 85 : 0);
+            main += thickness + (level + 1 < layers.Count ? rankGap : 0);
         }
         return horizontal ? (main, wide) : (wide, main);
     }

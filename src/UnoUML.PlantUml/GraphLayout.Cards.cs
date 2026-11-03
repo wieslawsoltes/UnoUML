@@ -37,7 +37,6 @@ internal static partial class GraphRenderer
 
     private static void SemanticLabel(StringBuilder s, int x, int y, string value, int size, string color, bool bold = false, bool italic = false)
     {
-        if (value.Length == 0) return;
-        s.Append(CultureInfo.InvariantCulture, $"<text x=\"{x}\" y=\"{y}\" text-anchor=\"middle\" font-size=\"{size}\" fill=\"{color}\"{(bold ? " font-weight=\"bold\"" : "")}{(italic ? " font-style=\"italic\"" : "")}>{SvgText.Escape(value)}</text>");
+        SvgText.Append(s, x, y, value, size, bold: bold, italic: italic, color: color);
     }
 }

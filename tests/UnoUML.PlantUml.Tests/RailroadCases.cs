@@ -21,6 +21,22 @@ internal static class RailroadCases
         foreach (var label in new[] { "^", "foo", "bar", "0-9", "{2,4}", @"\s", "$" })
             Verify(Labels(branches).Contains(label), "regex label " + label);
         var precedence = Labels(Render("regex", "abc+"));
+        foreach (var (language, expected) in new[]
+        {
+            ("en", "Digit"), ("fr", "Chiffre"), ("fr-CA", "Chiffre"), ("de", "Ziffer"),
+            ("ja", "数字"), ("ko", "숫자"), ("zh-CN", "数字"), ("zh-TW", "數字"), ("unknown", "Digit")
+        })
+        {
+            var localized = Render("regex", "!option use_descriptive_names true\n!option language \"" + language + "\"\n\\d+");
+            Verify(Labels(localized).Contains(expected), "localized regex token " + language);
+            Verify(localized.Descendants().Any(e => (string?)e.Attribute("class") == "rail-token" &&
+                (int?)e.Attribute("data-source-line") == 3), "localized token source mapping");
+        }
+        var descriptions = Labels(Render("regex", "!option use_descriptive_names true\n!option language en\n" + @"\b\B\d\D\w\W\s\S."));
+        Verify(descriptions.SequenceEqual(new[] { "WordBoundary", "NonWordBoundary", "Digit", "NonDigit", "Word", "NonWord", "Whitespace", "NonWhitespace", "AnyChar" }), "all descriptive regex token names");
+        Verify(Labels(Render("regex", "!option use_descriptive_names false\n\\d")).Contains(@"\d"), "descriptive names disabled");
+        Verify(Labels(Render("regex", "!option use_descriptive_names true\n!option language fr\n[\\d\\w]")).SequenceEqual(new[] { @"\d", @"\w" }), "character class tokens retain regex spelling");
+        Verify(Labels(Render("ebnf", "!option use_descriptive_names true\n!option language fr\nperiod = \".\";")).Contains("ToutCaractère"), "descriptive EBNF terminal");
         Verify(precedence.SequenceEqual(new[] { "ab", "c" }), "quantifier binds to last character");
         Verify(Labels(Render("regex", "[a-zA-Z0-9_]+")).SequenceEqual(new[] { "a-z", "A-Z", "0-9", "_" }), "class alternatives");
         Verify(Render("regex", @"(ab)\.[^x]*").Descendants().Any(e => e.Name.LocalName == "title" && e.Value == "Capture 1"), "capture group");

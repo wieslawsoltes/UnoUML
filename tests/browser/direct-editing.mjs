@@ -22,6 +22,29 @@ export async function verifyCanvasEvents(page, render) {
   assert.equal(await field.count(), 0);
   assert.equal(await page.evaluate(() => log.filter(x => x.kind === 'label').length), 1);
 
+  await page.evaluate(() => { ui.setSelection('diagram', 'A', 1); ui.beginLabelEdit('diagram', 'first\nsecond', 43, true); });
+  await field.fill('edited\nreference');
+  await field.press('End');
+  await field.press('Enter');
+  assert.equal(await field.inputValue(), 'edited\nreference\n');
+  await field.press('Control+Enter');
+  assert.deepEqual(await page.evaluate(() => log.at(-1)), {kind:'label', revision:43, text:'edited\nreference\n'});
+  await page.evaluate(() => ui.beginLabelEdit('diagram', 'x^2', 44, false, 'asciimath'));
+  await page.getByRole('button', {name:'Insert fraction', exact:true}).click();
+  assert.equal(await field.inputValue(), '(x^2)/(b)');
+  await page.getByRole('button', {name:'Apply diagram label (Enter)', exact:true}).click();
+  assert.deepEqual(await page.evaluate(() => log.at(-1)), {kind:'label', revision:44, text:'(x^2)/(b)'});
+  assert.equal(await page.getByRole('toolbar', {name:'Diagram editing tools'}).count(), 0);
+  await page.evaluate(() => ui.beginLabelEdit('diagram', 'Customer', 45, false, 'creole'));
+  await field.press('Control+b');
+  assert.equal(await field.inputValue(), '**Customer**');
+  await page.getByRole('button', {name:'Italic (Ctrl+I)', exact:true}).click();
+  assert.equal(await field.inputValue(), '//**Customer**//');
+  await field.press('Control+i');
+  assert.equal(await field.inputValue(), '**Customer**');
+  await field.press('Enter');
+  assert.deepEqual(await page.evaluate(() => log.at(-1)), {kind:'label', revision:45, text:'**Customer**'});
+
   await page.evaluate(() => {
     ui.setSelection('diagram','A',1);
     ui.setConnectable('diagram',true);

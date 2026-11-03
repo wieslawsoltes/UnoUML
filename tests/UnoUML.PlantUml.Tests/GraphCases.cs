@@ -46,7 +46,8 @@ internal static class GraphCases
         Check(constrained.Descendants(svg + "g").Count(x => (string?)x.Attribute("class") == "link") == 1, "preserved visible edge");
         var safe = Render("class \"A & B\" as A #abc\nclass B\nA --> B : read & write");
         Check(safe.Descendants(svg + "text").Any(x => x.Value == "A & B"), "escaped plain text");
-        foreach (var body in new[] { "class A\n!theme plain", "class A\nA --> Unknown", "class A\nA --> A : **bold**", "class A {\n+missing", "class A\nactor B\n@startuml", "class A #g00000", "class A\nA -[red]-> A" })
+        Check(PlantUmlRenderer.TryRender("@startuml\nclass A\n!theme plain\n@enduml", out _), "embedded theme expands around graph declarations");
+        foreach (var body in new[] { "class A\nA --> Unknown", "class A {\n+missing", "class A\nactor B\n@startuml", "class A #g00000", "class A\nA -[red]-> A" })
             Check(!PlantUmlRenderer.TryRender("@startuml\n" + body + "\n@enduml", out _), "expected fallback: " + body);
         // Inspect primitive families used by PlantUML's deployment notation. An interface in a
         // component diagram is a lollipop; the same declaration in a class diagram is a classifier.

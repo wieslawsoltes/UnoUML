@@ -27,7 +27,15 @@ public sealed partial class MainPage
             return;
         }
         if (item == null) return;
-        if (mode != "Source" && item.CanRename && viewport.BeginLabelEdit(item.EditableLabel, revision))
+        if (doc.Page.Family == "Ditaa" && item.Kind == "Source" && doc.Drawing is { } drawing)
+        {
+            item = selected = drawing;
+            ShowInspector();
+        }
+        string language = item.EditorLanguage;
+        if (language == "text" && doc.Page.Family is "Class" or "Component" or "Object" or "Deployment" or "Use case" or "State" or "Sequence" or "Mind map" or "WBS" or "C4" or "ArchiMate" or "Activity")
+            language = "creole";
+        if (mode != "Source" && item.CanRename && viewport.BeginLabelEdit(item.EditableLabel, revision, item.MultilineLabel, language))
             editingLabel = item;
         else
             _ = EditStatementAsync(item);
@@ -52,7 +60,7 @@ public sealed partial class MainPage
     private void SelectCanvasRegion(DiagramHit[] hits, bool add)
     {
         if (renderedRevision != revision) return;
-        selectedJsonField = null;
+        selectedGenerated = null; selectedJsonField = null;
         if (add && selected != null) additionalSelection.Add(selected);
         else if (!add) additionalSelection.Clear();
         foreach (var hit in hits)

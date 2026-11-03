@@ -2,7 +2,7 @@ namespace UnoUML.Core;
 
 internal static class C4Syntax
 {
-    internal readonly record struct Argument(int Start, int Length, string Text);
+    internal readonly record struct Argument(int Start, int Length, string Text, string Name = "");
 
     internal static string IncludeModule(string code)
     {
@@ -42,7 +42,7 @@ internal static class C4Syntax
     }
 
     internal static bool IsAlias(string text) => text.Length > 0 && (char.IsAsciiLetter(text[0]) || text[0] == '_') &&
-        text.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
+        text.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '.') && !text.EndsWith('.') && !text.Contains("..", StringComparison.Ordinal);
 
     internal static bool IsNode(string macro)
     {
@@ -75,10 +75,26 @@ internal static class C4Syntax
     internal static bool Literal(string value, out string text)
     {
         text = "";
-        if (value.Length < 2 || value[0] != '"' || value[^1] != '"') return false;
+        if (value.Length < 2 || value[0] is not ('"' or '\'') || value[^1] != value[0]) return false;
         text = value[1..^1];
         // Evaluated text cannot be rewritten as a literal while preserving its source expression.
-        return !text.Any(c => c is '"' or '\\' or '$' or '%' || char.IsControl(c));
+        if (text.Any(c => c == value[0] || c is '$' or '%' || char.IsControl(c))) return false;
+        text = text.Replace("\\n", "\n", StringComparison.Ordinal)
+            .Replace("<U+0022>", "\"", StringComparison.OrdinalIgnoreCase)
+            .Replace("<U+0024>", "$", StringComparison.OrdinalIgnoreCase)
+            .Replace("<U+0025>", "%", StringComparison.OrdinalIgnoreCase)
+            .Replace("<U+005C>", "\\", StringComparison.OrdinalIgnoreCase);
+        return true;
+    }
+
+    internal static string? Quote(string text)
+    {
+        if (text.Length > 16384 || text.Any(c => char.IsControl(c) && c is not ('\n' or '\r'))) return null;
+        // TIM substitutes variables inside quoted arguments. Unicode escapes are
+        // interpreted by the text painter after preprocessing and preserve literal glyphs.
+        return "\"" + text.ReplaceLineEndings("\n").Replace("\\", "<U+005C>", StringComparison.Ordinal)
+            .Replace("\"", "<U+0022>", StringComparison.Ordinal).Replace("$", "<U+0024>", StringComparison.Ordinal)
+            .Replace("%", "<U+0025>", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal) + "\"";
     }
 
     internal static bool LiteralOption(string argument)
@@ -98,7 +114,7 @@ internal static class C4Syntax
         macroStart = 0;
         group = false;
         arguments = [];
-        if (code.Length > 4096) return false;
+        if (code.Length > 32768) return false;
         while (macroStart < code.Length && char.IsWhiteSpace(code[macroStart])) macroStart++;
         int position = macroStart;
         while (position < code.Length && (char.IsAsciiLetterOrDigit(code[position]) || code[position] == '_')) position++;
@@ -107,13 +123,17 @@ internal static class C4Syntax
         while (position < code.Length && char.IsWhiteSpace(code[position])) position++;
         if (position == code.Length || code[position++] != '(') return false;
         int start = position;
-        bool quoted = false;
+        char quote = '\0';
         while (position < code.Length)
         {
             char character = code[position];
-            if (character == '"') quoted = !quoted;
-            else if (quoted && character == '\\') return false;
-            else if (!quoted)
+            if (quote != '\0')
+            {
+                if (character == quote) quote = '\0';
+                else if (character == '\\' && position + 1 < code.Length && code[position + 1] == quote) return false;
+            }
+            else if (character is '"' or '\'') quote = character;
+            else
             {
                 if (character == '(') return false;
                 if (character is ',' or ')')
@@ -122,7 +142,18 @@ internal static class C4Syntax
                     while (start < end && char.IsWhiteSpace(code[start])) start++;
                     while (end > start && char.IsWhiteSpace(code[end - 1])) end--;
                     if (end == start || arguments.Count >= 16) return false;
-                    arguments.Add(new(start, end - start, code[start..end]));
+                    string name = "";
+                    if (code[start] == '$')
+                    {
+                        int assignment = code.IndexOf('=', start, end - start);
+                        if (assignment > start + 1 && IsAlias(code[(start + 1)..assignment].Trim()))
+                        {
+                            name = code[(start + 1)..assignment].Trim();
+                            start = assignment + 1;
+                            while (start < end && char.IsWhiteSpace(code[start])) start++;
+                        }
+                    }
+                    arguments.Add(new(start, end - start, code[start..end], name));
                     start = position + 1;
                     if (character == ')')
                     {
@@ -136,41 +167,105 @@ internal static class C4Syntax
         }
         return false;
     }
+
+    internal static string MaskComments(string source)
+    {
+        char[] code = source.ToCharArray();
+        char quote = '\0';
+        int parentheses = 0;
+        for (int i = 0; i < code.Length; i++)
+        {
+            char c = code[i];
+            if (quote != '\0') { if (c == quote) quote = '\0'; continue; }
+            if (c == '"' || c == '\'' && parentheses > 0) { quote = c; continue; }
+            if (c == '(') parentheses++;
+            else if (c == ')') parentheses--;
+            else if (c == '\'')
+            {
+                while (i < code.Length && code[i] is not ('\r' or '\n')) code[i++] = ' ';
+            }
+        }
+        return new string(code);
+    }
+
+    internal static Argument? Parameter(List<Argument> arguments, int position, string name)
+    {
+        Argument? result = null;
+        int ordinal = 0;
+        bool named = false;
+        foreach (var argument in arguments)
+        {
+            if (argument.Name.Length > 0) named = true;
+            else if (named) return null;
+            bool matches = argument.Name.Length == 0 ? ordinal++ == position : argument.Name == name;
+            if (!matches) continue;
+            if (result.HasValue) return null;
+            result = argument;
+        }
+        return result;
+    }
 }
 
 internal sealed partial class DiagramIndex
 {
+    private string C4Code(int line, int limit, out int last)
+    {
+        last = line;
+        string initial = Lines[line].Code.TrimEnd();
+        int open = initial.IndexOf('(');
+        string name = open > 0 ? initial[..open].Trim() : "";
+        if (!C4Syntax.IsNode(name) && !C4Syntax.IsRelationship(name)) return initial;
+        var code = new System.Text.StringBuilder();
+        for (int index = line; index <= limit && index < line + 256; index++)
+        {
+            var row = Lines[index];
+            string part = _source[row.Start..row.End];
+            int end = part.AsSpan().TrimEnd().Length;
+            bool continuation = end > 0 && part[end - 1] == '\\';
+            if (continuation) part = part[..(end - 1)] + " " + part[end..];
+            code.Append(part);
+            last = index;
+            if (!continuation) break;
+            code.Append(_source.AsSpan(row.End, row.Next - row.End));
+        }
+        return C4Syntax.MaskComments(code.ToString()).TrimEnd();
+    }
+
     private DiagramObject? C4Object(int line, int end, int parent, string code)
     {
         if (!C4Syntax.Call(code, out string macro, out int macroStart, out bool group, out var arguments)) return null;
         bool relation = C4Syntax.IsRelationship(macro);
         if (!relation && !C4Syntax.IsNode(macro) || group && !C4Syntax.IsGroup(macro)) return null;
         int labelIndex = relation ? 2 : 1;
-        if (arguments.Count <= labelIndex || !C4Syntax.IsAlias(arguments[0].Text) ||
-            relation && !C4Syntax.IsAlias(arguments[1].Text) ||
-            !C4Syntax.Literal(arguments[labelIndex].Text, out string label) || !relation && label.Length == 0 ||
-            arguments.Skip(labelIndex + 1).Any(a => !C4Syntax.LiteralOption(a.Text))) return null;
+        var alias = C4Syntax.Parameter(arguments, 0, relation ? "from" : "alias");
+        var target = relation ? C4Syntax.Parameter(arguments, 1, "to") : null;
+        var caption = C4Syntax.Parameter(arguments, labelIndex, "label");
+        if (alias is not { } identity || caption is not { } labelArgument || !C4Syntax.IsAlias(identity.Text) ||
+            relation && (target is not { } destination || !C4Syntax.IsAlias(destination.Text)) ||
+            !C4Syntax.Literal(labelArgument.Text, out string label) || !relation && label.Length == 0 ||
+            arguments.Any(a => a != identity && a != target && a != labelArgument && !C4Syntax.LiteralOption(a.Text))) return null;
         var row = Lines[line];
         var item = new DiagramObject(_source, row.Start, Lines[end].End, line, end, parent, relation ? "Relationship" : macro, label)
         {
             C4Macro = macro,
-            LabelAt = arguments[labelIndex].Start,
-            LabelLength = arguments[labelIndex].Length
+            LabelAt = labelArgument.Start,
+            LabelLength = labelArgument.Length,
+            MultilineLabel = label.Contains('\n')
         };
         if (relation)
         {
-            item.From = arguments[0].Text;
-            item.FromAt = arguments[0].Start;
-            item.To = arguments[1].Text;
-            item.ToAt = arguments[1].Start;
+            item.From = identity.Text;
+            item.FromAt = identity.Start;
+            item.To = target!.Value.Text;
+            item.ToAt = target.Value.Start;
             item.Arrow = macro;
             item.ArrowAt = macroStart;
         }
         else
         {
-            item.Alias = arguments[0].Text;
-            item.AliasAt = arguments[0].Start;
-            item.AliasLength = arguments[0].Length;
+            item.Alias = identity.Text;
+            item.AliasAt = identity.Start;
+            item.AliasLength = identity.Length;
         }
         return item;
     }
@@ -184,16 +279,16 @@ public sealed partial class StudioDocument
     {
         if (!Current(item) || !item.CanRename || item.C4Macro.Length == 0 || label == item.Label) return false;
         if (item.Kind == "Relationship") return UpdateC4Connection(item, null, null, item.Arrow, label);
-        string replacement = "\"" + label + "\"";
-        return label.Length > 0 && C4Syntax.Literal(replacement, out _) &&
+        string? replacement = C4Syntax.Quote(label);
+        return label.Length > 0 && replacement != null &&
             Patch(item.Offset + item.LabelAt, item.Offset + item.LabelAt + item.LabelLength, replacement);
     }
 
     private bool ConnectC4(DiagramObject from, DiagramObject to, string arrow, string label)
     {
         string? macro = C4Syntax.RelationshipMacro(arrow);
-        string caption = "\"" + label + "\"";
-        return macro != null && C4Endpoint(from) && C4Endpoint(to) && C4Syntax.Literal(caption, out _) &&
+        string? caption = C4Syntax.Quote(label);
+        return macro != null && C4Endpoint(from) && C4Endpoint(to) && caption != null &&
             Insert($"{macro}({from.Alias}, {to.Alias}, {caption})");
     }
 
@@ -202,13 +297,12 @@ public sealed partial class StudioDocument
         string? macro = C4Syntax.RelationshipMacro(arrow);
         if (!Current(item) || item.Kind != "Relationship" || !C4Syntax.IsRelationship(item.C4Macro) || macro == null ||
             from != null && !C4Endpoint(from) || to != null && !C4Endpoint(to)) return false;
-        string? caption = label == null ? null : "\"" + label + "\"";
-        if (caption != null && !C4Syntax.Literal(caption, out _)) return false;
-        var text = new System.Text.StringBuilder(item.Statement);
-        if (caption != null) text.Remove(item.LabelAt, item.LabelLength).Insert(item.LabelAt, caption);
-        if (to != null) text.Remove(item.ToAt, item.To.Length).Insert(item.ToAt, to.Alias);
-        if (from != null) text.Remove(item.FromAt, item.From.Length).Insert(item.FromAt, from.Alias);
-        text.Remove(item.ArrowAt, item.C4Macro.Length).Insert(item.ArrowAt, macro);
-        return Patch(item.Offset, item.End, text.ToString());
+        string? caption = label == null ? null : C4Syntax.Quote(label);
+        if (label != null && caption == null) return false;
+        var changes = new List<Change> { new(item.Offset + item.ArrowAt, item.Offset + item.ArrowAt + item.C4Macro.Length, macro) };
+        if (caption != null) changes.Add(new(item.Offset + item.LabelAt, item.Offset + item.LabelAt + item.LabelLength, caption));
+        if (to != null) changes.Add(new(item.Offset + item.ToAt, item.Offset + item.ToAt + item.To.Length, to.Alias));
+        if (from != null) changes.Add(new(item.Offset + item.FromAt, item.Offset + item.FromAt + item.From.Length, from.Alias));
+        return ApplyChanges(changes);
     }
 }

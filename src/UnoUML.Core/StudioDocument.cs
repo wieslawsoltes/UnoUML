@@ -24,6 +24,17 @@ public sealed partial class StudioDocument
     public IReadOnlyList<DiagramObject> Objects => Index.Objects(ActivePage);
     public StudioDocument(string source) => Source = source ?? throw new ArgumentNullException(nameof(source));
 
+    /// <summary>Create an independent editing session with the same source and undo/redo history.</summary>
+    public StudioDocument Fork()
+    {
+        var copy = new StudioDocument(Source)
+        {
+            _cursor = _cursor, _storedChars = _storedChars, _activePage = _activePage
+        };
+        copy._history.AddRange(_history);
+        return copy;
+    }
+
     /// <summary>Record only the changed interval. Index rebuilding is lazy, so source edits can be debounced by the host.</summary>
     public void SetSource(string source)
     {
@@ -127,13 +138,14 @@ public sealed partial class StudioDocument
             var page = Pages[i];
             if (line < page.StartLine || line > page.EndLine) continue;
             pageIndex = i;
-            if (page.Family == "Ditaa") return Index.Objects(i).FirstOrDefault(o => o.Line == line && offset >= o.Offset && offset <= o.End);
+            if (page.Family == "Ditaa") return Index.Objects(i).FirstOrDefault(o => o.Kind != "ASCII drawing" && o.Line == line && offset >= o.Offset && offset <= o.End);
             return Index.AtLine(i, line);
         }
         return null;
     }
 
-    private bool Current(DiagramObject item) => item.Kind != LegacySyntax.AsciiLabel && ReferenceEquals(Index.AtLine(ActivePage, item.Line), item) && !item.Unclosed;
+    private bool Current(DiagramObject item) => !item.Unclosed && (item.Kind == "ASCII drawing" ? Objects.Contains(item) :
+        item.Kind != LegacySyntax.AsciiLabel && ReferenceEquals(Index.AtLine(ActivePage, item.Line), item));
     private string LocalNewLines(string text) => text.ReplaceLineEndings(Index.NewLine);
 
     public bool Insert(string snippet)
@@ -251,9 +263,10 @@ public sealed partial class StudioDocument
 
     public bool Connect(DiagramObject from, DiagramObject to, string arrow = "-->", string label = "")
     {
-        if (!Current(from) || !Current(to) || !from.IsConnectable || !to.IsConnectable || !OneLine(label)) return false;
+        if (!Current(from) || !Current(to) || !from.IsConnectable || !to.IsConnectable) return false;
         if (!SequenceParticipantAvailable(from.Alias, Page.EndLine) || !SequenceParticipantAvailable(to.Alias, Page.EndLine)) return false;
         if (Page.Family == "C4") return ConnectC4(from, to, arrow, label);
+        if (!OneLine(label)) return false;
         if (Page.Family == "Chen")
         {
             string? connector = ChenArrow(arrow, label.Length == 0 ? null : label);
@@ -315,6 +328,7 @@ public sealed partial class StudioDocument
 
     public bool Rename(DiagramObject item, string label)
     {
+        if (item.Kind is "ASCII drawing" or "Formula" || item.MultilineLabel && item.C4Macro.Length == 0) return RenameBlock(item, label);
         if (item.C4Macro.Length > 0) return RenameC4Label(item, label);
         if (Page.Family == "Ditaa" && item.Kind == LegacySyntax.AsciiLabel) return RenameDitaaLabel(item, label);
         if (Page.Family == "Chen") return RenameChenLabel(item, label);

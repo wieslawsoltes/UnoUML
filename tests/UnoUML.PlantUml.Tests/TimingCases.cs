@@ -66,7 +66,9 @@ internal static class TimingCases
         foreach (var label in new[] { "**bold**", "|Header|Value|", "!include file.puml", "<color:red>red</color>" })
             Require(!PlantUmlRenderer.TryRender(Traces("right", label), out _), "rich legend delegates to reference");
 
-        foreach (string cmd in new[] { "@:anchor", "skinparam backgroundcolor red", "Bus is {-}", "Bus is {Low, High}", "Unknown is State", "clock c with period 0" })
+        var background = Render("@startuml\nrobust \"Bus\" as Bus\nskinparam backgroundcolor red\n@enduml");
+        Require((string?)background.Element(ns + "rect")?.Attribute("fill") == "red", "native document background paint");
+        foreach (string cmd in new[] { "@:anchor", "Bus is {-}", "Bus is {Low, High}", "Unknown is State", "clock c with period 0" })
             Require(!PlantUmlRenderer.TryRender("@startuml\nrobust \"Bus\" as Bus\n" + cmd + "\n@enduml", out _), "compatibility fallback for " + cmd);
         Require(!PlantUmlRenderer.TryRender("@startuml\nclock clk with period 0.0001\n@10000\n@enduml", out _), "bounded clock transitions");
     }
