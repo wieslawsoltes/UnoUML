@@ -8,6 +8,7 @@ internal static class GraphCases
 {
     public static void Run()
     {
+        StyleCases.Graph();
         var examples = new[]
         {
             "title Order domain\nclass Order {\n +id : UUID\n +total() : Money\n}\nclass LineItem\nOrder \"1\" *-- \"many\" LineItem : contains",

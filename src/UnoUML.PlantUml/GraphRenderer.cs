@@ -18,18 +18,19 @@ internal static partial class GraphRenderer
         public List<Node> Children { get; } = [];
         public List<Arc> Arcs { get; } = [];
         public int X, Y, Width, Height;
-        public bool Implicit, DeploymentGlyph, CaptionBelow;
+        public bool Implicit, ExplicitFill, DeploymentGlyph, CaptionBelow;
         public bool IsStatePort => Kind == "state" && Stereotype is ("entryPoint" or "exitPoint" or "inputPin" or "outputPin");
         public bool IsInputPort => Stereotype is "entryPoint" or "inputPin";
         public bool IsSpecial => Kind == "state" && Stereotype is "choice" or "fork" or "join" or "history" or "history*" or "start" or "end";
         public bool IsType => !DeploymentGlyph && Kind is ("class" or "abstract class" or "abstract" or "interface" or "annotation" or "enum" or "entity" or "object" or "struct" or "exception" or "protocol" or "metaclass" or "stereotype" or "map");
     }
 
-    private sealed record Edge(Node From, Node To, string Arrow, string Caption, string Tail, string Head, int Line, string Direction, bool Hidden);
+    private sealed record Edge(Node From, Node To, string Arrow, string Caption, string Tail, string Head, int Line, string Direction, bool Hidden, EdgePaint? Paint = null);
     private sealed record Arc(int A, int B, string Direction, bool Hidden);
-    private sealed record Pending(Node Scope, string From, string To, string Arrow, string Caption, string Tail, string Head, int Line, string Direction, bool Hidden);
+    private sealed record Pending(Node Scope, string From, string To, string Arrow, string Caption, string Tail, string Head, int Line, string Direction, bool Hidden, EdgePaint? Paint);
     private sealed class Graph
     {
+        public readonly ManagedSkin Skin = new();
         public readonly Node Root = new("root", "", "", -1);
         public readonly List<Edge> Edges = [];
         public readonly List<Node> Nodes = [];
@@ -47,7 +48,7 @@ internal static partial class GraphRenderer
 
     [GeneratedRegex("^(" + Kinds + @")\s+(" + Name + @")(?:\s+as\s+(" + Name + @"))?(?:\s*<<([^<>]+)>>)?(?:\s+(#[\da-fA-F]{6}|#[\da-fA-F]{3}))?\s*(\{)?$", RegexOptions.CultureInvariant)]
     private static partial Regex DeclarationPattern();
-    [GeneratedRegex("^(" + Terminal + ")\\s*(?:\"([^\"]*)\"\\s*)?([<|o*]*(?>[-.]+)(?:\\[hidden\\])?(?:left|right|up|down)?[-.]*[>|o*]*)\\s*(?:\"([^\"]*)\"\\s*)?(" + Terminal + ")(?:\\s*:\\s*(.*))?$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^(" + Terminal + ")\\s*(?:\"([^\"]*)\"\\s*)?([<|o*]*(?>[-.]+)(?:\\[[a-zA-Z0-9#,=. ]+\\])?(?:left|right|up|down)?[-.]*[>|o*]*)\\s*(?:\"([^\"]*)\"\\s*)?(" + Terminal + ")(?:\\s*:\\s*(.*))?$", RegexOptions.CultureInvariant)]
     private static partial Regex EdgePattern();
 
     [GeneratedRegex("^(" + Terminal + @")\s*:\s*(.+)$", RegexOptions.CultureInvariant)]
@@ -66,6 +67,7 @@ internal static partial class GraphRenderer
     private static Graph? Parse(string source)
     {
         var graph = new Graph();
+        if (!ModernStyle.TryExtract(source, sequence: false, graph.Skin, out source)) return null;
         var aliases = new Dictionary<string, Node>(StringComparer.Ordinal);
         var pending = new List<Pending>();
         var descriptions = new List<(Node Scope, string Id, string Text, int Line)>();
@@ -73,6 +75,7 @@ internal static partial class GraphRenderer
         Node? body = null;
         bool opened = false, closed = false, structural = false, inLegend = false;
         int depth = 0, line = -1;
+        string? skinBlock = null;
         foreach (var span in source.AsSpan().EnumerateLines())
         {
             line++;
@@ -91,6 +94,11 @@ internal static partial class GraphRenderer
                 string legendLine = trimmed.ToString();
                 if (!Plain(legendLine) || graph.Legend.Count >= 32 || legendLine[0] == '@') return null;
                 graph.Legend.Add(legendLine); continue;
+            }
+            if (skinBlock != null || trimmed.StartsWith("skinparam ", StringComparison.OrdinalIgnoreCase))
+            {
+                if (body != null || !graph.Skin.Read(trimmed.ToString(), ref skinBlock, sequence: false, sourceLine: line)) return null;
+                continue;
             }
             if (trimmed.SequenceEqual("@enduml")) { closed = true; continue; }
             if (trimmed.SequenceEqual("}"))
@@ -146,7 +154,7 @@ internal static partial class GraphRenderer
                         return null; // A root-level border port is invalid PlantUML.
                 }
                 if (node.Qualified != alias && !aliases.TryAdd(node.Qualified, node)) return null;
-                if (declaration.Groups[5].Success) node.Fill = declaration.Groups[5].Value;
+                if (declaration.Groups[5].Success) { node.Fill = declaration.Groups[5].Value; node.ExplicitFill = true; }
                 graph.Nodes.Add(node); parent.Children.Add(node);
                 if (declaration.Groups[6].Success)
                 {
@@ -168,17 +176,30 @@ internal static partial class GraphRenderer
             }
             if (pending.Count >= 6000) return null;
             var rawArrow = edge.Groups[3].Value;
+            bool hidden = false;
+            EdgePaint? paint = null;
+            int bracket = rawArrow.IndexOf('[');
+            if (bracket >= 0)
+            {
+                int close = rawArrow.IndexOf(']',bracket);
+                var modifiers = rawArrow[(bracket + 1)..close];
+                if (modifiers == "hidden") hidden = true;
+                else if (!EdgePaint.TryParse(modifiers, out paint)) return null;
+                rawArrow = rawArrow.Remove(bracket, close - bracket + 1);
+            }
             var direction = DirectionNames.FirstOrDefault(rawArrow.Contains) ?? "";
-            bool hidden = rawArrow.Contains("[hidden]", StringComparison.Ordinal);
-            var arrow = rawArrow.Replace("[hidden]", "");
+            var arrow = rawArrow;
             if (direction.Length != 0) arrow = arrow.Replace(direction, "");
             if (!SupportedArrow(arrow)) return null;
             string tail = edge.Groups[2].Value, head = edge.Groups[4].Value, caption = edge.Groups[6].Value;
             if (!Plain(tail) || !Plain(head) || !Plain(caption)) return null;
             if (edge.Groups[1].Value == "[*]" || edge.Groups[5].Value == "[*]") graph.IsState = true;
-            pending.Add(new(parent, Unquote(edge.Groups[1].Value), Unquote(edge.Groups[5].Value), arrow, caption, tail, head, line, direction, hidden));
+            pending.Add(new(parent, Unquote(edge.Groups[1].Value), Unquote(edge.Groups[5].Value), arrow, caption, tail, head, line, direction, hidden, paint));
         }
-        if (!opened || !closed || inLegend || depth != 0 || body is not null || (!structural && !graph.IsState)) return null;
+        if (!opened || !closed || inLegend || skinBlock != null || depth != 0 || body is not null || (!structural && !graph.IsState)) return null;
+        if (graph.Skin.HasModernStyles && graph.Nodes.Any(n => n.Kind == "map" ||
+            !n.IsType && n.Kind is not ("package" or "namespace" or "note") ||
+            n.Stereotype.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '_' or '-')))) return null;
         bool architecture = graph.Nodes.Any(n => !n.IsType && n.Kind is not ("package" or "namespace" or "note"))
             && !graph.Nodes.Any(n => n.IsType && n.Kind is not ("interface" or "entity"));
         if (architecture)
@@ -210,7 +231,7 @@ internal static partial class GraphRenderer
             var from = Resolve(syntax.From, syntax.Scope, true, syntax.Line);
             var to = Resolve(syntax.To, syntax.Scope, false, syntax.Line);
             if (from is null || to is null) return null;
-            graph.Edges.Add(new(from, to, syntax.Arrow, syntax.Caption, syntax.Tail, syntax.Head, syntax.Line, syntax.Direction, syntax.Hidden));
+            graph.Edges.Add(new(from, to, syntax.Arrow, syntax.Caption, syntax.Tail, syntax.Head, syntax.Line, syntax.Direction, syntax.Hidden, syntax.Paint));
         }
         return graph.Nodes.Count == 0 ? null : graph;
     }

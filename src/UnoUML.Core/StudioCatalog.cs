@@ -3,8 +3,9 @@ namespace UnoUML.Core;
 public sealed record ToolItem(string Group, string Name, string Snippet, string Families = "UML");
 public sealed record DiagramTemplate(string Family, string Name, string Source)
 {
-    public bool RequiresReferenceServer => RequiresServer || Family == "Files";
-    public bool RequiresServer => Family is "Chen" or "Ditaa" or "Math" or "LaTeX";
+    /// <summary>The JavaScript reference engine needs a JVM endpoint for these dialects. The managed renderer handles the templates locally.</summary>
+    public bool RequiresReferenceServer => Family is "Files" or "Chen" or "Ditaa" or "Math" or "LaTeX";
+    public bool RequiresServer => false;
 }
 
 /// <summary>Catalog entries contain ordinary PlantUML. Only the {id} marker is expanded on insertion.</summary>
@@ -12,9 +13,12 @@ public static class StudioCatalog
 {
     public static IReadOnlyList<ToolItem> Tools { get; } = BuildTools().ToArray();
     public static IEnumerable<ToolItem> ForPage(DiagramPage page) => Tools.Where(tool => Accepts(tool, page));
-    public static bool Accepts(ToolItem tool, DiagramPage page) =>
-        tool.Families == "*" || tool.Families.Split('|').Contains(page.Family, StringComparer.Ordinal)
-        || (page.Family == "UML" && tool.Families.Split('|').Any(UmlFamilies.Contains));
+    public static bool Accepts(ToolItem tool, DiagramPage page)
+    {
+        bool family = tool.Families == "*" || tool.Families.Split('|').Contains(page.Family, StringComparer.Ordinal)
+            || (page.Family == "UML" && tool.Families.Split('|').Any(UmlFamilies.Contains));
+        return family && (tool.Families != "C4" || C4Syntax.ToolAvailable(tool, page));
+    }
     private static readonly HashSet<string> UmlFamilies = ["Sequence", "Class", "Component", "Deployment", "Use case", "Object", "State", "Activity", "Timing"];
 
     private static IEnumerable<ToolItem> BuildTools()
@@ -40,6 +44,9 @@ public static class StudioCatalog
         yield return new("Sequence", "Spacing", "|||", "Sequence");
         yield return new("Sequence", "Page break", "newpage Next phase", "Sequence");
         yield return new("Sequence", "Note", "note over {id}\nA note\nend note", "Sequence");
+        yield return new("Sequence", "Reference", "ref over {id} : Related interaction", "Sequence");
+        yield return new("Sequence", "Activated call", "{id} -> {id} ++ : Work\nreturn Result", "Sequence");
+        yield return new("Sequence", "Instance lifecycle", "create participant \"Worker\" as {id}\n\"Creator\" -> {id} ++ : Create\nreturn Ready\n\"Creator\" -> {id} !! : Release", "Sequence");
         yield return new("States", "State", "state \"State\" as {id}", "State");
         foreach (var (name, type) in new[] { ("Choice", "choice"), ("Fork", "fork"), ("Join", "join"), ("Entry point", "entryPoint"), ("Exit point", "exitPoint"), ("Input pin", "inputPin"), ("Output pin", "outputPin") })
             yield return new("States", name, type is "choice" or "fork" or "join" ? "state {id} <<" + type + ">>" :
@@ -63,6 +70,14 @@ public static class StudioCatalog
         yield return new("Charts", "Line series", "line \"{id}\" [35, 40, 60, 75] #267E69", "Chart");
         yield return new("Files", "File", "/src/{id}.cs", "Files");
         yield return new("Data", "Value", "value", "JSON");
+        yield return new("Chen notation", "Entity", "entity {id} {\n  Id <<key>>\n}", "Chen");
+        yield return new("Chen notation", "Weak entity", "entity {id} <<weak>> {\n  Name <<key>>\n}", "Chen");
+        yield return new("Chen notation", "Relationship", "relationship {id} {\n}", "Chen");
+        yield return new("Chen notation", "Identifying relationship", "relationship {id} <<identifying>> {\n}", "Chen");
+        yield return new("ASCII shapes", "Box", "+----------+\n| Box      |\n+----------+", "Ditaa");
+        yield return new("ASCII shapes", "Storage", "+----------+\n| {s}      |\n| Storage  |\n+----------+", "Ditaa");
+        yield return new("ASCII shapes", "Document", "+----------+\n| {d}      |\n| Document |\n+----------+", "Ditaa");
+        yield return new("ASCII shapes", "Connected boxes", "+------+    +------+\n| From +--->| To   |\n+------+    +------+", "Ditaa");
         yield return new("Grammar", "Production", "{id} = \"value\";", "EBNF");
         yield return new("Grammar", "Alternatives", "{id} = \"first\" | \"second\";", "EBNF");
         yield return new("Network", "Network", "network {id} {\n    server [address = \"192.0.2.1\"];\n  }", "Network");
@@ -77,6 +92,18 @@ public static class StudioCatalog
         yield return new("C4", "Person", "Person({id}, \"Person\", \"Description\")", "C4");
         yield return new("C4", "Software system", "System({id}, \"System\", \"Description\")", "C4");
         yield return new("C4", "External system", "System_Ext({id}, \"External system\", \"Description\")", "C4");
+        yield return new("C4", "System database", "SystemDb({id}, \"Database\", \"Description\")", "C4");
+        yield return new("C4", "System queue", "SystemQueue({id}, \"Queue\", \"Description\")", "C4");
+        yield return new("C4 boundaries", "Enterprise boundary", "Enterprise_Boundary({id}, \"Enterprise\") {\n}", "C4");
+        yield return new("C4 boundaries", "System boundary", "System_Boundary({id}, \"System\") {\n}", "C4");
+        yield return new("C4 boundaries", "Container boundary", "Container_Boundary({id}, \"Container\") {\n}", "C4");
+        yield return new("C4 containers", "Container", "Container({id}, \"Container\", \".NET\", \"Description\")", "C4");
+        yield return new("C4 containers", "Container database", "ContainerDb({id}, \"Database\", \"PostgreSQL\")", "C4");
+        yield return new("C4 containers", "Container queue", "ContainerQueue({id}, \"Queue\", \"AMQP\")", "C4");
+        yield return new("C4 components", "Component", "Component({id}, \"Component\", \"C#\", \"Description\")", "C4");
+        yield return new("C4 components", "Component database", "ComponentDb({id}, \"Database\", \"SQL\")", "C4");
+        yield return new("C4 components", "Component queue", "ComponentQueue({id}, \"Queue\", \"AMQP\")", "C4");
+        yield return new("C4 deployment", "Deployment node", "Deployment_Node({id}, \"Node\", \"Linux\") {\n}", "C4");
         foreach (var (name, macro) in new[] { ("Business actor", "Business_Actor"), ("Business role", "Business_Role"), ("Business service", "Business_Service"), ("Business process", "Business_Process"), ("Application component", "Application_Component"), ("Data object", "Application_DataObject"), ("Technology node", "Technology_Node") })
             yield return new("ArchiMate", name, macro + "({id}, \"" + name + "\")", "ArchiMate");
         yield return new("Annotations", "Floating note", "note \"New note\" as {id}", structural + "|State");
@@ -140,6 +167,9 @@ public static class StudioCatalog
         Template("Regex", "Regular expression", "regex", "[A-Z][a-z]+"),
         Template("DOT", "Directed graph", "dot", "digraph G {\n  rankdir=LR;\n  client -> server;\n  server -> storage;\n}"),
         Template("C4", "System context", "uml", "!include <C4/C4_Context>\nPerson(user, \"Customer\")\nSystem(store, \"Storefront\")\nRel(user, store, \"Shops\")"),
+        Template("C4", "Container architecture", "uml", "!include <C4/C4_Container>\nPerson(user, \"Customer\")\nSystem_Boundary(store, \"Storefront\") {\n  Container(web, \"Web application\", \"ASP.NET Core\")\n  ContainerDb(data, \"Orders\", \"PostgreSQL\")\n}\nRel(user, web, \"Shops\", \"HTTPS\")\nRel(web, data, \"Stores orders\", \"SQL\")"),
+        Template("C4", "Component architecture", "uml", "!include <C4/C4_Component>\nContainer_Boundary(api, \"Orders API\") {\n  Component(controller, \"Controller\", \"ASP.NET Core\")\n  Component(service, \"Order service\", \"C#\")\n  ComponentDb(repository, \"Repository\", \"Entity Framework\")\n}\nRel(controller, service, \"Creates order\")\nRel(service, repository, \"Persists\")"),
+        Template("C4", "Deployment architecture", "uml", "!include <C4/C4_Deployment>\nDeployment_Node(region, \"Region\", \"Datacenter\") {\n  Deployment_Node(host, \"Application host\", \"Linux\") {\n    Container(api, \"Orders API\", \".NET\")\n  }\n  Deployment_Node(database, \"Database host\", \"Linux\") {\n    ContainerDb(data, \"Orders\", \"PostgreSQL\")\n  }\n}\nRel(api, data, \"Reads and writes\", \"SQL\")"),
         Template("ArchiMate", "Business capability", "uml", "!include <archimate/Archimate>\nBusiness_Role(customer, \"Customer\")\nBusiness_Process(order, \"Place order\")\nRel_Assignment(customer, order)"),
         Template("Chen", "Entity relationship", "chen", "entity CUSTOMER {\n  Id <<key>>\n  Name\n}\nentity ORDER {\n  Number <<key>>\n}\nrelationship PLACES {\n}\nPLACES -1- CUSTOMER\nPLACES -N- ORDER"),
         Template("Ditaa", "ASCII architecture", "ditaa", "+--------+     +-------+\n| Client +---->| Store |\n+--------+     +-------+"),

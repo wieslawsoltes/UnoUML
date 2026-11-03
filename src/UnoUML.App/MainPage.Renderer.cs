@@ -21,7 +21,7 @@ public sealed partial class MainPage
             native.IsEnabled = !useServer.IsOn;
         };
         var content = new StackPanel { Spacing = 12 };
-        content.Children.Add(Caption("The C# engine renders supported diagrams locally. Other syntax uses the bundled PlantUML JavaScript engine. A JVM server can render additional dialects such as Chen, Ditaa and LaTeX, depending on its configuration."));
+        content.Children.Add(Caption("The C# engine renders supported diagrams locally. Other syntax uses the bundled PlantUML JavaScript engine. A JVM endpoint can render additional syntax and extensions installed on that server."));
         content.Children.Add(native);
         content.Children.Add(useServer);
         content.Children.Add(address);

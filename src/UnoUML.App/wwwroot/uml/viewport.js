@@ -1,7 +1,7 @@
 import { DirectEditing } from './direct-editing.js';
 import { indexHits, parseSvg } from './svg.js';
 import { download, includeFiles, includeRevision } from './files.js';
-export { openFile, saveFile, importIncludes } from './files.js';
+export { openFile, saveFile, importIncludes, readInclude } from './files.js';
 
 import { getServerEndpoint, getServerTransport, layoutOnServer } from './server.js';
 export { setServerEndpoint } from './server.js';
@@ -62,6 +62,16 @@ class Viewport {
     this.selection.hidden = this.target.hidden = true;
     this.placeholder = html('div', 'empty', this.surface);
     this.placeholder.textContent = 'Preparing diagram…';
+    this.sheetPicker = html('select', 'sheet-picker', root);
+    this.sheetPicker.hidden = true;
+    this.sheetPicker.setAttribute('aria-label', 'Sequence sheet');
+    this.sheetPicker.addEventListener('change', () => {
+      this.direct.finishLabel(false);
+      this.showSheet(this.sheetPicker.selectedIndex);
+      this.hit(null);
+      this.fit();
+      this.announcement.textContent = this.sheetPicker.selectedOptions[0].text;
+    });
     this.direct = new DirectEditing(this);
     this.bindGestures();
     this.resize = new ResizeObserver(() => this.autoFit ? this.fit() : this.position());
@@ -79,6 +89,10 @@ class Viewport {
     this.pristine = null;
     let svg = this.cache.get(key);
     if (!svg) {
+      if (!endpoint && this.localMode === 'auto' && /^\s*!include(?:_once|_many)?[ \t]+(?![ \t<])/m.test(source)) {
+        await includeFiles();
+        if (version !== this.version) return;
+      }
       let output = !endpoint && this.localMode === 'auto' ? this.renderManaged?.(source) : null;
       const backend = endpoint ? 'jvm' : output ? 'managed' : 'javascript';
       if (!output) {
@@ -111,8 +125,29 @@ class Viewport {
     this.displayKey = key;
     this.paper.dataset.renderer = svg.backend;
     this.emit('renderer', { backend: svg.backend });
+    const previousTitle = this.sheetPicker.selectedOptions[0]?.text;
+    const previousIndex = this.sheetPicker.selectedIndex;
+    this.sheets = svg.backend === 'managed' ? [...svg.querySelectorAll(':scope > svg[data-sequence-page]')] : [];
+    this.sheetPicker.replaceChildren();
+    this.sheetPicker.hidden = this.sheets.length < 2;
+    if (this.sheets.length) {
+      this.sheetPicker.add(new Option('All sheets', '0'));
+      this.sheets.forEach((sheet, i) => {
+        const title = sheet.getAttribute('data-page-title');
+        this.sheetPicker.add(new Option(title ? (i+1) + ' · ' + title : 'Sheet ' + (i+1), String(i+1)));
+      });
+    }
+    this.input = source;
+    const keep = this.sheetPicker.options[previousIndex]?.text === previousTitle;
+    this.showSheet(keep && previousIndex > 0 ? previousIndex : 0);
+  }
+  showSheet(index) {
+    const svg = this.sheets[index-1] || this.pristine;
+    this.sheetPicker.selectedIndex = index;
+    this.exportSource = svg;
     this.svg = document.importNode(svg, true);
-    this.index = indexHits(this.svg, source, svg.backend === 'managed');
+    this.svg.removeAttribute('x'); this.svg.removeAttribute('y');
+    this.index = indexHits(this.svg, this.input, this.pristine.backend === 'managed');
     const visited = new Set();
     this.objects = [...this.index.hits].filter(([el, hit]) => {
       // Lifelines and tails refer to the same participant as its header.
@@ -160,7 +195,11 @@ class Viewport {
   }
   pick(el) { return el?.closest('[data-uml-hit]') || null; }
   select(id, line) {
-    this.marked = (id && this.index?.byId.get(id)) || this.index?.byLine.get(line) || null;
+    // Repeated sequence headers share a source identity. Keep the exact sheet
+    // hit by the pointer when managed selection synchronizes that identity.
+    const current = this.index?.hits.get(this.marked);
+    if (!current || (id ? current.id !== id : current.line !== line))
+      this.marked = (id && this.index?.byId.get(id)) || this.index?.byLine.get(line) || null;
     this.outline(this.selection, this.marked);
   }
   setAdditional(lines, text) {
@@ -345,16 +384,28 @@ export function zoom(id, factor) { views.get(id)?.zoom(factor); }
 export function fit(id) { views.get(id)?.fit(); }
 export async function render(id, source) { await views.get(id).render(source); }
 export async function exportDiagram(id, format, fileName) {
-  const svg = views.get(id)?.pristine;
+  const view = views.get(id);
+  const svg = view?.pristine && view.exportSource;
   if (!svg) throw new Error('Render a diagram before exporting.');
-  const file = new Blob([new XMLSerializer().serializeToString(svg)],{type:'image/svg+xml;charset=utf-8'});
+  if (view.sheetPicker.selectedIndex > 0) fileName = fileName.replace(/(\.[^.]+)?$/, (_, ext) => '-sheet-' + view.sheetPicker.selectedIndex + (ext || ''));
+  const clean = svg.cloneNode(true);
+  clean.removeAttribute('x'); clean.removeAttribute('y');
+  const file = new Blob([new XMLSerializer().serializeToString(clean)],{type:'image/svg+xml;charset=utf-8'});
   if (format === 'svg') { download(fileName, file); return; }
   if (format === 'print') {
     const frame=document.createElement('iframe');
     frame.style.cssText='position:fixed;left:-10000px;top:0;border:0'; document.body.append(frame);
     const doc=frame.contentDocument; doc.title=fileName;
     const style=doc.createElement('style'); style.textContent='@page { margin: 10mm } body {margin:0} svg{display:block;width:100%;height:auto;max-height:95vh}';
-    doc.head.append(style); doc.body.append(doc.importNode(svg,true));
+    doc.head.append(style);
+    const sheets = view.sheetPicker.selectedIndex > 0 || !view.sheets.length ? [clean] : view.sheets;
+    for (const [i, source] of sheets.entries()) {
+      const page = doc.createElement('section');
+      if (i > 0) page.style.breakBefore = 'page';
+      const printSvg = doc.importNode(source,true);
+      printSvg.removeAttribute('x'); printSvg.removeAttribute('y');
+      page.append(printSvg); doc.body.append(page);
+    }
     frame.contentWindow.addEventListener('afterprint',()=>frame.remove(),{once:true});
     frame.contentWindow.focus(); frame.contentWindow.print(); return;
   }

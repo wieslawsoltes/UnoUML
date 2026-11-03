@@ -99,6 +99,12 @@ public sealed partial class StudioDocument
 
     public DiagramObject? Find(string? alias, int? sourceLine = null)
     {
+        if (Page.Family == "Ditaa")
+        {
+            if (!string.IsNullOrEmpty(alias)) return Objects.FirstOrDefault(o => o.Alias == alias && (!sourceLine.HasValue || o.Line == sourceLine));
+            // Shape outlines, wires and multiple labels may all share the same ASCII row.
+            return sourceLine is { } raw && Index.AtLine(ActivePage, raw) is { Kind: "Source" } entry ? entry : null;
+        }
         if (sourceLine is { } line && Index.AtLine(ActivePage, line) is { } item) return item;
         return string.IsNullOrEmpty(alias) ? null : Objects.FirstOrDefault(o => !o.Ambiguous && o.Alias == alias);
     }
@@ -121,12 +127,13 @@ public sealed partial class StudioDocument
             var page = Pages[i];
             if (line < page.StartLine || line > page.EndLine) continue;
             pageIndex = i;
+            if (page.Family == "Ditaa") return Index.Objects(i).FirstOrDefault(o => o.Line == line && offset >= o.Offset && offset <= o.End);
             return Index.AtLine(i, line);
         }
         return null;
     }
 
-    private bool Current(DiagramObject item) => ReferenceEquals(Index.AtLine(ActivePage, item.Line), item) && !item.Unclosed;
+    private bool Current(DiagramObject item) => item.Kind != LegacySyntax.AsciiLabel && ReferenceEquals(Index.AtLine(ActivePage, item.Line), item) && !item.Unclosed;
     private string LocalNewLines(string text) => text.ReplaceLineEndings(Index.NewLine);
 
     public bool Insert(string snippet)
@@ -162,6 +169,7 @@ public sealed partial class StudioDocument
             string id = NewAlias(string.Concat(tool.Name.Where(char.IsLetterOrDigit)));
             expanded = expanded.Replace("{id}", id, StringComparison.Ordinal);
         }
+        if (Page.Family == "Ditaa") return Insert(Index.NewLine + expanded); // separate grids by an empty row
         if (tool.Group is "Topology" or "Wireframe" or "Network")
         {
             // These languages require children inside the outer graph/table container.
@@ -244,6 +252,13 @@ public sealed partial class StudioDocument
     public bool Connect(DiagramObject from, DiagramObject to, string arrow = "-->", string label = "")
     {
         if (!Current(from) || !Current(to) || !from.IsConnectable || !to.IsConnectable || !OneLine(label)) return false;
+        if (!SequenceParticipantAvailable(from.Alias, Page.EndLine) || !SequenceParticipantAvailable(to.Alias, Page.EndLine)) return false;
+        if (Page.Family == "C4") return ConnectC4(from, to, arrow, label);
+        if (Page.Family == "Chen")
+        {
+            string? connector = ChenArrow(arrow, label.Length == 0 ? null : label);
+            return connector != null && ChenEndpoints(from, to) && Insert($"{from.Alias} {connector} {to.Alias}");
+        }
         if (!ValidArrow(arrow)) return false;
         return Insert($"{from.Alias} {arrow} {to.Alias}" + (label.Length == 0 ? "" : " : " + label));
     }
@@ -258,9 +273,12 @@ public sealed partial class StudioDocument
     /// <summary>Change endpoints, appearance and caption of one relationship as a single undo operation.</summary>
     public bool UpdateConnection(DiagramObject item, DiagramObject? from, DiagramObject? to, string arrow, string? label = null)
     {
+        if (Page.Family == "C4") return UpdateC4Connection(item, from, to, arrow, label);
+        if (Page.Family == "Chen") return UpdateChenConnection(item, from, to, arrow, label);
         if (!Current(item) || item.Kind != "Relationship" || (arrow != item.Arrow && !ValidArrow(arrow))
             || (from != null && (!Current(from) || !from.IsConnectable)) || (to != null && (!Current(to) || !to.IsConnectable))
             || (label != null && !OneLine(label))) return false;
+        if (!SequenceConnectionEdit(item, from, to, arrow)) return false;
         var raw = new System.Text.StringBuilder(item.Statement);
         // Work right-to-left, keeping caller-supplied escape text, whitespace, cardinalities and comments verbatim.
         if (label != null && label != item.Label)
@@ -284,6 +302,7 @@ public sealed partial class StudioDocument
     public bool InsertMember(DiagramObject item, string member)
     {
         if (!Current(item) || !item.CanInsertMember || !OneLine(member) || string.IsNullOrWhiteSpace(member) || member.Trim() is "{" or "}") return false;
+        if (Page.Family == "Chen" && !CanAddChenAttribute(item, member)) return false;
         string decl = Index.Lines[item.Line].Code;
         string indent = decl[..(decl.Length - decl.TrimStart().Length)];
         if (item.EndLine > item.Line)
@@ -296,6 +315,10 @@ public sealed partial class StudioDocument
 
     public bool Rename(DiagramObject item, string label)
     {
+        if (item.C4Macro.Length > 0) return RenameC4Label(item, label);
+        if (Page.Family == "Ditaa" && item.Kind == LegacySyntax.AsciiLabel) return RenameDitaaLabel(item, label);
+        if (Page.Family == "Chen") return RenameChenLabel(item, label);
+        if (SequenceSyntax.TextKind(item.Kind)) return RenameSequenceText(item, label);
         if (!Current(item) || !item.CanRename || !OneLine(label) || label.Length == 0 || label == item.Label) return false;
         string text = label;
         if (item.Alias.Length != 0)
@@ -310,14 +333,17 @@ public sealed partial class StudioDocument
 
     private static bool OneLine(string label) => label.IndexOfAny(['\r', '\n']) < 0;
 
-    public bool Replace(DiagramObject item, string statement) =>
-        Current(item) && Patch(item.Offset, item.End, LocalNewLines(statement));
+    public bool Replace(DiagramObject item, string statement) => item.Kind == LegacySyntax.AsciiLabel
+        ? Page.Family == "Ditaa" && RenameDitaaLabel(item, statement)
+        : Current(item) && Patch(item.Offset, item.End, LocalNewLines(statement));
 
     public bool Remove(DiagramObject item) => RemoveMany([item]);
 
     public bool Duplicate(DiagramObject item)
     {
         if (!Current(item) || item.Ambiguous) return false;
+        if (SequenceProtectedSelection([item])) return false;
+        if (Page.Family is "Chen" or "C4") return DuplicateMany([item]);
         // A nested alias can be referenced by arbitrary preprocessing. Require a manual edit for a subtree copy.
         if (Objects.Any(o => o.Line > item.Line && o.Line <= item.EndLine && o.Alias.Length != 0)) return false;
         string copy = item.Statement;
@@ -372,7 +398,9 @@ public sealed partial class StudioDocument
 
     public bool MoveBefore(DiagramObject from, DiagramObject to)
     {
+        if (Page.Family == "C4") return false;
         if (!Current(from) || !Current(to) || from == to || from.ParentLine != to.ParentLine) return false;
+        if (!SequenceMove(from, to)) return false;
         int after = Index.Lines[from.EndLine].Next;
         if (after == to.Offset) return false;
         if (from.Offset > to.Offset)

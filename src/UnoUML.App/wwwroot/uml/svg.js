@@ -40,7 +40,9 @@ export function parseSvg(text) {
 
 export function indexHits(svg, source, exactSourceMap = false) {
   const lines = exactSourceMap ? [] : source.split(/\r\n|\r|\n/);
-  const labels = new Map(), repeated = new Set(), macroAliases = new Map();
+  const labels = new Map(), repeated = new Set(), macroAliases = new Map(), c4Aliases = new Map();
+  const c4Node = /^(?:Person(?:_Ext)?|(?:System|Container|Component)(?:Db|Queue)?(?:_Ext)?|(?:Enterprise|System|Container)_Boundary|Boundary|(?:Deployment_)?Node)$/;
+  let staticC4 = true;
   // Text-only diagrams may omit all semantic groups. Only associate a label
   // with a statement if its source line is unambiguous.
   const addLabel = (name, i) => {
@@ -54,6 +56,7 @@ export function indexHits(svg, source, exactSourceMap = false) {
     previousClose[i] = lastClose;
     if (/^\s*\}/.test(line)) lastClose = i;
     const t = line.trim();
+    if (t.startsWith('!') && !/^!include\s+<c4\/c4_(?:context|container|component|deployment)>\s*(?:'.*)?$/i.test(t)) staticC4 = false;
     if (!t || /^['!@]/.test(t)) continue;
     const quoted = [...t.matchAll(/"([^"]+)"/g)];
     for (const m of quoted) addLabel(m[1], i);
@@ -63,14 +66,21 @@ export function indexHits(svg, source, exactSourceMap = false) {
     addLabel(t.replace(/^(?:[+#~-]\s*)?(?:\{(?:static|abstract|field|method)\}\s*)?/i, ''), i);
     const tail = t.indexOf(':');
     if (tail >= 0) addLabel(t.slice(tail + 1).trim().replace(/;$/, ''), i);
-    const macro = /^\w+\(\s*([\w.$]+)\s*,/.exec(t);
-    if (macro) macroAliases.set(macro[1], macroAliases.has(macro[1]) ? -1 : i);
+    const macro = /^(\w+)\s*\(\s*([\w.$]+)\s*,/.exec(t);
+    if (macro) {
+      const alias = macro[2];
+      macroAliases.set(alias, macroAliases.has(alias) ? -1 : i);
+      if (c4Node.test(macro[1]) && /^[a-zA-Z_]\w*$/.test(alias))
+        c4Aliases.set(alias, c4Aliases.has(alias) ? -1 : i);
+    }
   }
   const hits = new Map(), byId = new Map(), byLine = new Map(), byToken = new Map();
   const inferred = label => repeated.has(label) ? -1 : labels.get(label) ?? -1;
   function register(el, id, line, label) {
     el.setAttribute('data-uml-hit', '');
     const hit = { id, line, label };
+    if (exactSourceMap && el.getAttribute('data-source-generated') === 'true') hit.generated = true;
+    if (!exactSourceMap && !staticC4 && c4Aliases.has(id.slice(id.lastIndexOf('.') + 1))) hit.generated = true;
     if (exactSourceMap && el.hasAttribute('data-json-start')) {
       const start = Number(el.getAttribute('data-json-start')), length = Number(el.getAttribute('data-json-length'));
       const kind = el.getAttribute('data-json-kind');
@@ -90,7 +100,9 @@ export function indexHits(svg, source, exactSourceMap = false) {
   }
   for (const el of svg.querySelectorAll('[data-source-line],[data-qualified-name]')) {
     if (!el.children.length && !(exactSourceMap && el.localName === 'text' && el.hasAttribute('data-json-start'))) continue;
-    const id = el.getAttribute('data-qualified-name') || '';
+    // C4 aliases are global even inside visual boundaries. The renderer's
+    // qualified names describe geometry while the source editor uses aliases.
+    let id = (exactSourceMap && el.getAttribute('data-c4-alias')) || el.getAttribute('data-qualified-name') || '';
     const label = (el.localName === 'text' ? el.textContent : null) || el.querySelector('title')?.textContent || el.querySelector('text:last-of-type')?.textContent || id;
     const n = el.getAttribute('data-source-line');
     let line = n !== null && /^\d+$/.test(n) ? Number(n) : -1;
@@ -98,6 +110,13 @@ export function indexHits(svg, source, exactSourceMap = false) {
     // Preprocessing replaces lines. Prefer an original macro invocation over
     // a coincidentally in-bounds expanded line number.
     if ((macroAliases.get(id) ?? -1) >= 0) line = macroAliases.get(id);
+    if (!exactSourceMap && staticC4) {
+      const alias = id.slice(id.lastIndexOf('.') + 1);
+      if ((c4Aliases.get(alias) ?? -1) >= 0) {
+        id = alias;
+        line = c4Aliases.get(alias);
+      }
+    }
     if (line < 0) line = inferred(label);
     if (id || line >= 0) register(el, id, line, label);
   }

@@ -100,9 +100,18 @@ try {
   assert.equal(await page.locator('.paper [data-qualified-name="LoadedFromFile"]').count(),1);
   await assert.rejects(render('@startuml\nbroken ???\n@enduml'),/Syntax Error/i);
   await page.evaluate(async () => {
-    const {parseSvg}=await import('/uml/svg.js');
+    const {parseSvg,indexHits}=await import('/uml/svg.js');
     const s=parseSvg('<svg xmlns="http://www.w3.org/2000/svg"><a href="javascript:alert(1)" onload="x()"/><foreignObject/><script>alert(1)</script><image href="https://example.invalid/tracker.png"/></svg>');
     if (s.querySelector('script,foreignObject,[onload],[href]')) throw Error('Unsafe SVG');
+    const c4Source='@startuml\n!include <C4/C4_Component>\nComponent (ctrl, "Request handler", "C#", $tags="external")\nRel(ctrl, other, "Calls")\n@enduml';
+    const c4Svg=()=>parseSvg('<svg xmlns="http://www.w3.org/2000/svg"><g data-qualified-name="site.api.ctrl" data-source-line="1533"><text>Request</text><text>handler</text></g></svg>');
+    const mapped=indexHits(c4Svg(),c4Source);
+    const node=mapped.byId.get('ctrl');
+    if (!node || mapped.hits.get(node).line!==2) throw Error('Nested C4 source alias lost to qualified name, wrapped text or relationship use');
+    const duplicate=c4Source.replace('Rel(ctrl, other, "Calls")','Component(ctrl, "Duplicate", "C#")');
+    if (indexHits(c4Svg(),duplicate).byId.has('ctrl')) throw Error('Ambiguous C4 alias became editable');
+    const dynamic=indexHits(c4Svg(),c4Source.replace('Component (','!if %true()\nComponent (').replace('\n@enduml','\n!endif\n@enduml'));
+    if (![...dynamic.hits.values()][0].generated) throw Error('Reference preprocessing output must remain source-editable');
   });
   if (process.env.UNOUML_CATALOG) {
     const fixtures = JSON.parse(await readFile(process.env.UNOUML_CATALOG, 'utf8'));

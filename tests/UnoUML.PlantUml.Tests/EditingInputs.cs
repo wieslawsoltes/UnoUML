@@ -6,7 +6,7 @@ internal static class EditingInputs
 {
     // An interactive editor routinely sees half-typed tokens. A rejected edit must
     // return false; a successful edit must produce a complete, addressable SVG.
-    internal static void Run()
+    internal static int Run()
     {
         var seeds = new[]
         {
@@ -19,7 +19,15 @@ internal static class EditingInputs
             "@startebnf\nitem = 'a', [item];\n@endebnf",
             "@startregex\n(A|BC)+[0-9]?\n@endregex",
             "@startgantt\nProject starts 2026-01-05\n[A] lasts 2 days\n@endgantt",
-            "@startchart\nh-axis [A,B]\nv-axis 0 --> 5\nbar \"S\" [1,2] #123456\n@endchart"
+            "@startchart\nh-axis [A,B]\nv-axis 0 --> 5\nbar \"S\" [1,2] #123456\n@endchart",
+            "@startuml\n!$n = 0\n!procedure $send($i)\nA -> B : $i\n!endprocedure\n!while $n < 2\n$send($n)\n!$n = $n + 1\n!endwhile\n@enduml",
+            "@startuml\n<style>\nclassDiagram { class { BackgroundColor #abcdef } }\n</style>\nclass A\nA --> B\n@enduml",
+            "@startuml\ncreate participant B\nA -> B ++ : Start\nnewpage Result\nref over A, B : Work\nreturn Ready\ndestroy B\n@enduml",
+            "@startchen\nentity CUSTOMER {\n Id <<key>>\n Name {\n First\n }\n}\nrelationship OWNS {\n}\nOWNS -N- CUSTOMER\n@endchen",
+            "@startditaa\n+-------+    +-------+\n| Start +--->| Done  |\n+-------+    +-------+\n@endditaa",
+            "@startmath\nsum_(i=1)^n x_i + sqrt(x^2 + 1)\n@endmath",
+            "@startlatex\n\\frac{x^2}{\\sqrt{y}}+\\sum_{i=1}^{n}i\n@endlatex",
+            "@startuml\n!include <C4/C4_Deployment>\nDeployment_Node(host,\"Server\",\"Linux\") {\nContainer(api,\"API\",\"C#\")\n}\n@enduml"
         };
         var random = new Random(5701);
         const string alphabet = "[]{}:<>!%#\\_\n0123= '";
@@ -38,5 +46,6 @@ internal static class EditingInputs
                     if ((int)n < 0 || (int)n > last) throw new Exception("Invalid source metadata for " + mutated);
             }
         }
+        return seeds.Length * 60;
     }
 }

@@ -6,7 +6,7 @@ using Uno.UI.NativeElementHosting;
 namespace UnoUML.App.Rendering;
 
 public sealed record JsonHit(int Start, int Length, string Kind);
-public sealed record DiagramHit(string Kind, string Id, int Line, string Label, bool Participant = false, JsonHit? Token = null);
+public sealed record DiagramHit(string Kind, string Id, int Line, string Label, bool Participant = false, JsonHit? Token = null, bool Generated = false);
 public sealed record DiagramGesture(string Kind, DiagramHit From, DiagramHit To, string Direction = "");
 
 public sealed partial class DiagramViewport : ContentControl
@@ -136,5 +136,6 @@ public sealed partial class DiagramViewport : ContentControl
     private static DiagramHit ReadHit(JsonElement el, string kind) =>
         new(kind, el.GetProperty("id").GetString() ?? "", el.GetProperty("line").GetInt32(), el.GetProperty("label").GetString() ?? "",
             el.TryGetProperty("participant", out var participant) && participant.GetBoolean(),
-            el.TryGetProperty("token", out var t) ? new JsonHit(t.GetProperty("start").GetInt32(), t.GetProperty("length").GetInt32(), t.GetProperty("kind").GetString()!) : null);
+            el.TryGetProperty("token", out var t) ? new JsonHit(t.GetProperty("start").GetInt32(), t.GetProperty("length").GetInt32(), t.GetProperty("kind").GetString()!) : null,
+            el.TryGetProperty("generated", out var generated) && generated.GetBoolean());
 }

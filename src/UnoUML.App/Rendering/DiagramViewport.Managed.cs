@@ -14,5 +14,5 @@ public sealed partial class DiagramViewport
     }
 
     private static string RenderManaged(string source) =>
-        PlantUmlRenderer.TryRender(source, out var diagram) ? diagram.Svg : "";
+        PlantUmlRenderer.TryRender(source, BrowserBridge.ReadInclude, out var diagram) ? diagram.Svg : "";
 }

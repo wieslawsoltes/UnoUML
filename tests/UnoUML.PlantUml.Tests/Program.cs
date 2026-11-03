@@ -8,19 +8,27 @@ if (args is ["--catalog", var path])
     using var inputs = JsonDocument.Parse(File.ReadAllText(path));
     var counts = new Dictionary<string, int>();
     int supported = 0, total = 0;
+    var unsupported = new List<string>();
     foreach (var input in inputs.RootElement.EnumerateArray())
     {
         total++;
-        if (!PlantUmlRenderer.TryRender(input.GetProperty("Source").GetString()!, out var result)) continue;
+        if (!PlantUmlRenderer.TryRender(input.GetProperty("Source").GetString()!, out var result))
+        { unsupported.Add(input.GetProperty("Name").GetString()!); continue; }
         if (XDocument.Parse(result.Svg).Root?.Name.LocalName != "svg") throw new Exception("Invalid SVG for " + input.GetProperty("Name").GetString());
         var family = input.GetProperty("Family").GetString()!;
         counts[family] = counts.GetValueOrDefault(family) + 1;
         supported++;
     }
     Console.WriteLine($"Managed catalog coverage: {supported}/{total}. " + string.Join(", ", counts.Select(p => $"{p.Key} {p.Value}")));
+    if (unsupported.Count > 0) throw new Exception("Managed catalog cases declined: " + string.Join(", ", unsupported));
     return;
 }
 
+PreprocessorCases.Run();
+ModernStyleCases.Run();
+MathCases.Run();
+ChenCases.Run();
+DitaaCases.Run();
 JsonTokenCases.Run();
 SequenceCases.Run();
 GraphCases.Run();
@@ -71,8 +79,8 @@ var yaml = Render("@startyaml\nname: Studio\nformats:\n  - UML\n  - JSON\n@endya
 if (!yaml.Value.Contains("JSON") || !yaml.Value.Contains("formats")) throw new Exception("YAML table lost a child.");
 Reject("@startyaml\nbase: &base editor\ncopy: *base\n@endyaml");
 Reject("@startjson\n{broken}\n@endjson");
-Reject("@startuml\n!include <C4/C4_Context>\n!$name = \"A\"\nPerson(a,$name)\n@enduml");
+Reject("@startuml\n!include <C4/C4_Context>\n!$name = %getenv(\"HOME\")\nPerson(a,$name)\n@enduml");
 Reject("@startmindmap\n* root\n@endmindmap\n@startuml\nclass A\n@enduml");
 Reject("@startuml\nA -> B: bad\u0001\n@enduml");
-EditingInputs.Run();
-Console.WriteLine("Managed renderer regression cases and 600 partial-input checks passed.");
+int partialInputs = EditingInputs.Run();
+Console.WriteLine($"Managed renderer regression cases and {partialInputs} partial-input checks passed.");

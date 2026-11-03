@@ -55,6 +55,7 @@ internal static partial class GraphRenderer
     {
         // Library renderers measure their own card contents and reserve room for relationship labels.
         if (node.Kind == "measured-card") return;
+        if (node.Kind == "measured-group") { MeasureChildren(node, graph); return; }
         if (node.IsStatePort) { node.Width = node.Height = 12; return; }
         int textWidth = SvgText.Measure(node.Label);
         int labelWidth = Math.Max(textWidth, node.Stereotype.Length == 0 ? 0 : SvgText.Measure("«" + node.Stereotype + "»", 12));
@@ -95,6 +96,11 @@ internal static partial class GraphRenderer
                 _ => (20, 20)
             };
         }
+        MeasureChildren(node, graph);
+    }
+
+    private static void MeasureChildren(Node node, Graph graph)
+    {
         if (node.Children.Count == 0) return;
         foreach (var child in node.Children) MeasureNode(child, graph);
 

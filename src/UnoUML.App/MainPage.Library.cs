@@ -129,7 +129,9 @@ public sealed partial class MainPage
         {
             if (item.CanRename)
             {
-                Properties.Children.Add(Caption(item.Kind == "Relationship" ? "Relationship label" : "Display name"));
+                string labelCaption = item.Kind == "Relationship" ? "Relationship label" : "Display name";
+                if (item.Kind == "Relationship" && doc.Page.Family == "Chen") labelCaption = "Cardinality";
+                Properties.Children.Add(Caption(labelCaption));
                 var rename = new TextBox { Text = item.EditableLabel, Style = (Style)Resources["Field"], PlaceholderText = "Display name" };
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(rename, "Object display name");
                 Properties.Children.Add(rename);
@@ -152,16 +154,20 @@ public sealed partial class MainPage
                 }
                 Properties.Children.Add(palette);
             }
-            if (item.CanInsertMember) Properties.Children.Add(Item("Add member…", "plus", () => _ = AddMemberAsync(item)));
+            if (item.CanInsertMember) Properties.Children.Add(Item(doc.Page.Family == "Chen" ? "Add attribute…" : "Add member…", "plus", () => _ = AddMemberAsync(item)));
             if (item.Kind == "Relationship") Properties.Children.Add(Item("Edit connection…", "connect", () => _ = EditConnectionAsync(item)));
-            if (!string.IsNullOrWhiteSpace(item.Alias)) Properties.Children.Add(Caption($"Identifier   {item.Alias}"));
+            if (!string.IsNullOrWhiteSpace(item.Alias) && item.Kind != "ASCII label") Properties.Children.Add(Caption($"Identifier   {item.Alias}"));
             Properties.Children.Add(Caption($"Source   L{item.Line + 1}" + (item.EndLine > item.Line ? $"–{item.EndLine + 1}" : "")));
             Properties.Children.Add(Item("Edit statement…", "source", () => _ = EditStatementAsync(item)));
             if (item.IsConnectable) Properties.Children.Add(Item("Connect to…", "connect", () => _ = ConnectAsync(item)));
             var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
-            actions.Children.Add(Command("Duplicate object", "copy", () => Edit(() => doc.Duplicate(item))));
-            actions.Children.Add(Command("Move up", "up", () => Edit(() => doc.Move(item, -1))));
-            actions.Children.Add(Command("Move down", "down", () => Edit(() => doc.Move(item, 1))));
+            if (item.Kind is not ("ASCII label" or "Chen attribute"))
+                actions.Children.Add(Command("Duplicate object", "copy", () => Edit(() => doc.Duplicate(item))));
+            if (item.Kind != "ASCII label" && doc.Page.Family != "C4")
+            {
+                actions.Children.Add(Command("Move up", "up", () => Edit(() => doc.Move(item, -1))));
+                actions.Children.Add(Command("Move down", "down", () => Edit(() => doc.Move(item, 1))));
+            }
             actions.Children.Add(Command("Delete object", "delete", () => Edit(() => doc.Remove(item))));
             Properties.Children.Add(actions);
         }
@@ -183,7 +189,7 @@ public sealed partial class MainPage
 
     void EditProperty(DiagramObject item, Func<bool> edit)
     {
-        if (!edit()) { Status("This value is unchanged or unsupported for the selected syntax."); return; }
+        if (!edit()) { Status(item.Kind == "ASCII label" ? "Use a plain-text label that fits the available cells without moving its border." : "This value is unchanged or unsupported for the selected syntax."); return; }
         // Re-acquire the entry from the new source index, preserving inspector focus across property edits.
         selected = doc.Find(item.Alias, item.Line);
         dirty = true; revision++; changeTimer.Stop(); Refresh(); _ = RenderPageAsync();
@@ -191,8 +197,9 @@ public sealed partial class MainPage
 
     async Task AddMemberAsync(DiagramObject item)
     {
-        var field = new TextBox { Header = "Member declaration", PlaceholderText = "+operation() : Result" };
-        if (await AskAsync("Add member", field, "Add") == ContentDialogResult.Primary)
+        bool chen = doc.Page.Family == "Chen";
+        var field = new TextBox { Header = chen ? "Attribute declaration" : "Member declaration", PlaceholderText = chen ? "CustomerId : INTEGER <<key>>" : "+operation() : Result" };
+        if (await AskAsync(chen ? "Add attribute" : "Add member", field, "Add") == ContentDialogResult.Primary)
             EditProperty(item, () => doc.InsertMember(item, field.Text));
     }
 
@@ -204,6 +211,8 @@ public sealed partial class MainPage
             SelectedIndex = endpoints.FindIndex(o => o.Alias == alias), HorizontalAlignment = HorizontalAlignment.Stretch };
         var from = Picker("Source", item.From); var to = Picker("Target", item.To);
         var arrows = new List<string> { "->", "-->", "<-", "<--", "--", "..", "..>", "<|--", "--|>", "*--", "o--", "<|..", "..|>", "->>", "-->>", "<->", "<-->" };
+        if (doc.Page.Family == "Chen") arrows = ["-1-", "-N-", "-(0,1)-", "-(0,N)-", "-(1,N)-", "=1=", "=N=", "=(1,N)="];
+        if (doc.Page.Family == "C4") arrows = ["Rel", "Rel_R", "Rel_L", "Rel_U", "Rel_D", "Rel_Back", "Rel_Neighbor", "BiRel", "BiRel_R", "BiRel_L", "BiRel_U", "BiRel_D"];
         if (!arrows.Contains(item.Arrow)) arrows.Insert(0, item.Arrow);
         var arrow = new ComboBox { Header = "Connector", ItemsSource = arrows, SelectedIndex = arrows.IndexOf(item.Arrow), HorizontalAlignment = HorizontalAlignment.Stretch };
         var fields = new StackPanel { Spacing = 8 };
@@ -240,12 +249,15 @@ public sealed partial class MainPage
 
     async Task ConnectAsync(DiagramObject from)
     {
+        bool chen = doc.Page.Family == "Chen";
         var targets = doc.Objects.Where(o => o.IsConnectable).ToList();
+        if (targets.Count == 0) return;
         var target = new ComboBox { Header = "Target", ItemsSource = targets.Select(o => $"{o.Label}  ·  {o.Alias}").ToList(),
             SelectedIndex = Math.Max(0, targets.FindIndex(o => o != from)), HorizontalAlignment = HorizontalAlignment.Stretch };
-        var arrow = new TextBox { Header = "Arrow", Text = doc.Page.Family.Equals("Sequence", StringComparison.OrdinalIgnoreCase) ? "->" : "-->" };
+        string connector = doc.Page.Family switch { "Chen" => "-1-", "C4" => "Rel", "Sequence" => "->", _ => "-->" };
+        var arrow = new TextBox { Header = chen ? "Participation and cardinality" : "Connector", Text = connector };
         var label = new TextBox { Header = "Label", PlaceholderText = "Optional" };
-        var fields = new StackPanel { Spacing = 8 }; fields.Children.Add(target); fields.Children.Add(arrow); fields.Children.Add(label);
+        var fields = new StackPanel { Spacing = 8 }; fields.Children.Add(target); fields.Children.Add(arrow); if (!chen) fields.Children.Add(label);
         if (await AskAsync($"Connect {from.Label}", fields, "Connect") == ContentDialogResult.Primary && target.SelectedIndex >= 0)
             Edit(() => doc.Connect(from, targets[target.SelectedIndex], arrow.Text, label.Text));
     }

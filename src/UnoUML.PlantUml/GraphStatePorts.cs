@@ -37,7 +37,7 @@ internal static partial class GraphRenderer
 
     private static int PortCaptionY(Node n) => n.Y + 6 + (n.CaptionBelow ? 19 : -17);
 
-    private static void DrawStatePort(StringBuilder s, Node n)
+    private static void DrawStatePort(StringBuilder s, Node n, string fontColor)
     {
         int cx = n.X + 6, cy = n.Y + 6;
         if (n.Stereotype is "inputPin" or "outputPin") Rect(s, n.X, n.Y, 12, 12, 0, n.Fill);
@@ -46,6 +46,6 @@ internal static partial class GraphRenderer
             s.Append(CultureInfo.InvariantCulture, $"<circle cx=\"{cx}\" cy=\"{cy}\" r=\"6\" fill=\"{n.Fill}\" stroke=\"{Ink}\" stroke-width=\"1.5\"/>");
             if (n.Stereotype == "exitPoint") Path(s,$"M{cx-4} {cy-4}l8 8m-8 0l8 -8");
         }
-        Text(s, cx, PortCaptionY(n), n.Label, 14);
+        Text(s, cx, PortCaptionY(n), n.Label, 14, color:fontColor);
     }
 }

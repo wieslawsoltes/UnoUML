@@ -27,11 +27,16 @@ public sealed class DiagramObject
     public int Line { get; }
     public int EndLine { get; }
     public string Statement => _document[Offset..End];
-    public bool IsConnectable => Alias.Length > 0 && !Ambiguous;
+    public bool IsConnectable => Alias.Length > 0 && !Ambiguous && Kind is not (LegacySyntax.AsciiLabel or LegacySyntax.ChenAttribute);
     public bool CanRename => LabelAt >= 0 && !Ambiguous && !Unclosed;
-    public string EditableLabel => Kind == "Relationship" && LabelLength == 0 ? "" : Label;
+    public string EditableLabel => (Kind == "Relationship" || SequenceSyntax.TextKind(Kind)) && LabelLength == 0 ? "" : Label;
     internal bool Ambiguous { get; set; }
     internal bool PlainName { get; set; }
+    internal bool SequenceCreation { get; set; }
+    internal string SequenceModifier { get; set; } = "";
+    internal int SequenceCreationCall { get; set; } = -1;
+    internal int SequenceCreatedBy { get; set; } = -1;
+    internal string C4Macro { get; set; } = "";
     internal bool Unclosed { get; set; }
     public int Offset { get; }
     public int End { get; }
@@ -154,7 +159,7 @@ internal sealed partial class DiagramIndex
         if (Pages.Count == 0) AddPage(0, Lines.Count - 1, "uml", "");
     }
 
-    private static string MaskComments(string line, ref bool block)
+    internal static string MaskComments(string line, ref bool block)
     {
         // Keep offsets stable for all following tokens. Ignore comment markers inside display strings.
         bool quoted = false;
@@ -202,6 +207,7 @@ internal sealed partial class DiagramIndex
             for (int i = first; i <= last; i++)
             {
                 var link = Relation().Match(Lines[i].Code.TrimEnd());
+                if (!link.Success && SequenceSyntax.Relation().IsMatch(Lines[i].Code.TrimEnd())) { family = "Sequence"; break; }
                 if (link.Success && link.Groups["arrow"].Value is "->" or "-->" or "->>" or "-->>" or "<-" or "<--") { family = "Sequence"; break; }
             }
         }
@@ -213,12 +219,13 @@ internal sealed partial class DiagramIndex
     {
         int sep = s.IndexOfAny([' ', '\t']);
         string word = (sep >= 0 ? s[..sep] : s).ToLowerInvariant();
-        if (s.StartsWith("!include <C4/", StringComparison.OrdinalIgnoreCase)) return "C4";
+        if (s.StartsWith("!include <C4/", StringComparison.OrdinalIgnoreCase) || C4Syntax.IncludeModule(s).Length > 0) return "C4";
         if (s.StartsWith("!include <archimate/", StringComparison.OrdinalIgnoreCase)) return "ArchiMate";
+        if (SequenceSyntax.Reference().IsMatch(s)) return "Sequence";
         return word switch
         {
             "class" or "interface" or "abstract" or "annotation" or "enum" or "struct" or "namespace" => "Class",
-            "participant" or "autonumber" or "activate" or "lifeline" or "alt" => "Sequence",
+            "participant" or "autonumber" or "activate" or "deactivate" or "destroy" or "create" or "autoactivate" or "return" or "ref" or "lifeline" or "alt" => "Sequence",
             "component" => "Component",
             "package" => "UML", // used in several grammars
             "object" or "map" => "Object",
@@ -240,6 +247,7 @@ internal sealed partial class DiagramIndex
     {
         if (_cache.TryGetValue(pageIndex, out var cached)) return cached;
         var page = Pages[pageIndex];
+        if (page.Family == "Ditaa") return _cache[pageIndex] = DitaaObjects(page);
         var result = new List<DiagramObject>();
         var stack = new Stack<(int Line, string End, bool Opaque)>();
         var ends = new Dictionary<int, int>();
@@ -276,10 +284,24 @@ internal sealed partial class DiagramIndex
         foreach (var pending in stack) unclosed.Add(pending.Line);
         var aliases = new Dictionary<string, DiagramObject>(StringComparer.Ordinal);
         var memberOwners = new HashSet<int>();
+        Dictionary<int, string>? chenOwners = page.Family == "Chen" ? new() : null;
+        DiagramObject? pendingCreation = null;
         foreach (var (line, parent) in parents)
         {
             int end = ends.GetValueOrDefault(line, line);
             var item = ParseObject(line, end, parent, page.Family, memberOwners.Contains(parent));
+            if (item.SequenceCreation) pendingCreation = item;
+            else if (pendingCreation != null && item.Kind == "Relationship")
+            {
+                pendingCreation.SequenceCreationCall = item.Line;
+                item.SequenceCreatedBy = pendingCreation.Line;
+                pendingCreation = null;
+            }
+            if (chenOwners != null && item.Alias.Length > 0)
+            {
+                if (item.Kind == LegacySyntax.ChenAttribute && chenOwners.TryGetValue(parent, out var owner)) item.Alias = owner + "/" + item.Alias;
+                chenOwners[line] = item.Alias;
+            }
             if (item.CanInsertMember && end > line) memberOwners.Add(line);
             item.Unclosed = unclosed.Contains(line);
             if (item.Alias.Length > 0 && !aliases.TryAdd(item.Alias, item))
@@ -294,6 +316,7 @@ internal sealed partial class DiagramIndex
     private static bool Closes(string code, string end)
     {
         if (code.Equals(end, StringComparison.OrdinalIgnoreCase)) return true;
+        if (end == "endref" && code.Equals("end", StringComparison.OrdinalIgnoreCase)) return true;
         if (end is "repeat while" or "endwhile") return code.StartsWith(end + " ", StringComparison.OrdinalIgnoreCase);
         return end.StartsWith("end", StringComparison.Ordinal) && code.StartsWith("end ", StringComparison.OrdinalIgnoreCase)
             && code.AsSpan(4).Equals(end.AsSpan(3), StringComparison.OrdinalIgnoreCase);
@@ -329,7 +352,7 @@ internal sealed partial class DiagramIndex
         {
             if (token is "alt" or "loop" or "opt" or "par" or "group" or "break" or "critical") return ("end", false);
             if (token == "box") return ("end box", false);
-            if (token == "ref" && !code.Contains(':')) return ("end ref", true);
+            if (SequenceSyntax.Reference().Match(code) is { Success: true } reference && !reference.Groups["label"].Success) return ("endref", true);
         }
         return null;
     }
@@ -340,6 +363,8 @@ internal sealed partial class DiagramIndex
         string code = row.Code.TrimEnd();
         string text = code.TrimStart();
         DiagramObject New(string kind, string label) => new(_source, row.Start, Lines[end].End, line, end, parent, kind, label);
+        if (family == "Chen") return ChenObject(line, end, parent, code) ?? New("Source", text);
+        if (family == "C4" && C4Object(line, end, parent, code) is { } macro) return macro;
         if (inMemberBody && line == end && !text.StartsWith('!') && !text.StartsWith('@')
             && !text.StartsWith("--") && !text.StartsWith("==") && !text.StartsWith("..") && !text.StartsWith("__"))
         {
@@ -372,11 +397,17 @@ internal sealed partial class DiagramIndex
                 ToAt = row.Start - Lines[line - 1].Start + layout.Groups["to"].Index
             };
         }
-        if (Declaration().Match(code) is { Success: true } declaration)
+        bool sequence = family is "Sequence" or "UML";
+        if (sequence && SequenceText(line, end, parent, code) is { } sequenceText) return sequenceText;
+        var declaration = Declaration().Match(code);
+        bool creation = !declaration.Success && sequence;
+        if (creation) declaration = SequenceSyntax.Creation().Match(code);
+        if (declaration.Success)
         {
             var name = declaration.Groups["name"];
             var alias = declaration.Groups["alias"];
-            var item = New(declaration.Groups["kind"].Value, Unquote(name.Value));
+            var item = New(declaration.Groups["kind"].Success ? declaration.Groups["kind"].Value : "participant", Unquote(name.Value));
+            item.SequenceCreation = creation;
             if (alias.Success && alias.Value.StartsWith('"') && !name.Value.StartsWith('"')) (name, alias) = (alias, name);
             item.Label = Unquote(name.Value);
             bool simple = !name.Value.StartsWith('"');
@@ -411,12 +442,15 @@ internal sealed partial class DiagramIndex
             }
             return item;
         }
-        if (Relation().Match(code) is { Success: true } relation)
+        var relation = Relation().Match(code);
+        if (!relation.Success && sequence) relation = SequenceSyntax.Relation().Match(code);
+        if (relation.Success)
         {
             var label = relation.Groups["label"];
             var item = New("Relationship", label.Success ? label.Value : text);
             item.ArrowAt = relation.Groups["arrow"].Index;
             item.Arrow = relation.Groups["arrow"].Value;
+            item.SequenceModifier = relation.Groups["modifier"].Value;
             item.FromAt = relation.Groups["from"].Index;
             item.ToAt = relation.Groups["to"].Index;
             item.From = relation.Groups["from"].Value;

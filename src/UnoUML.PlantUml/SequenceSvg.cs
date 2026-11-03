@@ -6,42 +6,56 @@ namespace UnoUML.PlantUml;
 
 internal static partial class SequenceRenderer
 {
-    private static string WriteSvg(Diagram d)
+    private static string WriteSvg(Diagram d, string pageAttributes = "")
     {
         var s = new StringBuilder(512 + d.Lanes.Count * 420 + d.Steps.Count * 240);
-        s.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{d.Width}\" height=\"{d.Height}\" viewBox=\"0 0 {d.Width} {d.Height}\" font-family=\"sans-serif\" font-size=\"14\">");
+        s.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\"{pageAttributes} width=\"{d.Width}\" height=\"{d.Height}\" viewBox=\"0 0 {d.Width} {d.Height}\" font-family=\"{d.Style("defaultfontname","sans-serif")}\" font-size=\"14\">");
         var background = d.Style("backgroundcolor", "none");
         if (background != "none") Rect(s, 0, 0, d.Width, d.Height, background, "none");
+        string defaultFont = d.Style("defaultfontcolor","#000");
         if (d.Title != null)
         {
             s.Append(CultureInfo.InvariantCulture, $"<g class=\"title\" data-source-line=\"{d.TitleLine}\">");
-            Text(s, d.Width / 2, 27, d.Title, size: 18, middle: true, bold: true); s.Append("</g>");
+            if (!d.Title.Contains('\n')) Text(s, d.Width / 2, 27, d.Title, size: 18, middle: true, bold: true, color: d.Style("titlefontcolor",defaultFont));
+            else
+            {
+                int y = 27;
+                foreach (var row in d.Title.Split('\n')) { Text(s, d.Width / 2, y, row, size: 18, middle: true, bold: true, color: d.Style("titlefontcolor",defaultFont)); y += 22; }
+            }
+            s.Append("</g>");
         }
         string lifeStroke = d.Style("lifelinebordercolor", "#181818");
         for (int i = 0; i < d.Lanes.Count; i++)
         {
             var l = d.Lanes[i];
-            LaneGroup(s, l, i, "lifeline");
-            Line(s, l.X, d.HeadBottom, l.X, d.LifelineEnd, lifeStroke, true);
+            LaneGroup(s, l, i, "lifeline", d.IdPrefix);
+            int start = l.LifeStart ?? d.HeadBottom, end = l.LifeEnd ?? d.LifelineEnd;
+            if (start <= end) Line(s, l.X, start, l.X, end, lifeStroke, true);
             s.Append("</g>");
         }
         // Paint frames before their descendants; source-linked header groups remain individually hittable.
-        foreach (var step in d.Steps)
+        foreach (var frame in d.Frames)
         {
-            if (step.Op != Op.Open) continue;
-            int left = 5 + step.Nest * 7;
-            int width = d.Width - left * 2;
-            Rect(s, left, step.Top, width, d.Steps[step.End].Bottom - step.Top, "none", "#424242");
+            int left = 5 + frame.Nest * 7, right = d.Width - left;
+            if (frame.DrawTop && frame.DrawBottom)
+            {
+                Rect(s, left, frame.Start, right - left, frame.End - frame.Start, "none", "#424242");
+                continue;
+            }
+            Line(s, left, frame.Start, left, frame.End, "#424242");
+            Line(s, right, frame.Start, right, frame.End, "#424242");
+            if (frame.DrawTop) Line(s, left, frame.Start, right, frame.Start, "#424242");
+            if (frame.DrawBottom) Line(s, left, frame.End, right, frame.End, "#424242");
         }
         foreach (var bar in d.Bars.OrderBy(b => b.Depth))
         {
             s.Append(CultureInfo.InvariantCulture, $"<g class=\"activation\" data-source-line=\"{bar.Line}\">");
-            Rect(s, d.Lanes[bar.Lane].X - 5 + bar.Depth * 5, bar.Start, 10, Math.Max(2, bar.End - bar.Start), bar.Fill, "#454545");
+            Rect(s, d.Lanes[bar.Lane].X - 5 + bar.Depth * 5, bar.Start, 10, Math.Max(2, bar.End - bar.Start), bar.Fill, d.Style("lifelinebordercolor", "#454545"));
             s.Append("</g>");
         }
         for (int i = 0; i < d.Lanes.Count; i++)
         {
-            Head(s, d, i, false);
+            if (d.Lanes[i].ShowHead) Head(s, d, i, false);
             if (d.Footbox) Head(s, d, i, true);
         }
         int count = 0;
@@ -51,12 +65,19 @@ internal static partial class SequenceRenderer
             {
                 case Op.Send: Message(s, d, step, ++count); break;
                 case Op.Note: DrawNote(s, d, step); break;
+                case Op.Reference: DrawReference(s, d, step); break;
+                case Op.Destroy:
+                {
+                    int x = d.Lanes[step.A].X, y = step.Anchor;
+                    s.Append(CultureInfo.InvariantCulture, $"<g class=\"destruction\" data-source-line=\"{step.Line}\" data-entity-uid=\"{d.IdPrefix}part{step.A + 1}\"><path d=\"M{x-8} {y-8}l16 16m-16 0l16-16\" stroke=\"#A80036\" stroke-width=\"2\" fill=\"none\"/></g>");
+                    break;
+                }
                 case Op.Open:
                 {
                     int x = 5 + step.Nest * 7, y = step.Top, labelWidth = Measure(step.Variant) + 19;
                     s.Append(CultureInfo.InvariantCulture, $"<g class=\"fragment\" data-source-line=\"{step.Line}\"><path d=\"M{x} {y}h{labelWidth}v13l-7 7H{x}z\" fill=\"#EEE\" stroke=\"#424242\"/>");
-                    Text(s, x + 6, y + 15, step.Variant, 13, bold: true);
-                    if (step.Text.Length > 0) Text(s, x + labelWidth + 8, y + 15, step.Text, 13);
+                    Text(s, x + 6, y + 15, step.Variant, 13, bold: true, color: defaultFont);
+                    if (step.Text.Length > 0) Text(s, x + labelWidth + 8, y + 15, step.Text, 13, color: defaultFont);
                     s.Append("</g>"); break;
                 }
                 case Op.Branch:
@@ -64,7 +85,7 @@ internal static partial class SequenceRenderer
                     int x = 5 + step.Nest * 7;
                     s.Append(CultureInfo.InvariantCulture, $"<g class=\"branch\" data-source-line=\"{step.Line}\">");
                     Line(s, x, step.Top, d.Width - x, step.Top, "#424242", true);
-                    Text(s, x + 8, step.Top + 18, "[" + step.Text + "]", 13); s.Append("</g>"); break;
+                    Text(s, x + 8, step.Top + 18, "[" + step.Text + "]", 13, color: defaultFont); s.Append("</g>"); break;
                 }
                 case Op.Divider:
                 case Op.Delay:
@@ -74,7 +95,7 @@ internal static partial class SequenceRenderer
                         Line(s, 5, step.Top + 15, d.Width - 5, step.Top + 15, "#363636");
                         Rect(s, (d.Width - step.TextWidth) / 2 - 9, step.Top + 3, step.TextWidth + 18, 24, "#EEE", "#565656");
                     }
-                    Text(s, d.Width / 2, step.Top + 20, step.Text, 13, middle: true, bold: step.Op == Op.Divider);
+                    Text(s, d.Width / 2, step.Top + 20, step.Text, 13, middle: true, bold: step.Op == Op.Divider, color: defaultFont);
                     s.Append("</g>"); break;
             }
         }
@@ -85,16 +106,16 @@ internal static partial class SequenceRenderer
             int y = d.Height - 8 - h;
             s.Append(CultureInfo.InvariantCulture, $"<g class=\"legend\" data-source-line=\"{d.LegendLine}\">");
             Rect(s, x, y, w, h, "#DDDDDD", "#888888");
-            foreach (var row in d.Legend) { y += 17; Text(s, x + 8, y, row, 13); }
+            foreach (var row in d.Legend) { y += 17; Text(s, x + 8, y, row, 13, color: defaultFont); }
             s.Append("</g>");
         }
         return s.Append("</svg>").ToString();
     }
 
-    private static void LaneGroup(StringBuilder s, Lane lane, int index, string suffix)
+    private static void LaneGroup(StringBuilder s, Lane lane, int index, string suffix, string prefix)
     {
         string kind = suffix == "lifeline" ? "participant-lifeline" : "participant participant-" + suffix;
-        s.Append(CultureInfo.InvariantCulture, $"<g class=\"{kind}\" data-source-line=\"{lane.Line}\" data-qualified-name=\"{Escape(lane.Id)}\" data-entity-uid=\"part{index + 1}\" id=\"part{index + 1}-{suffix}\">");
+        s.Append(CultureInfo.InvariantCulture, $"<g class=\"{kind}\" data-source-line=\"{lane.Line}\" data-qualified-name=\"{Escape(lane.Id)}\" data-entity-uid=\"{prefix}part{index + 1}\" id=\"{prefix}part{index + 1}-{suffix}\">");
     }
 
     private static void Head(StringBuilder s, Diagram d, int index, bool foot)
@@ -102,20 +123,22 @@ internal static partial class SequenceRenderer
         var l = d.Lanes[index];
         int x = l.X, w = l.Width, top = foot ? d.LifelineEnd : d.HeadBottom - d.HeaderHeight;
         bool box = l.Kind is "participant" or "collections";
-        if (!foot && box) top = d.HeadBottom - 31;
         string key = l.Kind == "actor" ? "actor" : "participant";
+        int size = d.Skin.Size(key + "fontsize",14);
+        int extra = Math.Max(0,size-14);
+        if (!foot) top = l.HeadTop ?? (box ? d.HeadBottom - 31 - extra : top);
         var fill = l.Fill ?? d.Style(key + "backgroundcolor", "#E2E2F0");
         var stroke = d.Style(key + "bordercolor", "#181818");
-        LaneGroup(s, l, index, foot ? "tail" : "head");
+        LaneGroup(s, l, index, foot ? "tail" : "head", d.IdPrefix);
         if (box)
         {
-            if (l.Kind == "collections") Rect(s, x - w / 2 + 4, top, w - 4, 27, fill, stroke);
-            Rect(s, x - w / 2, top + (l.Kind == "collections" ? 4 : 0), w, 27, fill, stroke);
-            Text(s, x, top + 19, l.Name, middle: true, color: d.Style(key + "fontcolor", "#000"));
+            if (l.Kind == "collections") Rect(s, x - w / 2 + 4, top, w - 4, 27+extra, fill, stroke, d.Style("participantborderthickness","1"));
+            Rect(s, x - w / 2, top + (l.Kind == "collections" ? 4 : 0), w, 27+extra, fill, stroke, d.Style("participantborderthickness","1"));
+            Text(s, x, top + 19 + extra, l.Name, size, middle: true, color: d.Style(key + "fontcolor", d.Style("defaultfontcolor","#000")));
         }
         else
         {
-            int iconY = top + (foot ? 19 : 2);
+            int iconY = top + (foot ? 19 + extra : 2);
             s.Append(CultureInfo.InvariantCulture, $"<g transform=\"translate({x} {iconY})\" fill=\"{fill}\" stroke=\"{stroke}\">");
             s.Append(l.Kind switch
             {
@@ -128,7 +151,7 @@ internal static partial class SequenceRenderer
                 _ => ""
             });
             s.Append("</g>");
-            Text(s, x, top + (foot ? 14 : 52), l.Name, middle: true, color: d.Style(key + "fontcolor", "#000"));
+            Text(s, x, top + (foot ? 14 : 52) + extra, l.Name, size, middle: true, color: d.Style(key + "fontcolor", d.Style("defaultfontcolor","#000")));
         }
         s.Append("</g>");
     }
@@ -141,19 +164,22 @@ internal static partial class SequenceRenderer
         int dir = from <= to ? 1 : -1;
         if (step.FromDepth > 0) from += 5 * dir;
         if (step.ToDepth > 0) to += (self ? 5 : -5 * dir);
-        string stroke = d.Style("arrowcolor", "#181818");
+        if (step.Creates) to = d.Lanes[step.B].X - dir * d.Lanes[step.B].Width / 2;
+        string stroke = step.Color ?? d.Style("arrowcolor", "#181818");
+        string weight = d.Style("arrowthickness","1"), fontColor = d.Style("arrowfontcolor",d.Style("defaultfontcolor","#000"));
+        int size = d.Skin.Size("arrowfontsize",13);
         bool dashed = step.Variant.Contains("--"), open = step.Variant.Contains(">>") || step.Variant.Contains("<<");
-        int y = step.Bottom - 5;
-        s.Append(CultureInfo.InvariantCulture, $"<g class=\"message\" id=\"msg{ordinal}\" data-entity-1=\"part{step.A + 1}\" data-entity-2=\"part{step.B + 1}\" data-source-line=\"{step.Line}\">");
+        int y = step.Anchor;
+        s.Append(CultureInfo.InvariantCulture, $"<g class=\"message\" id=\"{d.IdPrefix}msg{ordinal}\" data-entity-1=\"{d.IdPrefix}part{step.A + 1}\" data-entity-2=\"{d.IdPrefix}part{step.B + 1}\" data-source-line=\"{step.Line}\">");
         if (self)
         {
             int loopWidth = Math.Max(35, step.TextWidth + 12);
-            s.Append(CultureInfo.InvariantCulture, $"<path d=\"M{from} {y - 15}h{loopWidth}v15H{to}\" fill=\"none\" stroke=\"{stroke}\"");
+            s.Append(CultureInfo.InvariantCulture, $"<path d=\"M{from} {y - 15}h{loopWidth}v15H{to}\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"{weight}\"");
             if (dashed) s.Append(" stroke-dasharray=\"3 3\"");
             s.Append("/>");
             dir = -1;
         }
-        else Line(s, from, y, to, y, stroke, dashed);
+        else Line(s, from, y, to, y, stroke, dashed, weight);
         s.Append(CultureInfo.InvariantCulture, $"<path d=\"M{to - dir * 9} {y - 4}L{to} {y}l{-dir * 9} 4");
         s.Append(open ? "\"" : "z\"");
         s.Append(CultureInfo.InvariantCulture, $" stroke=\"{stroke}\" fill=\"{(open ? "none" : stroke)}\"/>");
@@ -161,10 +187,10 @@ internal static partial class SequenceRenderer
         if (step.Number > 0)
         {
             var n = step.Number.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            Text(s, labelX, labelY, n, 13, bold: true);
-            labelX += Measure(n, 13) + 6;
+            Text(s, labelX, labelY, n, size, bold: true, color: fontColor);
+            labelX += Measure(n, size) + 6;
         }
-        if (step.Text.Length > 0) Text(s, labelX, labelY, step.Text, 13);
+        if (step.Text.Length > 0) Text(s, labelX, labelY, step.Text, size, color: fontColor);
         s.Append("</g>");
     }
 
@@ -173,17 +199,35 @@ internal static partial class SequenceRenderer
         int w = step.TextWidth + 22, h = step.Bottom - step.Top - 9;
         int a = d.Lanes[step.A].X, b = d.Lanes[step.B].X, y = step.Top + 4;
         int x = step.Variant switch { "left of" => a - 10 - w, "right of" => a + 10, _ => (a + b - w) / 2 };
-        s.Append(CultureInfo.InvariantCulture, $"<g class=\"note\" data-source-line=\"{step.Line}\"><path d=\"M{x} {y}h{w - 8}l8 8v{h - 8}h{-w}zM{x + w - 8} {y}v8h8\" fill=\"{step.Color ?? "#FEFFDD"}\" stroke=\"#454545\"/>");
-        foreach (var row in step.Text.Split('\n')) { y += 17; Text(s, x + 6, y, row, 13); }
+        s.Append(CultureInfo.InvariantCulture, $"<g class=\"note\" data-source-line=\"{step.Line}\"><path d=\"M{x} {y}h{w - 8}l8 8v{h - 8}h{-w}zM{x + w - 8} {y}v8h8\" fill=\"{step.Color ?? d.Style("notebackgroundcolor","#FEFFDD")}\" stroke=\"{d.Style("notebordercolor","#454545")}\"/>");
+        foreach (var row in step.Text.Split('\n')) { y += 17; Text(s, x + 6, y, row, 13, color:d.Style("notefontcolor",d.Style("defaultfontcolor","#000"))); }
         s.Append("</g>");
     }
 
-    private static void Rect(StringBuilder s, int x, int y, int w, int h, string fill, string stroke) =>
-        s.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"{fill}\" stroke=\"{stroke}\"/>");
-
-    private static void Line(StringBuilder s, int x1, int y1, int x2, int y2, string stroke, bool dashed = false)
+    private static void DrawReference(StringBuilder s, Diagram d, Step step)
     {
-        s.Append(CultureInfo.InvariantCulture, $"<line x1=\"{x1}\" y1=\"{y1}\" x2=\"{x2}\" y2=\"{y2}\" stroke=\"{stroke}\"");
+        int half = Math.Max(30, (step.TextWidth + 25) / 2);
+        int x = d.Lanes[step.A].X - half, right = d.Lanes[step.B].X + half;
+        int y = step.Top + 3, height = step.Bottom - step.Top - 9;
+        s.Append(CultureInfo.InvariantCulture, $"<g class=\"reference\" data-source-line=\"{step.Line}\" data-entity-1=\"{d.IdPrefix}part{step.A + 1}\" data-entity-2=\"{d.IdPrefix}part{step.B + 1}\">");
+        Rect(s, x, y, right - x, height, "#FFFFFF", "#424242");
+        s.Append(CultureInfo.InvariantCulture, $"<path d=\"M{x} {y}h37v14l-7 7H{x}z\" fill=\"{step.Color ?? "#EEEEEE"}\" stroke=\"#424242\"/>");
+        Text(s, x + 6, y + 15, "ref", 13, bold: true, color: d.Style("defaultfontcolor", "#000"));
+        y += 22;
+        foreach (string row in step.Text.Split('\n'))
+        {
+            y += 17;
+            Text(s, (x + right) / 2, y, row, 13, middle: true, color: d.Style("defaultfontcolor", "#000"));
+        }
+        s.Append("</g>");
+    }
+
+    private static void Rect(StringBuilder s, int x, int y, int w, int h, string fill, string stroke, string weight = "1") =>
+        s.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"{fill}\" stroke=\"{stroke}\" stroke-width=\"{weight}\"/>");
+
+    private static void Line(StringBuilder s, int x1, int y1, int x2, int y2, string stroke, bool dashed = false, string weight = "1")
+    {
+        s.Append(CultureInfo.InvariantCulture, $"<line x1=\"{x1}\" y1=\"{y1}\" x2=\"{x2}\" y2=\"{y2}\" stroke=\"{stroke}\" stroke-width=\"{weight}\"");
         if (dashed) s.Append(" stroke-dasharray=\"3 3\"");
         s.Append("/>");
     }

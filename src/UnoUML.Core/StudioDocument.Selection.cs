@@ -75,18 +75,31 @@ public sealed partial class StudioDocument
     /// <summary>Preserves unselected source, including comments, even between non-contiguous selected objects.</summary>
     public bool RemoveMany(IReadOnlyList<DiagramObject> selection)
     {
+        if (Page.Family == "Ditaa" && selection.Any(o => o.Kind == LegacySyntax.AsciiLabel))
+        {
+            if (selection.Any(o => o.Kind != LegacySyntax.AsciiLabel || !Objects.Contains(o))) return false;
+            return ApplyChanges(selection.Distinct().Select(o => new Change(o.Offset, o.End, new string(' ', o.Label.Length))).ToList());
+        }
         var roots = SelectionRoots(selection);
         if (roots == null) return false;
-        var changes = WithConnections(roots, incident: true)
+        var items = WithConnections(roots, incident: true);
+        if (SequenceProtectedSelection(items)) return false;
+        var changes = items
             .Select(item => new Change(item.Offset, Index.Lines[item.EndLine].Next, "")).ToList();
         return ApplyChanges(changes);
     }
 
     public string? CopySelection(IReadOnlyList<DiagramObject> selection)
     {
+        if (Page.Family == "Ditaa" && selection.Any(o => o.Kind == LegacySyntax.AsciiLabel))
+        {
+            if (selection.Any(o => o.Kind != LegacySyntax.AsciiLabel || !Objects.Contains(o))) return null;
+            return string.Join(Index.NewLine, selection.Distinct().OrderBy(o => o.Offset).Select(o => o.Label));
+        }
         var roots = SelectionRoots(selection);
         if (roots == null) return null;
-        return Fragment(WithConnections(roots, incident: false));
+        var items = WithConnections(roots, incident: false);
+        return SequenceProtectedSelection(items) ? null : Fragment(items);
     }
 
     public bool CutSelection(IReadOnlyList<DiagramObject> selection, out string fragment)
@@ -115,9 +128,12 @@ public sealed partial class StudioDocument
 
     public bool DuplicateMany(IReadOnlyList<DiagramObject> selection)
     {
+        if (Page.Family == "Ditaa" && selection.Any(o => o.Kind == LegacySyntax.AsciiLabel)) return false;
         var roots = SelectionRoots(selection);
         if (roots == null || roots.Any(o => o.ParentLine != roots[0].ParentLine || o.Ambiguous)) return false;
+        if (Page.Family == "Chen" && roots.Any(o => o.Kind == LegacySyntax.ChenAttribute)) return false;
         var items = WithConnections(roots, incident: false);
+        if (SequenceProtectedSelection(items)) return false;
         if (items.Any(o => o.ParentLine != roots[0].ParentLine)) return false;
         if (!RemapFragment(Fragment(items), out string copy)) return false;
         var last = items[^1];
@@ -132,10 +148,14 @@ public sealed partial class StudioDocument
         copy = "";
         if (string.IsNullOrWhiteSpace(fragment)) return false;
         string body = LocalNewLines(fragment.TrimEnd('\r', '\n'));
-        const string prefix = "@startuml\n";
-        var parsed = new StudioDocument(prefix + body + "\n@enduml");
+        string dialect = Page.Family == "Chen" ? "chen" : "uml";
+        string prefix = Page.Family == "C4" ? "@startuml\n!include <C4/C4_Context>\n" : "@start" + dialect + "\n";
+        var parsed = new StudioDocument(prefix + body + "\n@end" + dialect);
         // An embedded diagram boundary belongs to a complete document, not a selection.
         if (parsed.Pages.Count != 1 || parsed.Page.EndLine != parsed.Index.Lines.Count - 1) return false;
+        if (parsed.Objects.Any(SequenceSyntax.CreationBound)) return false;
+        if (Page.Family == "Chen" && parsed.Objects.Any(o => o.Kind == "Source")) return false;
+        if (Page.Family == "C4" && parsed.Objects.Any(o => o.Kind == "Source" || o.Kind == "Library" && o.Offset >= prefix.Length)) return false;
         var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
         var reserved = parsed.Objects.Where(o => o.Alias.Length != 0).Select(o => o.Alias).ToHashSet(StringComparer.Ordinal);
         var spans = new List<Change>();
@@ -173,7 +193,7 @@ public sealed partial class StudioDocument
         }
         // Never guess which tokens inside arbitrary preprocessor calls or directives are references.
         foreach (var item in parsed.Objects)
-            if (replacements.Count > 0 && item.Kind is "Source" or "Library" && item.ParentLine < 0 &&
+            if (replacements.Count > 0 && item.Kind is "Source" or "Library" or SequenceSyntax.ReferenceKind && item.ParentLine < 0 &&
                 replacements.Keys.Any(alias => ContainsIdentifier(item.Statement, alias))) return false;
         copy = Rewrite(body, spans, 0, body.Length);
         return true;

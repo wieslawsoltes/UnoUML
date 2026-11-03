@@ -35,7 +35,9 @@ export async function compareRenderers(page) {
     }
     ui.setLocalMode(host.id, true);
     await ui.render(host.id, '@startuml\n!include <C4/C4_Context>\n!$personName = "Reviewer"\nPerson(user,$personName)\n@enduml');
-    if (paper.dataset.renderer !== 'javascript' || !paper.textContent.includes('Reviewer')) throw Error('Official library fallback failed');
+    if (paper.dataset.renderer !== 'managed' || !paper.textContent.includes('Reviewer')) throw Error('C# preprocessor and C4 dispatch failed');
+    await ui.render(host.id, '@startuml\n!pragma teoz true\nAlice -> Bob : Compatibility\n@enduml');
+    if (paper.dataset.renderer !== 'javascript' || !paper.textContent.includes('Compatibility')) throw Error('Official fallback failed');
     for (const [tag, body] of [
       ['files','/src/Editor.cs\n/tests/EditorTests.cs'],
       ['mindmap','* Project\n** Library\n** Editor'],

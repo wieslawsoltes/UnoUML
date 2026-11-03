@@ -1,6 +1,6 @@
 # UnoUML Studio
 
-[Open UnoUML Studio](https://wieslawsoltes.github.io/UnoUML/) · [Download the .NET library](https://wieslawsoltes.github.io/UnoUML/packages/UnoUML.PlantUml.0.1.0.nupkg) · [Build and deployment](https://github.com/wieslawsoltes/UnoUML/actions/workflows/pages.yml)
+[Open UnoUML Studio](https://wieslawsoltes.github.io/UnoUML/) · [Download the .NET library](https://wieslawsoltes.github.io/UnoUML/packages/UnoUML.PlantUml.0.2.0.nupkg) · [Build and deployment](https://github.com/wieslawsoltes/UnoUML/actions/workflows/pages.yml)
 
 A visual PlantUML editor for the browser, built with Uno Platform 6.7 and .NET 10 WebAssembly. The file on disk is ordinary PlantUML. The default renderer is a standalone C# library. When a diagram needs additional syntax, the workspace loads the official PlantUML JavaScript renderer and any requested standard-library bundles.
 
@@ -22,13 +22,33 @@ A visual PlantUML editor for the browser, built with Uno Platform 6.7 and .NET 1
 
 | Rendering path | Coverage |
 | --- | --- |
-| Managed C# | Supported UML grammars and C4 context, ArchiMate, Gantt, charts, network, Salt, mind map, WBS, packet, file tree, JSON, block YAML, DOT, Creole, EBNF and regex |
-| Bundled PlantUML 1.2026.9 and Viz.js | Custom macros, includes, advanced Graphviz and rich styling outside the native grammars. The bundle is loaded only when needed or explicitly selected. |
-| Optional JVM endpoint | Chen, Ditaa, math, LaTeX and additional backend-specific features |
+| Managed C# | Supported UML and C4 grammars, ArchiMate, Gantt, charts, network, Salt, mind map, WBS, packet, file tree, JSON, block YAML, DOT, Creole, EBNF, regex, Chen ER, Ditaa, AsciiMath and LaTeX |
+| Bundled PlantUML 1.2026.9 and Viz.js | Preprocessor operations, standard libraries, advanced Graphviz and rich styling outside the managed grammars. The bundle is loaded only when needed or explicitly selected. |
+| Optional JVM endpoint | Server extensions, advanced syntax and external engines available on the selected JVM installation |
 
 The status bar shows the engine that produced the current preview. **Library → … → Rendering engine** can force the JavaScript implementation or select a CORS-enabled JVM endpoint for a document. The server receives the active page. Imported local include files remain on the device. Opening another file clears the server selection.
 
-The catalog build checks 233 template and toolbox combinations. Of these, 228 produce native C# SVG. The sequence `newpage` fixture uses the reference JavaScript renderer. Chen, Ditaa, math and LaTeX use the optional JVM path. CI also exercises 600 partially edited inputs. The toolbox contains 118 entries across 29 templates and the browser can load 34 standard-library bundles. The library index contains 27,780 include paths. Macro output and bitmap-only objects can be edited in source. Native output uses its own layout and font metrics. Native JSON fields can be edited individually even when a document is minified or contains identical values on one line.
+Every catalog template and compatible toolbox insertion must render in C# for CI to pass. Coverage is a fixture count. The compatibility engines remain available for more extensive syntax in each dialect. CI also exercises 1,080 partially edited inputs. The library index contains 27,780 include paths. Generated macro output and bitmap-only objects can be edited in source. Native output uses its own layout and font metrics. Native JSON fields can be edited individually even when a document is minified or contains identical values on one line.
+
+## Native rendering and editing in 0.2
+
+| Area | Added support |
+| --- | --- |
+| Sequence | `newpage`, reference frames, participant creation and destruction, activation suffixes, automatic activation and returns. Sheet navigation and standalone sheet exports share the same source map. |
+| Chen ER | Entities, relationships, composite/key/derived/multivalued attributes, participation and specialization. Canvas edits preserve aliases, cardinalities and source formatting. Subgraph copy and duplication remap their endpoints together. |
+| Ditaa | Grid topology, nested/shared boundaries, branches, rounded corners, semantic shape tags and colors. Label edits use line and column identities and preserve the surrounding grid. |
+| Formulas | Vector AsciiMath and TeX layout with fractions, roots, scripts, limits, matrices and mathematical symbols. Formula changes use the source editor. |
+| C4 | Context, Container, Component and Deployment calls, nested boundaries, technology labels, external/database/queue elements and directional relationships. Literal macro labels and endpoints can be edited without rewriting other arguments. |
+| Styling | Supported `skinparam` properties and modern `<style>` rules for class and sequence diagrams, including declaration order, stereotypes, fonts, colors and line thickness. |
+| Preprocessing | Typed scalar expressions, JSON values and iteration, conditions, bounded loops, procedures, simple return functions and local includes with provenance. |
+
+Ditaa geometry, multiline reference text and generated diagram elements use source editing. Full TIM function syntax, arbitrary standard-library macros, advanced style selectors, rich reference frames and external engines continue through the compatibility renderer. Unknown managed syntax declines the complete render so the original source can reach the selected reference implementation.
+
+## Sequence sheets and generated diagrams
+
+A sequence containing `newpage` opens as an overview with a sheet selector. Choose a sheet to inspect it, download its SVG/PNG or print it. Printing the overview puts each sheet on its own printed page. The combined SVG retains titles, source lines and unique element IDs.
+
+The managed preprocessor supports scalar assignment, arithmetic, string concatenation, conditions, bounded loops, JSON-array iteration, named procedures and simple return functions. Import local include files or a folder from the Library menu. Relative includes share a virtual filesystem with the reference renderer. Generated elements point back to their invocation or include. Double-clicking one opens its source so an edit cannot accidentally replace a macro with its output.
 
 ## Build and test
 
@@ -68,8 +88,8 @@ Example medians on local headless Chromium with a Release WebAssembly build and 
 
 | Uncached diagram | C# | PlantUML JavaScript |
 | --- | ---: | ---: |
-| 20 classes, 19 relationships | 14.0 ms | 37.2 ms |
-| 6 lifelines, 25 messages | 5.5 ms | 26.2 ms |
-| 3 C4 context elements | 3.4 ms | 185.0 ms |
+| 20 classes, 19 relationships | 16.3 ms | 45.3 ms |
+| 6 lifelines, 25 messages | 8.7 ms | 30.9 ms |
+| 3 C4 context elements | 3.2 ms | 158.5 ms |
 
 The C4 comparison uses the standard context library on both sides. The C# path recognizes the supported macro signatures directly. Each Pages build repeats the benchmark against the production artifact and prints its own results in the workspace test log.

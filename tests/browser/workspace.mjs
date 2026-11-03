@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { verifyPorts } from './ports.mjs';
 import { compareRenderers } from './managed.mjs';
 import { verifyStudioEditing } from './direct-editing.mjs';
 import { createReadStream } from 'node:fs';
@@ -117,6 +118,7 @@ try {
   await screenshot('unouml-mobile');
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('.paper [data-qualified-name="OrderCopy"]').first().waitFor({ timeout: 120000 });
+  await verifyPorts(page);
   await compareRenderers(page);
   assert.deepEqual(errors, []);
   console.log('Passed published workspace startup, native hit testing, source edit, toolbox insertion, zoom, template pages, multi-select, duplicate and group, standard library search and inclusion, source download, mobile layout and draft restoration.');

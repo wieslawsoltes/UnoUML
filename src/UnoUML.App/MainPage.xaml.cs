@@ -331,6 +331,7 @@ public sealed partial class MainPage : Page
 
     DiagramObject? Resolve(DiagramHit hit)
     {
+        if (hit.Generated) return null;
         var item = doc.Find(hit.Id, hit.Line >= 0 ? hit.Line + doc.Page.StartLine : null);
         // An implicit lifeline may carry the source line of its first message. Its
         // header cannot safely be treated as that message's editable label.
@@ -340,6 +341,16 @@ public sealed partial class MainPage : Page
     void OnHit(DiagramHit hit)
     {
         if (renderedRevision != revision) return;
+        if (hit.Generated)
+        {
+            selectedJsonField = null; additionalSelection.Clear(); selected = null;
+            ShowInspector(); SyncCanvasSelection();
+            if (hit.Kind == "edit") SetMode("Split");
+            int line = doc.Page.StartLine + hit.Line;
+            if (mode == "Split" && doc.Find(null,line) is { } origin) SelectSource(origin);
+            Status($"Generated from line {line + 1}. Edit the invocation or included source to change this object.");
+            return;
+        }
         SelectJsonField(hit.Token);
         if (hit.Kind == "toggle" && JsonSelection == null) { ToggleSelection(Resolve(hit)); return; }
         additionalSelection.Clear();

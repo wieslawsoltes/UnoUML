@@ -149,4 +149,7 @@ var typed = jsonEditor.OpenJsonField(amount,3,"scalar")!;
 Check(!jsonEditor.ApplyJsonField(typed,"4x") && !jsonEditor.ApplyJsonField(typed,"{}") && jsonEditor.Source==jsonBaseline, "invalid and composite JSON typed edits are atomic");
 Check(jsonEditor.OpenJsonField(amount+1,1,"scalar")==null && jsonEditor.OpenJsonField(amount,3,"key")==null, "reject stale, partial and wrong-role JSON ranges");
 Check(jsonEditor.ApplyJsonField(typed,"null") && jsonEditor.Source == jsonBaseline.Replace("123","null"), "JSON scalar type transition");
+C4EditCases.Run(Check);
+LegacyEditCases.Run(Check);
+SequenceEditCases.Run(Check);
 Console.WriteLine($"PASS {assertions} assertions, {StudioCatalog.Templates.Count} templates, {StudioCatalog.Tools.Count} tools.");

@@ -69,3 +69,8 @@
 @media (pointer: coarse) {
   .connection-port.retargetFrom, .connection-port.retargetTo { width: 28px; height: 28px; }
 }
+
+.sheet-picker { position:absolute; top:10px; right:10px; max-width:min(55%, 22em); z-index:2;
+  pointer-events:auto; border:1px solid #cdcadc; border-radius:6px; padding:5px 8px;
+  background:white; color:#37344a; font:13px system-ui,sans-serif; }
+.sheet-picker[hidden] { display:none; }

@@ -1,5 +1,7 @@
 // User-imported files are the only files readable by PlantUML's local include loader.
 const memory = new Map();
+// Managed and reference renderers read the same imported virtual file system.
+export function readInclude(path) { return memory.get(path) ?? null; }
 let database, hydrated;
 export let includeRevision = 0;
 

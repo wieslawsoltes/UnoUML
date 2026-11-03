@@ -19,6 +19,7 @@ internal static partial class BrowserBridge
         catch { if (ReferenceEquals(import, attempt)) import = null; throw; }
     }
 
+    [JSImport("readInclude", Module)] internal static partial string? ReadInclude(string path);
     [JSImport("mount", Module)]
     internal static partial void Mount(string id, [JSMarshalAs<JSType.Function<JSType.String>>] Action<string> receive,
         [JSMarshalAs<JSType.Function<JSType.String, JSType.String>>] Func<string, string> renderManaged);
