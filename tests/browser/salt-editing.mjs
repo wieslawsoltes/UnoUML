@@ -31,8 +31,11 @@ export async function verifySaltEditing(page, source) {
   await page.locator('.uno-comboboxitem').filter({hasText:/^Professional$/}).click();
   await dialog.getByRole('button',{name:'Apply',exact:true}).click();
   const selected = checked.replace('^Basic^^','^Professional^^');
+  // The dialog result resumes the managed edit asynchronously. Its new heading
+  // proves both the source commit and the subsequent render have completed.
+  await dialog.waitFor({state:'hidden'});
+  await paper.locator('.salt-choice').filter({hasText:/^Professional$/}).waitFor();
   assert.equal(await source.inputValue(),selected);
-  await paper.locator('.salt-choice').filter({hasText:/Professional/}).waitFor();
   await surface.press('Control+z');
   assert.equal(await source.inputValue(),checked);
   await paper.locator('.salt-choice').filter({hasText:/^Basic$/}).waitFor();
