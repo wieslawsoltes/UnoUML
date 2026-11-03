@@ -59,6 +59,11 @@ internal static class SaltEditCases
         var plainField = Caption(plain, "Caption");
         foreach (string syntax in new[] { "(X) Checked", "() Radio", "[Button]", "^Choice^", "--", ".", "*", "", "' Comment", "title Changed", "!include secret", "Text /' comment", "<style>" })
             Check(!plain.ApplySourceField(plainField, syntax) && plain.Source.Contains("\nCaption\n", StringComparison.Ordinal), "label edits cannot become syntax: " + syntax);
+        foreach (string padding in new[] { " ", "\t", " \t ", "\u00A0" })
+        foreach (string syntax in new[] { "(X) Checked", "() Radio", "[Button]", "^Choice^", "--", ".", "*" })
+        foreach (string padded in new[] { padding + syntax, syntax + padding, padding + syntax + padding })
+            Check(!plain.ApplySourceField(plainField, padded) && plain.Source.Contains("\nCaption\n", StringComparison.Ordinal),
+                "surrounding whitespace cannot disguise a change of widget type: " + syntax);
         Check(plain.ApplySourceField(plainField, "(Project)") && Render(plain.Source).Descendants().Any(e => (string?)e.Attribute("class") == "salt-widget salt-label" && e.Value == "(Project)"),
             "ordinary parenthesized text stays a label");
         var buttonDoc = new StudioDocument("@startsalt\n{ [Apply] }\n@endsalt");
@@ -71,6 +76,22 @@ internal static class SaltEditCases
         Check(checkboxDoc.ApplySourceField(Caption(checkboxDoc, "Enabled"), "(X) with [brackets]") &&
             Render(checkboxDoc.Source).Descendants().Any(e => (string?)e.Attribute("class") == "salt-widget salt-check" && e.Value == "(X) with [brackets]"),
             "stateful control captions admit literal punctuation without changing their state");
+        foreach (string marker in new[] { "[]", "[X]", "()", "(X)" })
+        {
+            string source = "@startsalt\n{ [Other] | { " + marker + " Caption } }\n@endsalt";
+            var blank = new StudioDocument(source);
+            Check(blank.ApplySourceField(Caption(blank, "Caption"), "") && blank.Source == source.Replace("Caption", "", StringComparison.Ordinal),
+                "clearing a nested control caption preserves its marker and existing spacing");
+            var svg = Render(blank.Source);
+            Check(svg.Descendants().Any(element => (string?)element.Attribute("data-edit-kind") == "salt-state" &&
+                blank.Source.Substring((int)element.Attribute("data-edit-start")!, (int)element.Attribute("data-edit-length")!) == marker),
+                "a blank nested control retains its editable state marker");
+            Check(blank.Undo() && blank.Source == source, "clearing a nested control caption undoes exactly");
+        }
+        var spacedLabel = new StudioDocument("@startsalt\n{ [Other] | { Caption } }\n@endsalt");
+        Check(spacedLabel.ApplySourceField(Caption(spacedLabel, "Caption"), "  Updated  ") &&
+            Render(spacedLabel.Source).Descendants().Any(element => (string?)element.Attribute("class") == "salt-widget salt-label" && element.Value == "Updated"),
+            "ordinary surrounding caption whitespace remains editable without changing widget type");
         foreach (string title in new[] { "", ".", "*", "(Project)" })
         {
             var titleDoc = new StudioDocument("@startsalt\n{^\"Settings\"\n[OK]\n}\n@endsalt");
@@ -100,7 +121,8 @@ internal static class SaltEditCases
                 "menu reference rewrite preserves independent nested scopes and exact line endings");
             Check(menuDoc.Undo() && menuDoc.Source == menuSource && menuDoc.Redo() && menuDoc.Source == expected, "menu rename is one atomic history transaction");
             var menuOption = Caption(menuDoc, "New");
-            Check(!menuDoc.ApplySourceField(menuOption, "-") && menuDoc.Source == expected, "menu option label cannot silently become a separator");
+            foreach (string separator in new[] { "-", " -", "- ", " \t- \t" })
+                Check(!menuDoc.ApplySourceField(menuOption, separator) && menuDoc.Source == expected, "menu option label cannot silently become a separator");
         }
         return checks;
     }

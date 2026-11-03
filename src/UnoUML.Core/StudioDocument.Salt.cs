@@ -111,9 +111,19 @@ public sealed partial class StudioDocument
         var literals = fields!;
         var originals = literals.Where(item => item.TokenStart == field.TokenStart).ToArray();
         if (changed.Count != originals.Length || changed.Where((item, index) => item.Kind != originals[index].Kind || item.Depth != originals[index].Depth).Any()) return false;
+        // Salt discards whitespace around each token before identifying its widget. Validate
+        // that projection as well as the exact edited range, so " [Button] " cannot turn a
+        // label into a button. Retain the untrimmed ranges for empty control captions.
+        string normalized = candidate.Trim();
+        if (normalized.Length != candidate.Length)
+        {
+            var projected = new List<SaltLiteral>();
+            if (!ReadSaltLiterals(normalized, field.TokenStart, field.Scope, field.Row, field.Column, field.Title, projected) ||
+                projected.Count != originals.Length || projected.Where((item, index) => item.Kind != originals[index].Kind || item.Depth != originals[index].Depth).Any()) return false;
+        }
         var current = changed.FirstOrDefault(item => item.Ordinal == field.Ordinal);
         if (current == null || current.Start != edit.Offset + padding || current.Length != replacement.TrimEnd().Length - padding ||
-            field.Kind == SaltLiteralKind.MenuOption && text.TrimEnd() == "-") return false;
+            field.Kind == SaltLiteralKind.MenuOption && text.Trim() == "-") return false;
         var changes = new List<Change> { new(edit.Offset, edit.Offset + edit.Length, replacement) };
         if (field.Kind == SaltLiteralKind.MenuHeading)
         {
