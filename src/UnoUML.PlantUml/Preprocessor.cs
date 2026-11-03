@@ -33,8 +33,12 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
     internal static bool Needed(string source)
     {
         if (source.Contains("/'", StringComparison.Ordinal) || HasBuiltin(source)) return true;
+        bool yaml = IsYamlDocument(source);
         foreach (var raw in source.AsSpan().EnumerateLines())
-            if (raw.TrimStart().StartsWith("!")) return true;
+        {
+            var text = raw.TrimStart();
+            if (text.StartsWith("!") && (!yaml || IsTimDirective(text, out _) || text.Contains('='))) return true;
+        }
         return false;
     }
 
@@ -55,10 +59,16 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
         expanded = "";
         try
         {
+            yamlDocument = IsYamlDocument(source);
             string[] lines = PrepareLines(source);
             Run(lines, 0, lines.Length, null, null, globals, 0);
             expanded = output.ToString();
             preservesOffsets = string.Equals(source, expanded, StringComparison.Ordinal);
+            if (!preservesOffsets && yamlDocument && IsIdentityExpansion(source, expanded))
+            {
+                expanded = source;
+                preservesOffsets = true;
+            }
             return true;
         }
         catch (Exception error) when (IsHandledFailure(error)) { return false; }
@@ -277,7 +287,8 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
                     ExpandStatement(raw, origin, locals, depth, !returning);
                     continue;
                 }
-                string cmd = Keyword(text), rest = text[cmd.Length..].TrimStart();
+                string cmd = yamlDocument && IsTimDirective(text, out int keywordLength) ? text[..keywordLength] : Keyword(text);
+                string rest = text[cmd.Length..].TrimStart();
                 if (TryAssignment(text, out string variable, out string? scope, out string expression, out bool optional))
                 {
                     if (optional && TryGetVariable(variable, locals, out _)) continue;
@@ -416,6 +427,11 @@ internal sealed partial class Preprocessor(Func<string, string?>? resolver, Plan
                     continue;
                 }
                 if (cmd is "!pragma" or "!assume") { if (!returning) Emit(Substitute(raw, locals, depth), origin); continue; }
+                if (yamlDocument && !IsTimDirective(text, out _))
+                {
+                    ExpandStatement(raw, origin, locals, depth, !returning);
+                    continue;
+                }
                 throw Unsupported();
             }
             return null;

@@ -87,7 +87,8 @@ Reject("@startmindmap\n*[#notAColour] Root\n@endmindmap");
 Reject("@startyaml\na:\n\u00A0\u00A0b: c\n@endyaml");
 var yaml = Render("@startyaml\nname: Studio\nformats:\n  - UML\n  - JSON\n@endyaml", DiagramKind.Yaml);
 if (!yaml.Value.Contains("JSON") || !yaml.Value.Contains("formats")) throw new Exception("YAML table lost a child.");
-Reject("@startyaml\nbase: &base editor\ncopy: *base\n@endyaml");
+var yamlIndicators = Render("@startyaml\nbase: &base editor\ncopy: *base\n@endyaml", DiagramKind.Yaml);
+if (!yamlIndicators.Value.Contains("&base editor") || !yamlIndicators.Value.Contains("*base")) throw new Exception("YAML indicator-like scalars lost upstream literal behavior.");
 Reject("@startjson\n{broken}\n@endjson");
 if (!PlantUmlRenderer.TryRender("@startuml\n!include <C4/C4_Context>\n!$name = %getenv(\"USER\")\nPerson(a,$name)\n@enduml", out var environmentDiagram,
     new PlantUmlRenderOptions { ResolveEnvironment = name => name == "USER" ? "Port user" : null }) || !environmentDiagram.Svg.Contains("Port user", StringComparison.Ordinal))

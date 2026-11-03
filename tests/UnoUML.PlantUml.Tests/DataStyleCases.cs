@@ -9,6 +9,7 @@ internal static class DataStyleCases
 
     internal static void Run()
     {
+        YamlCompatibilityCases.Run();
         const string body = """
             - name: Mark McGwire
               hr: 65
@@ -84,7 +85,7 @@ internal static class DataStyleCases
     {
         foreach (string newline in new[] { "\n", "\r\n", "\r" })
         {
-            string source = "\uFEFF@startyaml" + newline + "\"\": \"\"" + newline + "'': ''" + newline + "items: [\"\", '']" + newline + "@endyaml";
+            string source = "\uFEFF@startyaml" + newline + "\"\": \"\"" + newline + "nested:" + newline + "  '': ''" + newline + "items: [\"\", '']" + newline + "@endyaml";
             var empty = Render(source);
             var fields = empty.Descendants().Where(element => element.Attribute("data-edit-start") != null).ToArray();
             var quoted = fields.Where(element => (string?)element.Attribute("data-edit-kind") is "yaml-double" or "yaml-quoted").ToArray();

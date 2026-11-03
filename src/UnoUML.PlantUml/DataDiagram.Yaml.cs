@@ -34,7 +34,7 @@ internal static partial class DataDiagram
                 {
                     var currentPath = path.Append(key).ToArray();
                     var highlight = highlights.LastOrDefault(h => h.Path.SequenceEqual(currentPath, StringComparer.Ordinal));
-                    var field = new Field(key, value.Text, keyToken.Kind != null ? keyToken.Line : value.Line, keyToken,
+                    var field = new Field(YamlDisplay(key), YamlDisplay(value.Text), keyToken.Kind != null ? keyToken.Line : value.Line, keyToken,
                         value.Children == null ? value.Token : default)
                     {
                         Highlight = highlight != null,
@@ -49,6 +49,14 @@ internal static partial class DataDiagram
             return Render(tables, title, titleLine);
         }
         catch (InvalidYaml) { return null; }
+    }
+
+    private static string YamlDisplay(string value)
+    {
+        if (value == "<<") return "<U+003C><U+003C>";
+        if (value.StartsWith("!<", StringComparison.Ordinal) && value.IndexOf('>') is int tagEnd && tagEnd > 1)
+            return "!<U+003C>" + value[2..tagEnd] + "<U+003E>" + value[(tagEnd + 1)..];
+        return value;
     }
 
     /// <summary>Bounded block/flow parser retaining physical UTF-16 ranges for every literal.</summary>
@@ -79,11 +87,14 @@ internal static partial class DataDiagram
                 }
                 else
                 {
-                    if (lines.Count >= 12000 || raw.Length > 16384 || raw.Contains('\t')) throw new InvalidYaml();
-                    int indent = raw.Length - raw.TrimStart(' ').Length;
-                    if (indent < raw.Length && char.IsWhiteSpace(raw[indent])) throw new InvalidYaml();
-                    string content = raw[indent..].ToString();
-                    lines.Add(new(content, offset + indent, line, indent));
+                    if (lines.Count >= 12000 || raw.Length > 16384) throw new InvalidYaml();
+                    int prefix = 0, indent = 0;
+                    while (prefix < raw.Length && raw[prefix] is ' ' or '\t')
+                        indent += raw[prefix++] == '\t' ? 4 : 1;
+                    if (prefix < raw.Length && char.IsWhiteSpace(raw[prefix])) throw new InvalidYaml();
+                    string content = raw[prefix..].ToString();
+                    if (content.Contains('\t')) throw new InvalidYaml();
+                    lines.Add(new(content, offset + prefix, line, indent));
                 }
                 offset += raw.Length;
                 if (offset < source.Length && source[offset] == '\r') offset++;
@@ -127,6 +138,7 @@ internal static partial class DataDiagram
         private YamlValue Mapping(int indent, int depth, YamlLine? first = null)
         {
             var result = new YamlValue("{}", default, first?.Line ?? lines[cursor].Line) { Children = [] };
+            var keys = new Dictionary<string, int>(StringComparer.Ordinal);
             while (true)
             {
                 Skip();
@@ -137,12 +149,12 @@ internal static partial class DataDiagram
                 int colon = Colon(text);
                 if (colon <= 0) throw new InvalidYaml();
                 string keyText = text[..colon].TrimEnd();
-                var key = Scalar(keyText, line.Start, line.Line, allowSpecial: true);
+                var key = Scalar(keyText, line.Start, line.Line);
                 if (key.Text.Length == 0 && key.Token.Kind == "yaml-string") throw new InvalidYaml();
                 int at = colon + 1;
                 while (at < text.Length && char.IsWhiteSpace(text[at])) at++;
-                var value = Value(text[at..].TrimEnd(), line.Start + at, line.Line, indent, depth + 1);
-                result.Children!.Add((key.Text, key.Token, value));
+                var value = Value(text[at..].TrimEnd(), line.Start + at, line.Line, indent, depth + 1, allowIndentlessSequence: true);
+                PutMapping(result.Children!, keys, key, value);
                 if (++nodes > 12000 || result.Children.Count > 4096) throw new InvalidYaml();
                 Skip();
                 if (cursor < lines.Count && lines[cursor].Indent > indent) throw new InvalidYaml();
@@ -172,7 +184,7 @@ internal static partial class DataDiagram
             return result;
         }
 
-        private YamlValue Value(string text, int start, int line, int indent, int depth)
+        private YamlValue Value(string text, int start, int line, int indent, int depth, bool allowIndentlessSequence = false)
         {
             if (depth > 64) throw new InvalidYaml();
             if (text.Length > 0 && text[0] is '|' or '>' && text.Skip(1).All(c => c is '+' or '-' || char.IsAsciiDigit(c)))
@@ -180,19 +192,61 @@ internal static partial class DataDiagram
             Skip();
             if (text.Length == 0)
             {
-                if (cursor < lines.Count && lines[cursor].Indent > indent) return Block(lines[cursor].Indent, depth);
+                if (cursor < lines.Count)
+                {
+                    var next = lines[cursor];
+                    string content = Comment(next.Text).TrimEnd();
+                    if (allowIndentlessSequence && next.Indent == indent && Dash(content)) return Sequence(indent, depth);
+                    if (next.Indent > indent)
+                    {
+                        if (!Dash(content) && Colon(content) < 0 && content[0] is not ('[' or '{')) return FoldedText(indent);
+                        return Block(next.Indent, depth);
+                    }
+                }
                 return new("", new(start, 0, line, "yaml-string", "yaml"), line);
             }
             return Inline(text, start, line, depth);
         }
 
+        private YamlValue FoldedText(int parentIndent)
+        {
+            var first = lines[cursor];
+            var value = new StringBuilder();
+            int end = first.Start;
+            while (cursor < lines.Count)
+            {
+                Skip();
+                if (cursor == lines.Count) break;
+                var current = lines[cursor];
+                string text = Comment(current.Text).TrimEnd();
+                if (current.Indent <= parentIndent || Dash(text) || Colon(text) >= 0 || text[0] is '[' or '{') break;
+                if (++nodes > 12000) throw new InvalidYaml();
+                var scalar = Scalar(text, current.Start, current.Line);
+                if (value.Length > 0) value.Append(' ');
+                value.Append(scalar.Text);
+                if (value.Length > 8192) throw new InvalidYaml();
+                end = current.Start + text.Length;
+                cursor++;
+            }
+            string decoded = value.ToString();
+            if (!ValidDataText(YamlDisplay(decoded))) throw new InvalidYaml();
+            return new(decoded, new(first.Start, end - first.Start, first.Line, "yaml-folded-text", "yaml"), first.Line);
+        }
+
         private YamlValue BlockScalar(string header, int start, int line, int indent)
         {
+            int explicitIndent = 0;
+            char chomp = ' ';
+            foreach (char option in header.AsSpan(1))
+            {
+                if (option is '+' or '-' && chomp == ' ') chomp = option;
+                else if (option is >= '1' and <= '9' && explicitIndent == 0) explicitIndent = option - '0';
+                else throw new InvalidYaml();
+            }
             int first = cursor, end = cursor;
             while (end < lines.Count && (lines[end].Text.Trim().Length == 0 || lines[end].Indent > indent)) end++;
             int blockIndent = lines.Skip(first).Take(end - first).Where(item => item.Text.Trim().Length != 0).Select(item => item.Indent).DefaultIfEmpty(-1).Min();
             if (blockIndent < 0) blockIndent = lines.Skip(first).Take(end - first).Select(item => item.Indent).DefaultIfEmpty(indent + 1).Max();
-            int explicitIndent = header.Skip(1).Where(char.IsAsciiDigit).Select(c => c - '0').FirstOrDefault();
             if (explicitIndent != 0) blockIndent = indent + explicitIndent;
             var value = new StringBuilder();
             for (int i = first; i < end; i++)
@@ -212,10 +266,10 @@ internal static partial class DataDiagram
             }
             cursor = end;
             string scalar = value.ToString();
-            if (!header.Contains('+'))
+            if (chomp != '+')
             {
                 scalar = scalar.TrimEnd('\n');
-                if (!header.Contains('-') && scalar.Length > 0) scalar += "\n";
+                if (chomp != '-' && scalar.Length > 0) scalar += "\n";
             }
             if (!ValidDataText(scalar)) throw new InvalidYaml();
             int length = end > first ? lines[end - 1].Start + lines[end - 1].Text.Length - start : header.Length;
@@ -238,6 +292,7 @@ internal static partial class DataDiagram
             if (depth > 64 || ++nodes > 12000) throw new InvalidYaml();
             char open = text[position++], close = open == '[' ? ']' : '}';
             var value = new YamlValue(open == '[' ? "[]" : "{}", default, line) { Children = [] };
+            var keys = open == '{' ? new Dictionary<string, int>(StringComparer.Ordinal) : null;
             while (true)
             {
                 while (position < text.Length && char.IsWhiteSpace(text[position])) position++;
@@ -250,7 +305,7 @@ internal static partial class DataDiagram
                     int keyStart = position;
                     position = Boundary(text, position, ":");
                     if (position == text.Length || text[position] != ':') throw new InvalidYaml();
-                    var parsedKey = Scalar(text[keyStart..position].TrimEnd(), start + keyStart, line, allowSpecial: true);
+                    var parsedKey = Scalar(text[keyStart..position].TrimEnd(), start + keyStart, line);
                     key = parsedKey.Text; keyToken = parsedKey.Token;
                     position++;
                     while (position < text.Length && char.IsWhiteSpace(text[position])) position++;
@@ -263,7 +318,8 @@ internal static partial class DataDiagram
                     position = Boundary(text, position, "," + close);
                     child = Scalar(text[scalarStart..position].TrimEnd(), start + scalarStart, line);
                 }
-                value.Children.Add((key, keyToken, child));
+                if (keys != null) PutMapping(value.Children, keys, new(key, keyToken, line), child);
+                else value.Children.Add((key, keyToken, child));
                 if (value.Children.Count > 4096) throw new InvalidYaml();
                 while (position < text.Length && char.IsWhiteSpace(text[position])) position++;
                 if (position == text.Length) throw new InvalidYaml();
@@ -272,7 +328,18 @@ internal static partial class DataDiagram
             }
         }
 
-        private static YamlValue Scalar(string text, int start, int line, bool allowSpecial = false)
+        private static void PutMapping(List<(string Key, TokenSpan KeyToken, YamlValue Value)> children,
+            Dictionary<string, int> keys, YamlValue key, YamlValue value)
+        {
+            if (keys.TryGetValue(key.Text, out int row)) children[row] = (key.Text, key.Token, value);
+            else
+            {
+                keys.Add(key.Text, children.Count);
+                children.Add((key.Text, key.Token, value));
+            }
+        }
+
+        private static YamlValue Scalar(string text, int start, int line)
         {
             string value = text, kind = "yaml-string";
             if (text.StartsWith('"'))
@@ -289,8 +356,9 @@ internal static partial class DataDiagram
                 value = inside.ToString().Replace("''", "'", StringComparison.Ordinal);
                 kind = "yaml-quoted";
             }
-            else if (!allowSpecial && text.Length > 0 && "!&*%@`".Contains(text[0])) throw new InvalidYaml();
-            if (!ValidDataText(value)) throw new InvalidYaml();
+            // PlantUML's YAML grammar displays indicators, aliases and tags as literal text.
+            // No host object construction or reference expansion is performed.
+            if (!ValidDataText(YamlDisplay(value))) throw new InvalidYaml();
             return new(value, new(start, text.Length, line, kind, "yaml"), line);
         }
 

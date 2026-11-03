@@ -188,8 +188,10 @@ internal static partial class GraphRenderer
                 bool subgraph = At("{") || Current.Keyword("subgraph");
                 var endpoints = Endpoints(scope, depth);
                 var added = new List<DotEdge>();
+                bool edgeStatement = false;
                 while (At("->") || At("--"))
                 {
+                    edgeStatement = true;
                     var arrow = Current;
                     position++;
                     if (arrow.Value != (document.Directed ? "->" : "--")) throw InvalidDot();
@@ -222,7 +224,7 @@ internal static partial class GraphRenderer
                 var explicitAttributes = Attributes();
                 int insert = Previous.End;
                 var span = DotSpan.From(first, Previous);
-                if (added.Count == 0)
+                if (!edgeStatement)
                 {
                     if (subgraph)
                     {

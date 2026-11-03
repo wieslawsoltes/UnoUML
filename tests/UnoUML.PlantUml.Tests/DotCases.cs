@@ -32,6 +32,13 @@ internal static class DotCases
         }) Render(body);
         var cross = Render("digraph { {a;b} -> {c;d} -> e }");
         Require(Edges(cross).Count() == 6, "subgraph edge products and chain");
+        var empty = Render("digraph { node[color=blue]; a -> {} -> b [label=\"Edge\",color=red]; }");
+        Require(!Edges(empty).Any() && Paint(Node(empty, "a"), "stroke") == "#0000ff" && Paint(Node(empty, "b"), "stroke") == "#0000ff",
+            "empty endpoint products retain nodes without applying edge attributes to them");
+        Require(!Node(empty, "b").Value.Contains("Edge", StringComparison.Ordinal) && (string?)Node(empty, "b").Attribute("data-dot-explicit") == "false",
+            "empty edge statements retain implicit source provenance");
+        var emptyTail = Render("digraph { a,b -> {} [label=Empty]; c -> d; }");
+        Require(Edges(emptyTail).Count() == 1 && !Node(emptyTail, "a").Value.Contains("Empty", StringComparison.Ordinal), "empty tail sets preserve independent edges");
         var strict = Render("strict graph { a -- b [color=red]; b -- a [label=merged] }");
         Require(Edges(strict).Count() == 1 && strict.Value.Contains("merged"), "strict undirected edge identity");
         Require((string?)Edges(strict).Single().Attribute("data-dot-merged") == "true", "reversed undirected strict declarations retain merged source provenance");
