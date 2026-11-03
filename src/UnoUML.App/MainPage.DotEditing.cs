@@ -7,7 +7,7 @@ namespace UnoUML.App;
 
 public sealed partial class MainPage
 {
-    private DotObjectEdit? selectedDot, editingDot;
+    private DotObjectEdit? selectedDot;
     private readonly Dictionary<string, DotObjectEdit> additionalDots = new(StringComparer.Ordinal);
     private int dotRevision = -1;
     private DotObjectEdit? DotSelection => dotRevision == revision ? selectedDot : null;

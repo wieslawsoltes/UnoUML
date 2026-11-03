@@ -6,13 +6,22 @@ export async function verifyImportedPageRouting(page, source) {
   const importing = page.evaluate(async () => (await import(new URL('uml/viewport.js',document.baseURI))).importIncludes(false));
   await (await chooser).setFiles({name:'multiple.puml',mimeType:'text/plain',buffer:Buffer.from(original)});
   assert.equal(await importing,1);
+  const paper = page.locator('.paper').first();
+  const editor = page.getByRole('textbox',{name:'Edit diagram label'});
+  // A cancelled editor belongs to the old diagram. Its pending DOT selection
+  // must never consume the next imported-source label commit.
+  const cancelledDot = '@startdot\ndigraph { pending [label="Cancelled DOT"]; }\n@enddot';
+  await source.fill(cancelledDot);
+  await paper.locator('[data-dot-id="node:pending"]').dblclick();
+  await editor.fill('Do not save');
+  await editor.press('Escape');
+  await editor.waitFor({state:'detached'});
+  assert.equal(await source.inputValue(),cancelledDot);
   const input = '@startuml\n!include multiple.puml!second\n@enduml';
   await source.fill(input);
-  const paper = page.locator('.paper').first();
   const item = paper.locator('[data-qualified-name="Shared"][data-source-file="multiple.puml"]').first();
   await item.locator('text').filter({hasText:'Second page'}).dblclick();
   assert.equal(await item.getAttribute('data-file-line'),'4');
-  const editor = page.getByRole('textbox',{name:'Edit diagram label'});
   assert.equal(await editor.inputValue(),'Second page');
   await editor.fill('Changed second');
   await editor.press('Enter');
@@ -45,5 +54,5 @@ export async function verifyImportedPageRouting(page, source) {
   await item.locator('text').filter({hasText:'Reimported change'}).waitFor();
   assert.equal(await source.inputValue(),input);
   assert.equal(await read(),replacement);
-  console.log('Verified later-block imported aliases, atomic undo and conflict recovery that retains reimported sources and resumes main history.');
+  console.log('Verified cancelled DOT editor isolation, later-block imported aliases, atomic undo and conflict recovery that retains reimported sources and resumes main history.');
 }

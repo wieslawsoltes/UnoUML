@@ -5,11 +5,16 @@ namespace UnoUML.App;
 
 public sealed partial class MainPage
 {
-    private DiagramObject? editingLabel;
-    private JsonFieldEdit? selectedJsonField, editingJsonField;
-    private SourceFieldEdit? selectedSourceField, editingSourceField;
+    private JsonFieldEdit? selectedJsonField;
+    private SourceFieldEdit? selectedSourceField;
     private sealed record ImportedLabel(ImportedSource Origin, StudioDocument Document, DiagramObject Item);
-    private ImportedLabel? editingImportedLabel;
+    private abstract record CanvasLabelEdit;
+    private sealed record ObjectLabelEdit(DiagramObject Item) : CanvasLabelEdit;
+    private sealed record JsonLabelEdit(JsonFieldEdit Field) : CanvasLabelEdit;
+    private sealed record SourceLabelEdit(SourceFieldEdit Field) : CanvasLabelEdit;
+    private sealed record DotLabelEdit(DotObjectEdit Item) : CanvasLabelEdit;
+    private sealed record ImportedLabelEdit(ImportedLabel Label) : CanvasLabelEdit;
+    private CanvasLabelEdit? editingCanvasLabel;
     private int jsonRevision = -1, jsonStart;
     private int fieldRevision = -1, fieldStart;
     private JsonFieldEdit? JsonSelection => jsonRevision == revision ? selectedJsonField : null;
@@ -31,11 +36,11 @@ public sealed partial class MainPage
 
     private void BeginCanvasEdit(DiagramObject? item)
     {
-        editingLabel = null; editingJsonField = null; editingSourceField = null; editingImportedLabel = null; editingDot = null;
+        editingCanvasLabel = null;
         if (renderedRevision != revision || resourceHistoryBusy) return;
         if (JsonSelection is { } json && mode != "Source")
         {
-            if (viewport.BeginLabelEdit(json.Text, revision, language: json.Kind == "scalar" ? "text" : "creole")) editingJsonField = json;
+            if (viewport.BeginLabelEdit(json.Text, revision, language: json.Kind == "scalar" ? "text" : "creole")) editingCanvasLabel = new JsonLabelEdit(json);
             return;
         }
         if (FieldSelection is { } field && mode != "Source")
@@ -47,13 +52,13 @@ public sealed partial class MainPage
             }
             bool plain = field.Kind is "number" or "integer" or "date" or "boolean" or "json-scalar" or "chart-category" or "packet-label" or "timing-binary" ||
                 field.Kind.StartsWith("dot-", StringComparison.Ordinal) || doc.Page.Family == "Chart";
-            if (viewport.BeginLabelEdit(field.Text, revision, field.Multiline, plain ? "text" : "creole")) editingSourceField = field;
+            if (viewport.BeginLabelEdit(field.Text, revision, field.Multiline, plain ? "text" : "creole")) editingCanvasLabel = new SourceLabelEdit(field);
             return;
         }
         if (DotSelection is { } dot && mode != "Source")
         {
             if (!dot.CanRename) { Status("Double-click a table cell or record field to edit its displayed text."); return; }
-            if (viewport.BeginLabelEdit(dot.Text, revision, dot.Text.Contains('\n'))) editingDot = dot;
+            if (viewport.BeginLabelEdit(dot.Text, revision, dot.Text.Contains('\n'))) editingCanvasLabel = new DotLabelEdit(dot);
             return;
         }
         if (item == null) return;
@@ -66,44 +71,41 @@ public sealed partial class MainPage
         if (language == "text" && doc.Page.Family is "Class" or "Component" or "Object" or "Deployment" or "Use case" or "State" or "Sequence" or "Mind map" or "WBS" or "C4" or "ArchiMate" or "Activity")
             language = "creole";
         if (mode != "Source" && item.CanRename && viewport.BeginLabelEdit(item.EditableLabel, revision, item.MultilineLabel, language))
-            editingLabel = item;
+            editingCanvasLabel = new ObjectLabelEdit(item);
         else
             _ = EditStatementAsync(item);
     }
 
     private void CommitCanvasLabel(int startRevision, string label)
     {
-        if (editingDot is { } dot)
+        var edit = editingCanvasLabel;
+        editingCanvasLabel = null;
+        if (startRevision != revision || renderedRevision != revision) return;
+        if (edit is DotLabelEdit { Item: var dot })
         {
-            editingDot = null;
-            if (startRevision != revision || renderedRevision != revision || dot != DotSelection || dot.Text == label) return;
+            if (dot != DotSelection || dot.Text == label) return;
             Edit(() => doc.RenameDotObject(dot, label), "Enter a valid DOT label.");
             return;
         }
-        if (editingImportedLabel is { } imported)
+        if (edit is ImportedLabelEdit { Label: var imported })
         {
-            editingImportedLabel = null;
-            if (startRevision != revision || renderedRevision != revision || imported.Item.EditableLabel == label) return;
+            if (imported.Item.EditableLabel == label) return;
             _ = CommitImportedLabelAsync(imported, label);
             return;
         }
-        if (editingSourceField is { } field)
+        if (edit is SourceLabelEdit { Field: var field })
         {
-            editingSourceField = null;
-            if (startRevision != revision || renderedRevision != revision || field != FieldSelection || label == field.Text) return;
+            if (field != FieldSelection || label == field.Text) return;
             Edit(() => doc.ApplySourceField(field, label), "Enter a valid literal value for this field.");
             return;
         }
-        if (editingJsonField is { } json)
+        if (edit is JsonLabelEdit { Field: var json })
         {
-            editingJsonField = null;
-            if (startRevision != revision || renderedRevision != revision || json != JsonSelection || label == json.Text) return;
+            if (json != JsonSelection || label == json.Text) return;
             Edit(() => doc.ApplyJsonField(json, label), "Enter a valid JSON scalar. String values and keys accept ordinary text.");
             return;
         }
-        var item = editingLabel;
-        editingLabel = null;
-        if (item == null || startRevision != revision || renderedRevision != revision || item != selected || item.EditableLabel == label) return;
+        if (edit is not ObjectLabelEdit { Item: var item } || item != selected || item.EditableLabel == label) return;
         EditProperty(item, () => item.Kind == "Relationship"
             ? doc.UpdateConnection(item, null, null, item.Arrow, label) : doc.Rename(item, label));
     }
@@ -127,14 +129,13 @@ public sealed partial class MainPage
 
     private bool BeginImportedLabel(DiagramHit hit)
     {
-        if (resourceHistoryBusy) return false;
+        if (resourceHistoryBusy || renderedRevision != revision) return false;
         var imported = OpenImportedLabel(hit);
         if (imported == null || mode == "Source") return false;
         var item = imported.Item;
         string language = item.EditorLanguage == "text" ? "creole" : item.EditorLanguage;
         if (!viewport.BeginLabelEdit(item.EditableLabel, revision, item.MultilineLabel, language)) return false;
-        editingLabel = null; editingJsonField = null; editingSourceField = null;
-        editingImportedLabel = imported;
+        editingCanvasLabel = new ImportedLabelEdit(imported);
         return true;
     }
 
@@ -153,7 +154,7 @@ public sealed partial class MainPage
             {
                 Status("The imported source changed. Copy your label before reopening its current version.", true);
                 if (viewport.BeginLabelEdit(label, revision, edit.Item.MultilineLabel, edit.Item.EditorLanguage))
-                    editingImportedLabel = edit with { Document = initial, Item = initial.Find(edit.Item.Alias, edit.Item.Line)! };
+                    editingCanvasLabel = new ImportedLabelEdit(edit with { Document = initial, Item = initial.Find(edit.Item.Alias, edit.Item.Line)! });
                 return;
             }
             includeHistory[edit.Origin.Key] = edit.Document;
