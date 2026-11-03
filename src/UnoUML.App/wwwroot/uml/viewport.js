@@ -3,7 +3,7 @@ import { indexHits, parseSvg } from './svg.js';
 import { download, includeFiles, includeRevision } from './files.js';
 import { beginResourcePass, prepareResources } from './resources.js';
 export { readResource } from './resources.js';
-export { configureAccessibility, removeAccessibility } from './accessibility.js';
+export { configureAccessibility, configureAccessibilityPopup, removeAccessibility } from './accessibility.js';
 export { openFile, saveFile, importIncludes, readInclude, listIncludes, updateInclude, openArchive, saveArchive, readArchive, readArchiveVersion, listArchives, updateArchive, downloadArchive } from './files.js';
 
 import { getServerEndpoint, getServerTransport, layoutOnServer } from './server.js';
