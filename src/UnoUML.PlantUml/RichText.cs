@@ -31,6 +31,8 @@ internal static partial class RichText
 
     internal static Sprite? Resolve(string name) => name.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)
         ? SpriteCatalog.TryImage(name, out var image) ? image : null
+        : name.StartsWith("$math/", StringComparison.Ordinal) || name.StartsWith("$latex/", StringComparison.Ordinal)
+        ? MathRenderer.Inline(name)
         : Sprites.Value?.Invoke(name);
     internal static Document Parse(string text) => Cache.GetValue(text, static value => new Parser(value, new Style()).Parse());
 
@@ -160,6 +162,20 @@ internal static partial class RichText
             int end = text.IndexOf('>', at + 1);
             if (end < 0) { supported = false; return text.Length; }
             string value = text[(at + 1)..end].Trim();
+            if (value.Equals("math", StringComparison.OrdinalIgnoreCase) || value.Equals("latex", StringComparison.OrdinalIgnoreCase))
+            {
+                string mathTag = value.ToLowerInvariant();
+                int close = text.IndexOf("</" + mathTag + ">", end + 1, StringComparison.OrdinalIgnoreCase);
+                if (close < 0) { supported = false; return text.Length; }
+                string formula = text[(end + 1)..close];
+                if (formula.Length is 0 or > 16384) supported = false;
+                else
+                {
+                    Flush();
+                    Add(new("", current, "$" + mathTag + "/" + formula));
+                }
+                return close + mathTag.Length + 3;
+            }
             string alignment = value.ToLowerInvariant() switch
             {
                 "l" or "left" => "start",

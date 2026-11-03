@@ -344,6 +344,14 @@ internal static class SvgText
             if (style.Script != 0) Tag(style.Script > 0 ? "sup" : "sub");
             if (run.SpriteName is { } name)
             {
+                if (name.StartsWith("$math/", StringComparison.Ordinal) || name.StartsWith("$latex/", StringComparison.Ordinal))
+                {
+                    int separator = name.IndexOf('/');
+                    string tag = name[1..separator];
+                    text.Append('<').Append(tag).Append('>').Append(name[(separator + 1)..]).Append("</").Append(tag).Append('>');
+                    while (closing.Count > 0) text.Append(closing.Pop());
+                    continue;
+                }
                 if (run.Image) text.Append("<img:").Append(name);
                 else if (name.StartsWith("$openiconic/", StringComparison.Ordinal)) text.Append("<&").Append(name["$openiconic/".Length..]);
                 else if (name.StartsWith("$emoji/", StringComparison.Ordinal)) text.Append("<:").Append(name[7..]).Append(':');

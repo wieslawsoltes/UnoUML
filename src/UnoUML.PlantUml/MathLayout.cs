@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace UnoUML.PlantUml;
@@ -6,8 +7,28 @@ namespace UnoUML.PlantUml;
 internal static partial class MathRenderer
 {
     private const string Serif = "STIX Two Math, Cambria Math, Times New Roman, serif";
-    private readonly record struct Face(string Family, bool Bold = false, bool Roman = false, bool Italic = false, bool Double = false);
+    private readonly record struct Face(string Family, bool Bold = false, bool Roman = false, bool Italic = false, string Alphabet = "");
     private readonly record struct Placed(Box Box, double X, double Y);
+    private sealed record InlineResult(RichText.Sprite? Sprite);
+    private static readonly ConditionalWeakTable<string, InlineResult> InlineCache = new();
+
+    internal static RichText.Sprite? Inline(string name) => InlineCache.GetValue(name, static key =>
+    {
+        bool latex = key.StartsWith("$latex/", StringComparison.Ordinal);
+        string formula = key[(latex ? 7 : 6)..];
+        if (formula.Length is 0 or > 16384) return new(null);
+        try
+        {
+            var box = Typeset(new Parser(formula, latex).Parse(), 13, new(Serif));
+            double width = Math.Ceiling(box.Width + 2), height = Math.Ceiling(box.Up + box.Down + 2);
+            if (!double.IsFinite(width + height) || width is < 1 or > 32768 || height is < 1 or > 32768) return new(null);
+            var svg = new StringBuilder();
+            svg.Append("<title>").Append(SvgText.Escape(formula)).Append("</title>");
+            Draw(svg, box, 1, 1 + box.Up, 0, "currentColor", sourceMapped: false);
+            return new(new(width, height, svg.ToString()));
+        }
+        catch (InvalidFormula) { return new(null); }
+    }).Sprite;
 
     // Coordinates are in CSS pixels relative to this box's mathematical baseline.
     private sealed class Box(Expr node, double size, Face face)
@@ -16,6 +37,7 @@ internal static partial class MathRenderer
         internal readonly double Size = size;
         internal Face Face = face;
         internal string? Text;
+        internal string? Color;
         internal double Width, Up, Down;
         internal readonly List<Placed> Parts = [];
         internal readonly List<string> Paths = [];
@@ -40,10 +62,14 @@ internal static partial class MathRenderer
         return svg.Append("</g></svg>").ToString();
     }
 
-    private static void Draw(StringBuilder svg, Box b, double x, double y, int column, string color)
+    private static void Draw(StringBuilder svg, Box b, double x, double y, int column, string color, bool sourceMapped = true)
     {
         var n = b.Node;
-        svg.Append(CultureInfo.InvariantCulture, $"<g class=\"math-{n.Form.ToString().ToLowerInvariant()}\" data-math-column=\"{column + n.At}\" data-math-length=\"{n.Length}\" transform=\"translate({x:0.###} {y:0.###})\">");
+        color = b.Color ?? color;
+        svg.Append(CultureInfo.InvariantCulture, $"<g class=\"math-{n.Form.ToString().ToLowerInvariant()}\" transform=\"translate({x:0.###} {y:0.###})\"");
+        if (sourceMapped) svg.Append(CultureInfo.InvariantCulture, $" data-math-column=\"{column + n.At}\" data-math-length=\"{n.Length}\"");
+        if (b.Color != null) svg.Append(" fill=\"").Append(SvgText.Escape(color)).Append('"');
+        svg.Append('>');
         if (b.Text is { Length: > 0 } text)
         {
             svg.Append(CultureInfo.InvariantCulture, $"<text x=\"0\" y=\"0\" font-family=\"{b.Face.Family}\" font-size=\"{b.Size:0.###}\" textLength=\"{b.Width:0.###}\" lengthAdjust=\"spacingAndGlyphs\" xml:space=\"preserve\"");
@@ -53,7 +79,7 @@ internal static partial class MathRenderer
         }
         foreach (var d in b.Paths)
             svg.Append(CultureInfo.InvariantCulture, $"<path d=\"{d}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"{Math.Max(.65, b.Size * .052):0.###}\" stroke-linecap=\"square\" stroke-linejoin=\"round\"/>");
-        foreach (var c in b.Parts) Draw(svg, c.Box, c.X, c.Y, column, color);
+        foreach (var c in b.Parts) Draw(svg, c.Box, c.X, c.Y, column, color, sourceMapped);
         svg.Append("</g>");
     }
 
@@ -66,9 +92,8 @@ internal static partial class MathRenderer
             case Form.Glyph:
                 bool large = e.Atom is Atom.Large or Atom.Integral && e.Value.Length == 1;
                 double fontSize = large ? 1.48 * s : s;
-                if (face.Double && e.Value.Any(c => !char.IsAsciiLetterOrDigit(c))) throw new InvalidFormula();
-                string text = face.Double ? DoubleStruck(e.Value) : e.Value;
-                var glyph = new Box(e, fontSize, face with { Italic = face.Italic || (e.Atom == Atom.Variable && !face.Roman && !face.Double) })
+                string text = face.Alphabet.Length == 0 ? e.Value : MathematicalAlphabet(e.Value, face.Alphabet);
+                var glyph = new Box(e, fontSize, face with { Italic = face.Italic || (e.Atom == Atom.Variable && !face.Roman && face.Alphabet.Length == 0) })
                 {
                     Text = text,
                     Width = Math.Max(0, fontSize * SvgText.MeasurePlain(text, 100) / 100d),
@@ -99,17 +124,53 @@ internal static partial class MathRenderer
                     "italic" => face with { Italic = true },
                     "sans" => face with { Family = "sans-serif", Roman = true, Italic = false },
                     "mono" => face with { Family = "monospace", Roman = true, Italic = false },
-                    "double" => face with { Double = true, Roman = true, Italic = false },
+                    "double" or "calligraphic" or "fraktur" => face with { Alphabet = e.Value, Roman = true, Italic = false },
+                    "boldsymbol" => face with { Bold = true },
                     _ => throw new InvalidFormula()
                 };
                 box.Place(Typeset(e.Children[0], s, styled), 0, 0); break;
+            case Form.Color:
+                box.Color = e.Value;
+                box.Place(Child(0), 0, 0);
+                break;
+            case Form.Size:
+                double factor = e.Value switch { "scriptstyle" => .7, "scriptscriptstyle" => .5, "big" => 1.2, "Big" => 1.6, "bigg" => 2, "Bigg" => 2.4, _ => 1 };
+                box.Place(Child(0, factor), 0, 0);
+                break;
+            case Form.Stack:
+                var main = Child(0); var decoration = Child(1, .69);
+                double stackWidth = Math.Max(main.Width, decoration.Width);
+                box.Place(main, (stackWidth - main.Width) / 2, 0);
+                box.Place(decoration, (stackWidth - decoration.Width) / 2, e.Value == "underset"
+                    ? main.Down + .12 * s + decoration.Up : -main.Up - .12 * s - decoration.Down);
+                break;
+            case Form.Phantom:
+                var hidden = Child(0);
+                box.Width = e.Value == "vphantom" ? 0 : hidden.Width;
+                box.Up = e.Value == "hphantom" ? 0 : hidden.Up;
+                box.Down = e.Value == "hphantom" ? 0 : hidden.Down;
+                break;
+            case Form.Cancel:
+                var crossed = Child(0);
+                box.Place(crossed, 0, 0);
+                if (e.Value != "bcancel") box.Paths.Add(Path($"M0 {box.Down}L{box.Width} {-box.Up}"));
+                if (e.Value != "cancel") box.Paths.Add(Path($"M0 {-box.Up}L{box.Width} {box.Down}"));
+                break;
+            case Form.Box:
+                var framed = Child(0);
+                box.Place(framed, .24 * s, 0);
+                box.Width += .24 * s;
+                box.Up += .24 * s;
+                box.Down += .24 * s;
+                box.Paths.Add(Path($"M0 {-box.Up}H{box.Width}V{box.Down}H0Z"));
+                break;
             case Form.Fraction:
-                double ratio = e.Value == "dfrac" ? 1 : e.Value == "tfrac" ? .72 : .88;
+                double ratio = e.Value is "dfrac" or "nobar-display" ? 1 : e.Value is "tfrac" or "nobar-small" ? .72 : .88;
                 var numerator = Child(0, ratio); var denominator = Child(1, ratio);
                 double w = Math.Max(numerator.Width, denominator.Width) + .36 * s, axis = -.24 * s, gap = .15 * s;
                 box.Place(numerator, (w - numerator.Width) / 2, axis - gap - numerator.Down);
                 box.Place(denominator, (w - denominator.Width) / 2, axis + gap + denominator.Up);
-                if (e.Value != "nobar") box.Paths.Add(Path($"M{.04 * s} {axis}H{w - .04 * s}"));
+                if (!e.Value.StartsWith("nobar", StringComparison.Ordinal)) box.Paths.Add(Path($"M{.04 * s} {axis}H{w - .04 * s}"));
                 box.Width = w; break;
             case Form.Radical:
                 var inner = Child(0); var degree = e.Children.Length > 1 ? Child(1, .52) : null;
@@ -159,9 +220,37 @@ internal static partial class MathRenderer
                     case "vec": box.Up = -top + .13 * s; box.Paths.Add(Path($"M0 {top}H{right}m{-.22 * s} {-.12 * s}l{.22 * s} {.12 * s}l{-.22 * s} {.12 * s}")); break;
                     case "dot":
                     case "ddot":
+                    case "dddot":
+                    case "ddddot":
                         box.Up = -top + .08 * s;
-                        if (e.Value == "dot") box.Paths.Add(Path($"M{right * .50 - .03 * s} {top}h{.06 * s}"));
-                        else { box.Paths.Add(Path($"M{right * .35 - .03 * s} {top}h{.06 * s}")); box.Paths.Add(Path($"M{right * .65 - .03 * s} {top}h{.06 * s}")); }
+                        int dots = e.Value.Length - 2;
+                        for (int dot = 0; dot < dots; dot++) box.Paths.Add(Path($"M{right * (dot + 1) / (dots + 1) - .03 * s} {top}h{.06 * s}"));
+                        break;
+                    case "overarc":
+                    case "underarc":
+                        bool underArc = e.Value == "underarc";
+                        double arc = underArc ? core.Down + .13 * s : top;
+                        if (underArc) box.Down = arc + .19 * s; else box.Up = -arc + .19 * s;
+                        box.Paths.Add(Path($"M0 {arc}Q{right / 2} {arc + (underArc ? .38 : -.38) * s} {right} {arc}"));
+                        break;
+                    case "overbrace":
+                    case "underbrace":
+                        bool underBrace = e.Value == "underbrace";
+                        double brace = underBrace ? core.Down + .12 * s : top, direction = underBrace ? 1 : -1, rise = .23 * s;
+                        if (underBrace) box.Down = brace + rise; else box.Up = -brace + rise;
+                        box.Paths.Add(Path($"M0 {brace}Q0 {brace + direction * rise * .6} {right * .15} {brace + direction * rise * .6}H{right * .4}Q{right * .5} {brace + direction * rise * .6} {right * .5} {brace + direction * rise}Q{right * .5} {brace + direction * rise * .6} {right * .6} {brace + direction * rise * .6}H{right * .85}Q{right} {brace + direction * rise * .6} {right} {brace}"));
+                        break;
+                    case "overleftarrow":
+                    case "overleftrightarrow":
+                    case "underleftarrow":
+                    case "underrightarrow":
+                    case "underleftrightarrow":
+                        bool underArrow = e.Value.StartsWith("under", StringComparison.Ordinal);
+                        double arrowY = underArrow ? core.Down + .24 * s : top;
+                        if (underArrow) box.Down = arrowY + .12 * s; else box.Up = -arrowY + .12 * s;
+                        box.Paths.Add(Path($"M0 {arrowY}H{right}"));
+                        if (e.Value.Contains("left", StringComparison.Ordinal)) box.Paths.Add(Path($"M{.22 * s} {arrowY - .12 * s}L0 {arrowY}l{.22 * s} {.12 * s}"));
+                        if (e.Value.Contains("right", StringComparison.Ordinal)) box.Paths.Add(Path($"M{right - .22 * s} {arrowY - .12 * s}L{right} {arrowY}l{-.22 * s} {.12 * s}"));
                         break;
                     default: throw new InvalidFormula();
                 }
@@ -180,7 +269,9 @@ internal static partial class MathRenderer
     }
     private static void Matrix(Box box, Expr expr, double size, Face face)
     {
+        if (expr.Value == "smallmatrix") size *= .7;
         int cols = expr.Columns, rows = expr.Children.Length / cols;
+        string alignment = expr.Alignment.Replace("|", "", StringComparison.Ordinal);
         var cells = new Box[expr.Children.Length]; var width = new double[cols]; var up = new double[rows]; var down = new double[rows];
         for (int i = 0; i < cells.Length; i++)
         {
@@ -197,10 +288,28 @@ internal static partial class MathRenderer
             for (int col = 0; col < cols; col++)
             {
                 var c = cells[row * cols + col];
-                box.Place(c, x + (expr.Value == "cases" ? 0 : (width[col] - c.Width) / 2), y);
+                char anchor = col < alignment.Length ? alignment[col] : expr.Value == "cases" ? 'l' : 'c';
+                box.Place(c, x + (anchor == 'l' ? 0 : anchor == 'r' ? width[col] - c.Width : (width[col] - c.Width) / 2), y);
                 x += width[col] + .85 * size;
             }
             box.Width = Math.Max(box.Width, x - .85 * size); y += down[row] + .38 * size;
+        }
+        if (expr.Alignment.Contains('|'))
+        {
+            double inset = .4 * size;
+            for (int i = 0; i < box.Parts.Count; i++) box.Parts[i] = box.Parts[i] with { X = box.Parts[i].X + inset };
+            box.Width += inset * 2;
+            double boundary = inset / 2;
+            int column = 0, rules = 0;
+            foreach (char spec in expr.Alignment)
+            {
+                if (spec == '|') box.Paths.Add(Path($"M{boundary + rules++ * .1 * size} {-box.Up}V{box.Down}"));
+                else
+                {
+                    column++; rules = 0;
+                    boundary = column == cols ? box.Width - inset / 2 : inset + width.Take(column).Sum() + (column - .5) * .85 * size;
+                }
+            }
         }
     }
     private static void FencePath(Box b, char c, double x, double w)
@@ -223,16 +332,27 @@ internal static partial class MathRenderer
         };
         b.Paths.Add(p);
     }
-    private static string DoubleStruck(string value)
+    private static string MathematicalAlphabet(string value, string alphabet)
     {
         var sb = new StringBuilder();
         foreach (char c in value)
         {
-            if (c is 'C' or 'H' or 'N' or 'P' or 'Q' or 'R' or 'Z')
+            if (!char.IsAsciiLetterOrDigit(c)) { sb.Append(c); continue; }
+            if (alphabet == "double" && c is 'C' or 'H' or 'N' or 'P' or 'Q' or 'R' or 'Z')
             {
                 sb.Append(c switch { 'C' => 'ℂ', 'H' => 'ℍ', 'N' => 'ℕ', 'P' => 'ℙ', 'Q' => 'ℚ', 'R' => 'ℝ', _ => 'ℤ' }); continue;
             }
-            int code = char.IsAsciiLetterUpper(c) ? 0x1d538 + c - 'A' : char.IsAsciiLetterLower(c) ? 0x1d552 + c - 'a' : 0x1d7d8 + c - '0';
+            string special = alphabet switch
+            {
+                "calligraphic" => c switch { 'B' => "ℬ", 'E' => "ℰ", 'F' => "ℱ", 'H' => "ℋ", 'I' => "ℐ", 'L' => "ℒ", 'M' => "ℳ", 'R' => "ℛ", 'e' => "ℯ", 'g' => "ℊ", 'o' => "ℴ", _ => "" },
+                "fraktur" => c switch { 'C' => "ℭ", 'H' => "ℌ", 'I' => "ℑ", 'R' => "ℜ", 'Z' => "ℨ", _ => "" },
+                _ => ""
+            };
+            if (special.Length > 0) { sb.Append(special); continue; }
+            if (char.IsAsciiDigit(c) && alphabet != "double") { sb.Append(c); continue; }
+            int upper = alphabet switch { "calligraphic" => 0x1d49c, "fraktur" => 0x1d504, _ => 0x1d538 };
+            int lower = alphabet switch { "calligraphic" => 0x1d4b6, "fraktur" => 0x1d51e, _ => 0x1d552 };
+            int code = char.IsAsciiLetterUpper(c) ? upper + c - 'A' : char.IsAsciiLetterLower(c) ? lower + c - 'a' : 0x1d7d8 + c - '0';
             sb.Append(char.ConvertFromUtf32(code));
         }
         return sb.ToString();

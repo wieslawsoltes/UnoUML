@@ -7,6 +7,7 @@ internal static class MathCases
 {
     public static void Run()
     {
+        MathExtendedCases.Run();
         var mass=Render("E = mc^2",false);
         HasGlyph(mass,"E");HasGlyph(mass,"m");
         var script=Class(mass,"scripts").Single();
@@ -47,7 +48,7 @@ internal static class MathCases
         finally {CultureInfo.CurrentCulture=old;}
         foreach(var bad in new[]{@"\frac{a}",@"\sqrt{", @"\href{https://example.com}{x}",@"\input{a}", @"\begin{matrix}1&2\\3\end{matrix}", @"\left(x", "@startuml",new string('{',80)+"x"+new string('}',80)})
             Reject(bad,true);
-        foreach(var bad in new[]{"color url(javascript:bad)\nx","!include <x>", "sqrt(", "x^", "[[1,2],[3]]","cancel x","scale NaN\nx","x\ny"})Reject(bad,false);
+        foreach(var bad in new[]{"color url(javascript:bad)\nx","!include <x>", "sqrt(", "x^", "[[1,2],[3]]","scale NaN\nx","x\ny"})Reject(bad,false);
     }
     private static double X(XElement group)=>Coordinate(group,0);
     private static double Y(XElement group)=>Coordinate(group,1);

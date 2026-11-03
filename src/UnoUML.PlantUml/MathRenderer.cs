@@ -5,12 +5,13 @@ namespace UnoUML.PlantUml;
 /// <summary>Standalone PlantUML scientific equations, typeset locally into accessible SVG.</summary>
 internal static partial class MathRenderer
 {
-    private enum Form { Glyph, Row, Fraction, Radical, Scripts, Fence, Matrix, Accent, Font, Space }
+    private enum Form { Glyph, Row, Fraction, Radical, Scripts, Fence, Matrix, Accent, Font, Space, Color, Stack, Cancel, Phantom, Box, Size }
     private enum Atom { Ordinary, Variable, Function, Binary, Relation, Punctuation, Large, Integral, Open, Close }
     private sealed record Expr(Form Form, int At, int Length, string Value, Atom Atom, Expr[] Children)
     {
         internal int Columns { get; init; }
         internal bool Limits { get; init; }
+        internal string Alignment { get; init; } = "";
     }
 
     internal static string? TryRender(string source, bool latex)
@@ -58,16 +59,7 @@ internal static partial class MathRenderer
         catch (InvalidFormula) { return null; }
     }
 
-    private static string? MathPaint(string s)
-    {
-        if (s.Length is 4 or 7 && s[0] == '#' && s.AsSpan(1).IndexOfAnyExcept("0123456789abcdefABCDEF") < 0) return s;
-        if (s.StartsWith('#')) s = s[1..];
-        return s.ToLowerInvariant() switch
-        {
-            "white" or "black" or "blue" or "red" or "green" or "gray" or "grey" or "yellow" or "orange" or "purple" or "navy" or "silver" or "maroon" or "teal" => s.ToLowerInvariant(),
-            _ => null
-        };
-    }
+    private static string? MathPaint(string s) => ManagedSkin.Color(s);
 
     private sealed class InvalidFormula : Exception { }
     private enum Lex { End, Glyph, Cmd, Left, Right, Sub, Sup, Divide, Comma, Bar, Align, Break, BeginEnv, EndEnv, Text }
@@ -88,6 +80,18 @@ internal static partial class MathRenderer
         internal Expr Parse()
         {
             var e = Sequence();
+            if (Next.Kind == Lex.Break)
+            {
+                var rows = new List<Expr> { e };
+                while (Next.Kind == Lex.Break)
+                {
+                    Take();
+                    if (Next.Kind == Lex.End) break;
+                    if (rows.Count >= 128) throw new InvalidFormula();
+                    rows.Add(Sequence());
+                }
+                e = new(Form.Matrix, e.At, e.Length, "gathered", Atom.Ordinary, rows.ToArray()) { Columns = 1 };
+            }
             if (Next.Kind != Lex.End || e.Form == Form.Row && e.Children.Length == 0) throw new InvalidFormula();
             return e;
         }
@@ -98,6 +102,22 @@ internal static partial class MathRenderer
             while (Next.Kind is not (Lex.End or Lex.Right or Lex.Align or Lex.Break or Lex.EndEnv) &&
                 !(Next is { Kind: Lex.Cmd, Value: "right" } || stopBar && Next.Kind == Lex.Bar))
             {
+                if (Next is { Kind: Lex.Cmd, Value: "over" or "atop" or "choose" })
+                {
+                    var infix = Take();
+                    if (terms.Count == 0) throw new InvalidFormula();
+                    var denominator = Sequence(stopBar);
+                    if (denominator.Form == Form.Row && denominator.Children.Length == 0) throw new InvalidFormula();
+                    var fraction = Node(Form.Fraction, infix, infix.Value == "over" ? "" : "nobar", Row(terms, at), denominator);
+                    return infix.Value == "choose" ? Node(Form.Fence, infix, "()", fraction) : fraction;
+                }
+                if (Next is { Kind: Lex.Cmd, Value: "displaystyle" or "textstyle" or "scriptstyle" or "scriptscriptstyle" or "color" } declaration && latex)
+                {
+                    Take();
+                    string value = declaration.Value == "color" ? ColorArgument() : declaration.Value;
+                    terms.Add(Node(declaration.Value == "color" ? Form.Color : Form.Size, declaration, value, Sequence(stopBar)));
+                    break;
+                }
                 Expr e = Scripted();
                 if (Next.Kind == Lex.Divide)
                 {
@@ -113,7 +133,7 @@ internal static partial class MathRenderer
         {
             var start = Next;
             var b = Primary();
-            bool limits = b.Atom == Atom.Large;
+            bool limits = b.Atom == Atom.Large || b.Form == Form.Accent && b.Value is "overbrace" or "underbrace";
             if (Next.Kind == Lex.Cmd && Next.Value is "limits" or "nolimits")
             {
                 if (b.Atom is not (Atom.Large or Atom.Integral)) throw new InvalidFormula();
@@ -159,8 +179,16 @@ internal static partial class MathRenderer
                         if (!latex && IsAsciiFunction(t) && AcceptsArgument(t)) return Row([glyph, Primary()], t.At);
                         return glyph;
                     case Lex.Comma:
-                    case Lex.Bar:
                     case Lex.Text: return Node(Form.Glyph, t, t.Value);
+                    case Lex.Bar:
+                        if (!latex && tokens.Skip(cursor).TakeWhile(token => token.Kind is not (Lex.End or Lex.Right)).Any(token => token.Kind == Lex.Bar))
+                        {
+                            var absolute = Sequence(stopBar: true);
+                            if (Next.Kind != Lex.Bar) throw new InvalidFormula();
+                            Take();
+                            return Node(Form.Fence, t, "||", absolute);
+                        }
+                        return Node(Form.Glyph, t, t.Value);
                     case Lex.Left:
                         var content = Sequence();
                         if (Next.Kind != Lex.Right || Closing(t.Value) != Next.Value) throw new InvalidFormula();
@@ -185,6 +213,8 @@ internal static partial class MathRenderer
             {
                 case "frac": case "dfrac": case "tfrac": return Node(Form.Fraction, t, t.Value, Argument(), Argument());
                 case "binom": return Node(Form.Fence, t, "()", Node(Form.Fraction, t, "nobar", Argument(), Argument()));
+                case "dbinom": return Node(Form.Fence, t, "()", Node(Form.Fraction, t, "nobar-display", Argument(), Argument()));
+                case "tbinom": return Node(Form.Fence, t, "()", Node(Form.Fraction, t, "nobar-small", Argument(), Argument()));
                 case "root": { var index = Argument(); return Node(Form.Radical, t, "", Argument(), index); }
                 case "sqrt":
                     if (latex && Next is { Kind: Lex.Left, Value: "[" })
@@ -210,13 +240,49 @@ internal static partial class MathRenderer
                 case "underline":
                 case "dot":
                 case "ddot":
+                case "dddot":
+                case "ddddot":
+                case "overbrace":
+                case "underbrace":
+                case "overarc":
+                case "underarc":
+                case "overleftarrow":
+                case "overleftrightarrow":
+                case "underleftarrow":
+                case "underrightarrow":
+                case "underleftrightarrow":
                     return Node(Form.Accent, t, t.Value, Argument());
+                case "overset":
+                case "underset":
+                    var annotation = Argument();
+                    return Node(Form.Stack, t, t.Value, Argument(), annotation);
+                case "cancel":
+                case "bcancel":
+                case "xcancel":
+                    return Node(Form.Cancel, t, t.Value, Argument());
+                case "phantom":
+                case "hphantom":
+                case "vphantom":
+                    return Node(Form.Phantom, t, t.Value, Argument());
+                case "boxed":
+                    return Node(Form.Box, t, "", Argument());
+                case "color":
+                case "textcolor":
+                    return Node(Form.Color, t, ColorArgument(), Argument());
+                case "big":
+                case "Big":
+                case "bigg":
+                case "Bigg":
+                    return Node(Form.Size, t, t.Value, Node(Form.Glyph, t, Delimiter()));
                 case "bold":
                 case "roman":
                 case "italic":
                 case "sans":
                 case "mono":
                 case "double":
+                case "calligraphic":
+                case "fraktur":
+                case "boldsymbol":
                     return Node(Form.Font, t, t.Value, Argument());
                 case "thin":
                 case "medium":
@@ -228,6 +294,18 @@ internal static partial class MathRenderer
                     return Node(Form.Space, t, t.Value);
                 default: throw new InvalidFormula();
             }
+        }
+
+        private string ColorArgument()
+        {
+            var argument = Argument();
+            string Text(Expr node) => node.Form switch
+            {
+                Form.Glyph => node.Value,
+                Form.Row => string.Concat(node.Children.Select(Text)),
+                _ => throw new InvalidFormula()
+            };
+            return MathPaint(Text(argument)) ?? throw new InvalidFormula();
         }
         private string Delimiter()
         {
@@ -269,7 +347,28 @@ internal static partial class MathRenderer
         }
         private Expr Environment(Token t)
         {
-            string fence = t.Value switch { "matrix" => "..", "pmatrix" => "()", "bmatrix" => "[]", "Bmatrix" => "{}", "vmatrix" => "||", "Vmatrix" => "‖‖", "cases" => "{.", _ => throw new InvalidFormula() };
+            string fence = t.Value switch
+            {
+                "matrix" or "smallmatrix" or "array" or "aligned" or "align" or "align*" or "alignedat" or "gathered" or "gather" or "gather*" or "split" or "eqnarray" or "eqnarray*" => "..",
+                "pmatrix" => "()", "bmatrix" => "[]", "Bmatrix" => "{}", "vmatrix" => "||", "Vmatrix" => "‖‖", "cases" => "{.", _ => throw new InvalidFormula()
+            };
+            string alignment = "";
+            if (t.Value == "array")
+            {
+                var spec = Argument();
+                if (spec.Form is not (Form.Row or Form.Glyph)) throw new InvalidFormula();
+                var specCells = spec.Form == Form.Row ? spec.Children : [spec];
+                if (specCells.Any(cell => cell.Form != Form.Glyph || cell.Value.Length != 1 || !"lcr|".Contains(cell.Value, StringComparison.Ordinal))) throw new InvalidFormula();
+                alignment = string.Concat(specCells.Select(cell => cell.Value));
+                if (alignment.Count(c => c != '|') is 0 or > 32) throw new InvalidFormula();
+            }
+            else if (t.Value == "alignedat")
+            {
+                var spec = Argument();
+                string count = spec.Form == Form.Row ? string.Concat(spec.Children.Select(c => c.Value)) : spec.Value;
+                if (!int.TryParse(count, out int pairs) || pairs is < 1 or > 16) throw new InvalidFormula();
+                alignment = string.Concat(Enumerable.Repeat("rl", pairs));
+            }
             var cells = new List<Expr>(); int cols = 0, columns = 0;
             while (true)
             {
@@ -283,9 +382,12 @@ internal static partial class MathRenderer
                 if (Next.Kind != Lex.EndEnv || Take().Value != t.Value) throw new InvalidFormula();
                 break;
             }
-            var grid = new Expr(Form.Matrix, t.At, t.Length, t.Value, Atom.Ordinary, cells.ToArray()) { Columns = cols };
+            if (alignment.Length != 0 && alignment.Count(c => c != '|') != cols) throw new InvalidFormula();
+            if (alignment.Length == 0 && t.Value is "aligned" or "align" or "align*" or "split") alignment = string.Concat(Enumerable.Range(0, cols).Select(i => i % 2 == 0 ? 'r' : 'l'));
+            if (alignment.Length == 0 && t.Value.StartsWith("eqnarray", StringComparison.Ordinal)) alignment = "rcl";
+            var grid = new Expr(Form.Matrix, t.At, t.Length, t.Value, Atom.Ordinary, cells.ToArray()) { Columns = cols, Alignment = alignment };
             return Node(Form.Fence, t, fence, grid);
         }
     }
-    private static string Closing(string s) => s switch { "(" => ")", "[" => "]", "{" => "}", "⟨" => "⟩", "." => ".", _ => throw new InvalidFormula() };
+    private static string Closing(string s) => s switch { "(" => ")", "[" => "]", "{" => "}", "⟨" => "⟩", "⌊" => "⌋", "⌈" => "⌉", "|" => "|", "." => ".", _ => throw new InvalidFormula() };
 }

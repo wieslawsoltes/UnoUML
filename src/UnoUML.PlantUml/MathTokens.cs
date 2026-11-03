@@ -29,16 +29,22 @@ internal static partial class MathRenderer
         Symbols("le:≤ leq:≤ ge:≥ geq:≥ ne:≠ neq:≠ approx:≈ sim:∼ simeq:≃ equiv:≡ cong:≅ propto:∝ ll:≪ gg:≫ in:∈ notin:∉ ni:∋ subset:⊂ subseteq:⊆ supset:⊃ supseteq:⊇ prec:≺ preceq:⪯ succ:≻ succeq:⪰ parallel:∥ mid:∣ to:→ gets:← rightarrow:→ leftarrow:← leftrightarrow:↔ Rightarrow:⇒ Leftarrow:⇐ Leftrightarrow:⇔ implies:⇒ iff:⇔ mapsto:↦ longrightarrow:⟶ uparrow:↑ downarrow:↓", Atom.Relation);
         Symbols("sum:∑ prod:∏ coprod:∐ bigcup:⋃ bigcap:⋂ bigvee:⋁ bigwedge:⋀", Atom.Large);
         Symbols("int:∫ iint:∬ iiint:∭ oint:∮", Atom.Integral);
+        Symbols("oiint:∯ oiiint:∰", Atom.Integral);
+        Symbols("beth:ℶ gimel:ℷ daleth:ℸ imath:ı jmath:ȷ Re:ℜ Im:ℑ wp:℘ hslash:ℏ mho:℧ Finv:Ⅎ Game:⅁ Bbbk:𝕜 eth:ð complement:∁ surd:√ checkmark:✓ degree:° prime:′ backprime:‵ S:§ P:¶ pound:£ euro:€ dag:† ddag:‡ Diamond:◇ Box:□ square:□ triangle:△ blacktriangle:▴ blacktriangledown:▾ lozenge:◊ blacklozenge:◆ clubsuit:♣ diamondsuit:♢ heartsuit:♡ spadesuit:♠");
+        Symbols("cdotp:⋅ bullet:∙ diamond:⋄ bigtriangleup:△ bigtriangledown:▽ triangleleft:◃ triangleright:▹ lhd:⊲ rhd:⊳ unlhd:⊴ unrhd:⊵ uplus:⊎ sqcap:⊓ sqcup:⊔ ominus:⊖ oslash:⊘ bigcirc:○ amalg:⨿ wr:≀ circledast:⊛ circledcirc:⊚ circleddash:⊝ boxplus:⊞ boxminus:⊟ boxtimes:⊠ boxdot:⊡ divideontimes:⋇ dotplus:∔ intercal:⊺ leftthreetimes:⋋ rightthreetimes:⋌", Atom.Binary);
+        Symbols("asymp:≍ doteq:≐ models:⊨ vdash:⊢ dashv:⊣ bowtie:⋈ smile:⌣ frown:⌢ nless:≮ ngtr:≯ nleq:≰ ngeq:≱ nsubseteq:⊈ nsupseteq:⊉ subsetneq:⊊ supsetneq:⊋ lesssim:≲ gtrsim:≳ lessapprox:⪅ gtrapprox:⪆ lessgtr:≶ gtrless:≷ sqsubset:⊏ sqsupset:⊐ sqsubseteq:⊑ sqsupseteq:⊒ triangleq:≜ bumpeq:≏ Bumpeq:≎ circeq:≗ approxeq:≊ eqcirc:≖ fallingdotseq:≒ risingdotseq:≓ thicksim:∼ thickapprox:≈ backsim:∽ backsimeq:⋍ pitchfork:⋔ between:≬ nparallel:∦ nmid:∤", Atom.Relation);
+        Symbols("longleftarrow:⟵ longleftrightarrow:⟷ Longrightarrow:⟹ Longleftarrow:⟸ Longleftrightarrow:⟺ longmapsto:⟼ Uparrow:⇑ Downarrow:⇓ updownarrow:↕ Updownarrow:⇕ nearrow:↗ searrow:↘ nwarrow:↖ swarrow:↙ hookrightarrow:↪ hookleftarrow:↩ rightharpoonup:⇀ rightharpoondown:⇁ leftharpoonup:↼ leftharpoondown:↽ rightleftharpoons:⇌ leftrightharpoons:⇋ rightleftarrows:⇄ leftrightarrows:⇆ twoheadrightarrow:↠ twoheadleftarrow:↞ rightarrowtail:↣ leftarrowtail:↢ rightsquigarrow:⇝ leadsto:⇝ leftrightsquigarrow:↭ curvearrowleft:↶ curvearrowright:↷ circlearrowleft:↺ circlearrowright:↻ multimap:⊸ nrightarrow:↛ nleftarrow:↚ nleftrightarrow:↮", Atom.Relation);
+        Symbols("bigoplus:⨁ bigotimes:⨂ bigodot:⨀ biguplus:⨄ bigsqcup:⨆", Atom.Large);
         foreach (var s in "sin cos tan cot sec csc arcsin arccos arctan sinh cosh tanh coth exp ln log lg det dim gcd lcm mod ker deg arg".Split(' ')) Add(s, s, Atom.Function);
         foreach (var s in "lim min max inf sup limsup liminf".Split(' ')) Add(s, s, Atom.Large);
-        foreach (var s in "frac dfrac tfrac binom sqrt hat tilde vec bar underline dot ddot quad qquad".Split(' ')) Tex[s] = Ascii[s] = new(Lex.Cmd, s, Atom.Ordinary);
-        foreach (var s in "left right limits nolimits".Split(' ')) Tex[s] = new(Lex.Cmd, s, Atom.Ordinary);
+        foreach (var s in "frac dfrac tfrac binom sqrt hat tilde vec bar underline dot ddot quad qquad cancel overset underset color".Split(' ')) Tex[s] = Ascii[s] = new(Lex.Cmd, s, Atom.Ordinary);
+        foreach (var s in "left right limits nolimits dbinom tbinom over atop choose textcolor overbrace underbrace overleftarrow overleftrightarrow underleftarrow underrightarrow underleftrightarrow dddot ddddot bcancel xcancel phantom hphantom vphantom boxed displaystyle textstyle scriptstyle scriptscriptstyle big Big bigg Bigg".Split(' ')) Tex[s] = new(Lex.Cmd, s, Atom.Ordinary);
         foreach (var s in "root abs norm floor ceil".Split(' ')) Ascii[s] = new(Lex.Cmd, s, Atom.Ordinary);
-        foreach (var pair in "mathbf:bold mathrm:roman mathit:italic mathsf:sans mathtt:mono mathbb:double overline:bar widehat:hat widetilde:tilde enspace:medium".Split(' '))
+        foreach (var pair in "mathbf:bold mathrm:roman mathit:italic mathsf:sans mathtt:mono mathbb:double mathcal:calligraphic mathscr:calligraphic mathfrak:fraktur boldsymbol:boldsymbol bm:boldsymbol textrm:roman textbf:bold textit:italic textsf:sans texttt:mono overline:bar widehat:hat widetilde:tilde enspace:medium overrightarrow:vec stackrel:overset overparen:overarc underparen:underarc bigl:big bigr:big Bigl:Big Bigr:Big biggl:bigg biggr:bigg Biggl:Bigg Biggr:Bigg".Split(' '))
         {
             var p = pair.Split(':'); Tex[p[0]] = new(Lex.Cmd, p[1], Atom.Ordinary);
         }
-        foreach (var pair in "bb:bold bbb:double sf:sans tt:mono ul:underline overline:bar".Split(' '))
+        foreach (var pair in "bb:bold bbb:double sf:sans tt:mono ul:underline overline:bar cc:calligraphic mathcal:calligraphic fr:fraktur mathfrak:fraktur stackrel:overset obrace:overbrace ubrace:underbrace overparen:overarc overarc:overarc".Split(' '))
         {
             var p = pair.Split(':'); Ascii[p[0]] = new(Lex.Cmd, p[1], Atom.Ordinary);
         }
@@ -52,7 +58,6 @@ internal static partial class MathRenderer
             Tex[name] = new(Lex.Glyph, value, Atom.Ordinary);
         Ascii["(:"] = Ascii["<<"] = new(Lex.Left, "⟨", Atom.Open); Ascii[":)"] = Ascii[">>"] = new(Lex.Right, "⟩", Atom.Close);
         Ascii["{:"] = new(Lex.Left, ".", Atom.Open); Ascii[":}"] = new(Lex.Right, ".", Atom.Close);
-        foreach (var s in "cancel color stackrel overset underset obrace ubrace overarc overparen mathcal mathfrak fr cc".Split(' ')) Ascii[s] = new(Lex.Cmd, "unsupported", Atom.Ordinary);
         Ascii["text"] = new(Lex.Text, "", Atom.Ordinary);
         Ascii["sup"] = Tex["supset"]; Ascii["epsi"] = Tex["epsilon"]; Ascii["Sqrt"] = Ascii["sqrt"];
         Ascii["lamda"] = Tex["lambda"]; Ascii["Lamda"] = Tex["Lambda"];
@@ -67,10 +72,13 @@ internal static partial class MathRenderer
         Ascii["mbox"] = Ascii["text"];
         Ascii["left("] = new(Lex.Left, "(", Atom.Open); Ascii["right)"] = new(Lex.Right, ")", Atom.Close);
         Ascii["left["] = new(Lex.Left, "[", Atom.Open); Ascii["right]"] = new(Lex.Right, "]", Atom.Close);
-        // Reserve upstream tokens whose extended semantics are not implemented. They
-        // must never be silently split into ordinary variables or smaller operators.
-        foreach (var name in new[] { "|><", "><|", "|><|", "|:", " :|".Trim(), ":|:", "|__", "__|", "|~", "~|", "lceiling", "rceiling", "newline", "%", "\\\\" })
-            Ascii[name] = new(Lex.Cmd, "unsupported", Atom.Ordinary);
+        A("|><", "⋉", Atom.Binary); A("><|", "⋊", Atom.Binary); A("|><|", "⋈", Atom.Relation);
+        Ascii["|__"] = new(Lex.Left, "⌊", Atom.Open); Ascii["__|"] = new(Lex.Right, "⌋", Atom.Close);
+        Ascii["|~"] = Ascii["lceiling"] = new(Lex.Left, "⌈", Atom.Open); Ascii["~|"] = Ascii["rceiling"] = new(Lex.Right, "⌉", Atom.Close);
+        Ascii["|:"] = new(Lex.Left, "|", Atom.Open); Ascii[":|"] = new(Lex.Right, "|", Atom.Close);
+        Ascii[":|:"] = new(Lex.Glyph, "|", Atom.Relation);
+        Ascii["newline"] = new(Lex.Break, "", Atom.Ordinary);
+        A("%", "%");
         Initial = Ascii.Keys.GroupBy(s => s[0]).ToDictionary(g => g.Key, g => g.OrderByDescending(s => s.Length).ToArray());
     }
 
@@ -90,8 +98,11 @@ internal static partial class MathRenderer
                 if (pos >= source.Length) throw new InvalidFormula();
                 if (!latex)
                 {
-                    if (source[pos++] != ' ') throw new InvalidFormula();
-                    Put(Lex.Cmd, "space"); continue;
+                    char escaped = source[pos++];
+                    if (escaped == '\\') Put(Lex.Break, "");
+                    else if (escaped == ' ') Put(Lex.Cmd, "space");
+                    else throw new InvalidFormula();
+                    continue;
                 }
                 if (!char.IsAsciiLetter(source[pos]))
                 {
@@ -105,6 +116,14 @@ internal static partial class MathRenderer
                 int start = pos;
                 while (pos < source.Length && char.IsAsciiLetter(source[pos])) pos++;
                 string cmd = source[start..pos];
+                if (cmd is "color" or "textcolor")
+                {
+                    Put(Lex.Cmd, cmd);
+                    int colorAt = pos;
+                    string raw = TextArgument(source, ref pos, true);
+                    tokens.Add(new(Lex.Text, raw, colorAt, pos - colorAt));
+                    continue;
+                }
                 if (cmd is "text" or "mbox" or "operatorname" or "begin" or "end")
                 {
                     string raw = TextArgument(source, ref pos, true);
@@ -155,7 +174,7 @@ internal static partial class MathRenderer
                 case '&' when latex: Put(Lex.Align, ""); break;
                 case '=': case '<': case '>': case '≤': case '≥': case '≠': case '≈': case '→': case '∈': Put(Lex.Glyph, c.ToString(), Atom.Relation); break;
                 case '+': case '-': case '−': case '*': case '×': case '±': Put(Lex.Glyph, c == '-' ? "−" : c.ToString(), Atom.Binary); break;
-                case '.': case ':': case ';': case '!': case '\'': case '∞': Put(Lex.Glyph, c == '\'' ? "′" : c.ToString()); break;
+                case '.': case ':': case ';': case '!': case '\'': case '∞': case '#' when !latex: Put(Lex.Glyph, c == '\'' ? "′" : c.ToString()); break;
                 case '~' when latex: Put(Lex.Cmd, "space"); break;
                 default: throw new InvalidFormula();
             }
