@@ -79,40 +79,47 @@ public sealed partial class StudioDocument
         if (!CurrentDot(item) || !item.CanRename || label == item.Text || label.Length > 65536 || label.Any(c => char.IsControl(c) && c is not ('\t' or '\r' or '\n'))) return false;
         var location = item.Location;
         string value = QuoteDot(label);
-        if (location.Kind == "node" && location.Explicit && MultipleDotNodes(location))
-            return PatchDot(location.Start + location.Length, 0, ";" + Index.NewLine + "  " + DotIdentifier(item) + " [label=" + value + "]");
-        if (location.LabelStart >= 0) return PatchDot(location.LabelStart, location.LabelLength, value);
+        if (location.Kind == "node" && location.Explicit && (MultipleDotNodes(location) || SharedDotLabel(location)))
+            return PatchDot(location.Start + location.Length, 0, ";" + DotNewLine + "  " + DotIdentifier(item) + " [label=" + value + "]");
+        // A strict edge can inherit its final label from an earlier chain even when
+        // its latest declaration is a singleton. Override only that declaration.
+        if (location.Kind == "edge" && SharedDotLabel(location))
+            return PatchDot(location.Start + location.Length, 0, " [label=" + value + "]");
+        if (location.LabelStart >= 0) return ReplaceDotLabel(location, value);
         string replacement = location.Kind is "graph" or "cluster" ? "label=" + value + ";" :
             location.Explicit ? " [label=" + value + "]" : DotIdentifier(item) + " [label=" + value + "];";
-        if (location.Kind is "graph" or "cluster" || !location.Explicit) replacement = Index.NewLine + "  " + replacement + Index.NewLine;
+        if (location.Kind is "graph" or "cluster" || !location.Explicit) replacement = DotNewLine + "  " + replacement + DotNewLine;
         return PatchDot(location.LabelInsert, 0, replacement);
     }
 
     public bool ConnectDot(DotObjectEdit from, DotObjectEdit to, string label = "")
     {
         if (!CurrentDot(from) || !CurrentDot(to) || !from.IsConnectable || !to.IsConnectable || label.Length > 65536 ||
-            label.Any(c => char.IsControl(c) && c is not ('\t' or '\r' or '\n'))) return false;
-        int close = DotRootClose();
-        if (close < 0) return false;
-        string edge = DotIdentifier(from) + (from.Location.Directed ? " -> " : " -- ") + DotIdentifier(to);
+            label.Any(c => char.IsControl(c) && c is not ('\t' or '\r' or '\n')) || DotStructure is not { } syntax ||
+            !DotNodeMatches(syntax, from.Location) || !DotNodeMatches(syntax, to.Location)) return false;
+        string first = from.Location.Name, second = to.Location.Name;
+        if (syntax.Strict && syntax.Edges.Any(edge => edge.From.Node.Name == first && edge.To.Node.Name == second ||
+            !syntax.Directed && edge.From.Node.Name == second && edge.To.Node.Name == first)) return false;
+        int close = syntax.Root.Occurrences[0].Close;
+        string edge = DotName(first) + (syntax.Directed ? " -> " : " -- ") + DotName(second);
         if (label.Length > 0) edge += " [label=" + QuoteDot(label) + "]";
-        return PatchDot(close, 0, Index.NewLine + "  " + edge + ";" + Index.NewLine);
+        return CommitDotChanges(syntax, [new(close, close, DotNewLine + "  " + edge + ";" + DotNewLine)],
+            next => SameDotNodes(syntax, next) && next.Edges.Count == syntax.Edges.Count + 1);
     }
 
     public bool RetargetDot(DotObjectEdit edge, DotObjectEdit target, bool from)
     {
-        if (!CurrentDot(edge) || !CurrentDot(target) || !edge.CanEditConnection || !target.IsConnectable) return false;
-        var location = edge.Location;
-        int start = from ? location.FromStart : location.ToStart, length = from ? location.FromLength : location.ToLength;
-        string endpoint = Page.Source.Substring(start, length);
-        int port = DotPortOffset(endpoint);
-        return PatchDot(start, length, DotIdentifier(target) + (port < 0 ? "" : endpoint[port..]));
+        if (!CurrentDot(edge) || !CurrentDot(target) || !edge.CanEditConnection || !target.IsConnectable ||
+            DotStructure is not { } syntax || !DotNodeMatches(syntax, target.Location) ||
+            LiteralDotEdge(syntax, edge.Location) is not { } connection) return false;
+        return RetargetDotEdge(syntax, connection, syntax.Nodes[target.Location.Name], from);
     }
 
     public bool RemoveDotEdge(DotObjectEdit edge)
     {
-        if (!CurrentDot(edge) || !edge.CanEditConnection) return false;
-        return PatchDot(edge.Location.Start, edge.Location.Length, "");
+        if (!CurrentDot(edge) || !edge.CanEditConnection || DotStructure is not { } syntax ||
+            LiteralDotEdge(syntax, edge.Location) is not { } connection) return false;
+        return RemoveDotConnection(syntax, connection);
     }
 
     private bool CurrentDot(DotObjectEdit item) => ReferenceEquals(item.Document, Source) && item.Page == ActivePage;
@@ -126,18 +133,6 @@ public sealed partial class StudioDocument
 
     private static string QuoteDot(string value) => "\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal)
         .ReplaceLineEndings("\\n").Replace("\t", "\\t", StringComparison.Ordinal) + "\"";
-
-    private static int DotPortOffset(string endpoint)
-    {
-        bool quote = false;
-        for (int i = 0; i < endpoint.Length; i++)
-        {
-            if (quote && endpoint[i] == '\\') { i++; continue; }
-            if (endpoint[i] == '"') quote = !quote;
-            else if (!quote && endpoint[i] == ':') return i;
-        }
-        return -1;
-    }
 
     private bool SingleDotEdge(DotSourceLocation location)
     {

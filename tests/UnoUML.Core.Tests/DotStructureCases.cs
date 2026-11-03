@@ -198,6 +198,117 @@ internal static class DotStructureCases
             pages.Source.EndsWith("@startuml\nclass After\n@enduml", StringComparison.Ordinal), "DOT structural edits remain inside the active named block");
         Check(pages.Undo() && pages.Source == pageSource && pages.ActivePage == 1, "undo preserves active named page and mixed line endings");
 
+        var sharedLabel = Document("digraph { a,b [label=Shared]; a[color=red]; }");
+        string sharedLabelSource = sharedLabel.Source;
+        Check(sharedLabel.RenameDotObject(Open(sharedLabel, "node", "a"), "Only A"), "renames a shared label after a later singleton declaration");
+        Check(Node(Render(sharedLabel), "a").Value.Contains("Only A", StringComparison.Ordinal) && Node(Render(sharedLabel), "b").Value.Contains("Shared", StringComparison.Ordinal),
+            "a singleton override cannot mutate another node's earlier shared label");
+        Check(sharedLabel.Undo() && sharedLabel.Source == sharedLabelSource, "shared label override undoes in one transaction");
+
+        var sharedEdgeLabel = Document("strict digraph { a->b->c[label=Shared]; a->b[color=red]; }");
+        string sharedEdgeSource = sharedEdgeLabel.Source;
+        Check(sharedEdgeLabel.RenameDotObject(Open(sharedEdgeLabel, "edge", "a->b"), "Only AB"), "renames a strict edge with a shared earlier chain label");
+        Check(Render(sharedEdgeLabel).Descendants().Single(element => (string?)element.Attribute("data-qualified-name") == "a->b").Value.Contains("Only AB", StringComparison.Ordinal) &&
+            Render(sharedEdgeLabel).Descendants().Single(element => (string?)element.Attribute("data-qualified-name") == "b->c").Value.Contains("Shared", StringComparison.Ordinal),
+            "strict singleton label overrides leave other chain segments unchanged");
+        Check(sharedEdgeLabel.Undo() && sharedEdgeLabel.Source == sharedEdgeSource, "strict shared-label override undoes byte for byte");
+
+        var labelComments = Document("digraph { a[label=\"First\" + /* caption: retain */ \"Second\"]; }");
+        string labelCommentSource = labelComments.Source;
+        Check(labelComments.RenameDotObject(Open(labelComments, "node", "a"), "Changed") &&
+            labelComments.Source.Contains("/* caption: retain */", StringComparison.Ordinal) && Node(Render(labelComments), "a").Value.Contains("Changed", StringComparison.Ordinal),
+            "renaming a concatenated label preserves comments within its token span");
+        Check(labelComments.Undo() && labelComments.Source == labelCommentSource, "comment-preserving label edit is one reversible source transaction");
+
+        var htmlEndpoint = Document("digraph { c; <a:b>:w -> b[label=Flow]; }");
+        string htmlEndpointSource = htmlEndpoint.Source;
+        Check(htmlEndpoint.RetargetDot(Open(htmlEndpoint, "edge", "a:b->b"), Open(htmlEndpoint, "node", "c"), true), "retargets HTML identifiers containing a colon");
+        Graph(htmlEndpoint, ["a:b", "b", "c"], ["c->b"], "retargeting retains old implicit nodes and ignores non-port colons");
+        Check(htmlEndpoint.Source.Contains("c:w -> b", StringComparison.Ordinal), "HTML identifier retargeting retains the actual port suffix");
+        Check(htmlEndpoint.Undo() && htmlEndpoint.Source == htmlEndpointSource, "HTML endpoint retargeting undoes byte for byte");
+
+        var commentEndpoint = Document("digraph { c; \"a\" + /* name: retain */ \"b\":/* port: retain */\"input:name\":e -> other[label=Flow]; }");
+        string commentEndpointSource = commentEndpoint.Source;
+        Check(commentEndpoint.RetargetDot(Open(commentEndpoint, "edge", "ab->other"), Open(commentEndpoint, "node", "c"), true), "retargets concatenated identifiers with colon-bearing comments");
+        Graph(commentEndpoint, ["ab", "c", "other"], ["c->other"], "comment-aware retargeting preserves all node identities");
+        Check(commentEndpoint.Source.Contains("/* name: retain */", StringComparison.Ordinal) &&
+            commentEndpoint.Source.Contains(":/* port: retain */\"input:name\":e", StringComparison.Ordinal), "retargeting retains identifier comments and exact port tokens");
+        Check(commentEndpoint.Undo() && commentEndpoint.Source == commentEndpointSource, "comment-aware retargeting undoes exactly");
+
+        var forwardTarget = Document("digraph { node[color=red]; a:p->b:q[color=blue,label=Flow]; node[color=green,shape=box]; c; }");
+        string forwardSource = forwardTarget.Source;
+        Check(forwardTarget.RetargetDot(Open(forwardTarget, "edge", "a->b"), Open(forwardTarget, "node", "c"), true), "retargets an edge to a node declared under later defaults");
+        Graph(forwardTarget, ["a", "b", "c"], ["c->b"], "retargeting preserves original endpoint identities");
+        var forwardSvg = Render(forwardTarget);
+        Check(Node(forwardSvg, "a").Descendants().Any(element => (string?)element.Attribute("stroke") == "#ff0000") &&
+            Node(forwardSvg, "b").Descendants().Any(element => (string?)element.Attribute("stroke") == "#ff0000") &&
+            Node(forwardSvg, "c").Descendants().Any(element => (string?)element.Attribute("stroke") == "#00ff00"),
+            "forward retargeting preserves the old endpoints' defaults and the target's later defaults");
+        Check(forwardTarget.Source.Contains("c:p->b:q[color=blue,label=Flow]", StringComparison.Ordinal) &&
+            forwardTarget.Undo() && forwardTarget.Source == forwardSource, "retargeting retains ports and edge attributes with exact undo");
+
+        var strictRetarget = Document("strict digraph { a->b[label=First]; a->c[label=Second]; }");
+        string strictRetargetSource = strictRetarget.Source;
+        Check(!strictRetarget.RetargetDot(Open(strictRetarget, "edge", "a->b"), Open(strictRetarget, "node", "c"), false) &&
+            strictRetarget.Source == strictRetargetSource && !strictRetarget.CanUndo, "rejects a retarget that would merge distinct strict edges and discard their independent attributes");
+        Check(!strictRetarget.ConnectDot(Open(strictRetarget, "node", "a"), Open(strictRetarget, "node", "b"), "Overwrite") &&
+            strictRetarget.Source == strictRetargetSource && !strictRetarget.CanUndo, "connecting a strict duplicate cannot overwrite the existing relationship's label");
+        Check(strictRetarget.ConnectDot(Open(strictRetarget, "node", "b"), Open(strictRetarget, "node", "a"), "Reverse"), "strict directed graphs allow a distinct reverse connection");
+        Graph(strictRetarget, ["a", "b", "c"], ["a->b", "a->c", "b->a"], "strict connection insertion preserves existing edge identities");
+        Check(strictRetarget.Undo() && strictRetarget.Source == strictRetargetSource, "a new strict connection remains one reversible edit");
+
+        var strictUndirected = Document("strict graph { a--b[label=Keep]; c; }");
+        string strictUndirectedSource = strictUndirected.Source;
+        Check(!strictUndirected.ConnectDot(Open(strictUndirected, "node", "a"), Open(strictUndirected, "node", "b"), "Changed") &&
+            !strictUndirected.ConnectDot(Open(strictUndirected, "node", "b"), Open(strictUndirected, "node", "a"), "Reversed") &&
+            strictUndirected.Source == strictUndirectedSource && !strictUndirected.CanUndo,
+            "strict undirected duplicates are rejected in either endpoint order without mutating history");
+        Check(strictUndirected.ConnectDot(Open(strictUndirected, "node", "b"), Open(strictUndirected, "node", "c"), "New") &&
+            strictUndirected.Source.Contains("b -- c [label=\"New\"]", StringComparison.Ordinal), "new strict undirected connections retain the graph's operator");
+
+        var explicitRetarget = Document("digraph { a; b; c; a->b[label=Keep]; }");
+        string explicitRetargetSource = explicitRetarget.Source;
+        Check(explicitRetarget.RetargetDot(Open(explicitRetarget, "edge", "a->b"), Open(explicitRetarget, "node", "c"), false) &&
+            explicitRetarget.Source == explicitRetargetSource.Replace("a->b", "a->c", StringComparison.Ordinal),
+            "retargeting already-declared nodes changes only the requested identifier token");
+
+        var clusterRetarget = Document("digraph { subgraph cluster_first { a->b; } subgraph cluster_second { c; } }");
+        string clusterRetargetSource = clusterRetarget.Source;
+        Check(!clusterRetarget.RetargetDot(Open(clusterRetarget, "edge", "a->b"), Open(clusterRetarget, "node", "c"), false) &&
+            clusterRetarget.Source == clusterRetargetSource && !clusterRetarget.CanUndo, "rejects an edge edit that would silently add its target to another cluster");
+
+        var unsafeDefaults = Document("digraph { subgraph cluster_first { node[color=red]; a->b; } c; subgraph cluster_first { c; } }");
+        string unsafeDefaultsSource = unsafeDefaults.Source;
+        Check(!unsafeDefaults.RetargetDot(Open(unsafeDefaults, "edge", "a->b"), Open(unsafeDefaults, "node", "c"), false) &&
+            unsafeDefaults.Source == unsafeDefaultsSource && !unsafeDefaults.CanUndo, "rejects an unrepresentable inherited-default change without changing history");
+
+        foreach (string ending in new[] { "\n", "\r\n", "\r" })
+        {
+            string connectionSource = ("\uFEFF@startdot\ndigraph { node[color=blue]; a/* left */:p -> /* arrow */b:q [label=/* label */\"Flow\",color=red];\n" +
+                "node[color=green]; b[shape=box]; b->c[color=purple]; }\n@enddot").ReplaceLineEndings(ending);
+            var connection = new StudioDocument(connectionSource);
+            Check(connection.RemoveDotEdge(Open(connection, "edge", "a->b")), "deletes a connector while retaining implicit nodes " + ending.Length);
+            Graph(connection, ["a", "b", "c"], ["b->c"], "connector deletion affects no other nodes or edges");
+            var connectionSvg = Render(connection);
+            Check(Node(connectionSvg, "a").Descendants().Any(element => (string?)element.Attribute("stroke") == "#0000ff") &&
+                Node(connectionSvg, "b").Descendants().Any(element => (string?)element.Attribute("stroke") == "#0000ff") &&
+                connection.Source.Contains("/* left */", StringComparison.Ordinal) && connection.Source.Contains("/* arrow */", StringComparison.Ordinal) &&
+                connection.Source.Contains("/* label */", StringComparison.Ordinal), "connector deletion retains creation defaults and all interleaved comments");
+            Check(connection.Undo() && connection.Source == connectionSource && connection.Redo() && connection.Source.StartsWith('\uFEFF'),
+                "connector deletion preserves BOM and line endings across undo and redo");
+        }
+
+        var selfLoop = Document("digraph { a->a[label=Loop]; }");
+        Check(selfLoop.RemoveDotEdge(Open(selfLoop, "edge", "a->a")), "deletes a self-loop without deleting its implicit endpoint");
+        Graph(selfLoop, ["a"], [], "self-loop deletion retains exactly one node");
+        var parallelEdges = Document("digraph { a->b[label=First]; a->b[label=Second,color=blue]; }");
+        Check(parallelEdges.RemoveDotEdge(Open(parallelEdges, Render(parallelEdges).Descendants().Single(element =>
+            (string?)element.Attribute("data-dot-kind") == "edge" && (string?)element.Attribute("data-dot-label-text") == "First"))),
+            "deletes only the selected non-strict parallel edge");
+        Graph(parallelEdges, ["a", "b"], ["a->b"], "parallel-edge deletion retains endpoint identities and the other edge");
+        Check(Render(parallelEdges).Descendants().Single(element => (string?)element.Attribute("data-dot-kind") == "edge").Value.Contains("Second", StringComparison.Ordinal),
+            "parallel-edge deletion retains the other relationship's attributes");
+
         Console.WriteLine($"DOT structural editing passed {checks} integration checks.");
         return checks;
     }

@@ -137,6 +137,14 @@ internal static class DotCases
         var shared = Render("digraph { node[shape=record label=\"<p>Default|Value\"]; a; b; c,d[label=\"<p>Shared|Fields\"]; edge[label=<Shared <B>edge</B>> headlabel=<Head>]; a->b->c; }");
         Require(!shared.Descendants().Any(element => element.Attribute("data-edit-start") != null), "default and shared rich labels have no single-object leaf edits");
         Require((string?)Node(shared, "c").Attribute("data-dot-label-shared") == "true" && Edges(shared).All(element => (string?)element.Attribute("data-dot-label-shared") == "true"), "shared declarations and chains carry explicit edit provenance");
+        var reopened = Render("strict digraph { a->b->c[label=<Shared <B>edge</B>>]; a->b[color=red]; b->c[color=blue]; }");
+        Require(Edges(reopened).All(element => (string?)element.Attribute("data-dot-label-shared") == "true") &&
+            !reopened.Descendants().Any(element => element.Attribute("data-edit-start") != null),
+            "strict singleton redeclarations retain shared label ownership and suppress unsafe HTML leaf edits");
+        var independent = Render("strict digraph { a->b->c[label=<Shared <B>edge</B>>]; a->b[label=<Own <B>edge</B>>]; b->c[color=blue]; }");
+        Require(Edges(independent).All(element => element.Attribute("data-dot-label-shared") == null &&
+            element.Descendants().Any(child => (string?)child.Attribute("data-edit-kind") == "dot-html-text")),
+            "independently owned strict-edge labels retain safe HTML leaf editing after an explicit override");
     }
 
     private static void Images()

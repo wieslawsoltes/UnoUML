@@ -80,6 +80,26 @@ export async function verifyDotEditing(page, source) {
   assert.equal(await source.inputValue(),strict.replace('"First"','"Merged label"'));
   await merged.locator('text').filter({hasText:'Merged label'}).waitFor();
   assert.equal(await paper.locator('[data-dot-kind="edge"]').count(),1);
+  const sharedStrict = '@startdot\nstrict digraph { a->b->c[label=Shared]; a->b[color=red]; b->c[color=blue]; }\n@enddot';
+  await source.fill(sharedStrict);
+  const firstShared = paper.locator('[data-dot-from-id="a"][data-dot-to-id="b"]');
+  const secondShared = paper.locator('[data-dot-from-id="b"][data-dot-to-id="c"]');
+  await firstShared.locator('text').filter({hasText:'Shared'}).dblclick();
+  await editor.fill('Only AB');
+  await editor.press('Enter');
+  await firstShared.locator('text').filter({hasText:'Only AB'}).waitFor();
+  await secondShared.locator('text').filter({hasText:'Shared'}).waitFor();
+  assert.match(await source.inputValue(),/a->b->c\[label=Shared\]/);
+  await surface.press('Control+z');
+  assert.equal(await source.inputValue(),sharedStrict);
+  const sharedHtml = sharedStrict.replace('label=Shared','label=<Shared <B>edge</B>>');
+  await source.fill(sharedHtml);
+  await firstShared.locator('text').filter({hasText:'edge'}).waitFor();
+  assert.equal(await paper.locator('[data-dot-kind="edge"] [data-edit-start]').count(),0,
+    'A shared HTML label cannot expose a token edit that changes other edges');
+  await firstShared.locator('text').filter({hasText:'Shared'}).dblclick();
+  assert.equal(await editor.count(),0);
+  assert.equal(await source.inputValue(),sharedHtml);
   console.log('Verified DOT labels, escaped identities, implicit declarations, literal connection/retarget/delete handles, HTML/record cells and safe strict-merged edge editing.');
   await verifyDotStructure(page, source);
 }

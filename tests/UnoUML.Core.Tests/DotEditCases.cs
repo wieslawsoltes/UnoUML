@@ -30,7 +30,8 @@ internal static class DotEditCases
         Check(doc.ConnectDot(Open(a), Open(c), "Calls") && doc.Source.Contains("\"a\\\\path\" -> c [label=\"Calls\"]", StringComparison.Ordinal), "connects original identifiers");
         Check(doc.Undo() && doc.RetargetDot(Open(edge), Open(c), true) && doc.Source.Contains("c:port -> b [label=\"First\"]", StringComparison.Ordinal), "retargets exact endpoint and retains port");
         Check(doc.Undo() && doc.RenameDotObject(Open(edge), "Sends") && doc.Source == source.Replace("\"First\"", "\"Sends\"", StringComparison.Ordinal), "edits a relationship label");
-        Check(doc.Undo() && doc.RemoveDotEdge(Open(edge)) && doc.Source == source.Remove(aAt, edgeEnd - aAt), "removes one relationship without touching other statements");
+        Check(doc.Undo() && doc.RemoveDotEdge(Open(edge)) && doc.Source.Contains("\"a\\\\path\"; b;", StringComparison.Ordinal) &&
+            !doc.Source.Contains("->", StringComparison.Ordinal) && doc.Source.Contains("// keep", StringComparison.Ordinal), "removes one relationship while retaining endpoint declarations and comments");
         Check(doc.Undo() && doc.Source == source, "relationship edit undo restores comments and CRLF");
         var merged = Open(edge with { Merged = true });
         Check(!merged.CanEditConnection && !doc.RemoveDotEdge(merged) && !doc.RetargetDot(merged, Open(c), false) && doc.Source == source, "merged strict declarations cannot be partially deleted or reconnected");
@@ -59,7 +60,9 @@ internal static class DotEditCases
         int joinedName = concatenated.IndexOf("\"part\"", StringComparison.Ordinal), joinedLabel = concatenated.IndexOf("\"One\"", StringComparison.Ordinal);
         var joinedLocation = new DotSourceLocation { Id = "node:parttwo", Kind = "node", Name = "parttwo", Text = "One Two", NameStart = joinedName, NameLength = "\"part\" + \"two\"".Length,
             Start = joinedName, Length = concatenated.IndexOf(';') - joinedName, LabelStart = joinedLabel, LabelLength = "\"One\" + \" Two\"".Length, LabelKind = "quoted", Explicit = true, Directed = true };
-        Check(joined.RenameDotObject(joined.OpenDotObject(joinedLocation)!, "Joined") && joined.Source == concatenated.Replace("\"One\" + \" Two\"", "\"Joined\"", StringComparison.Ordinal), "replaces concatenated label tokens while retaining concatenated identifiers");
+        Check(joined.RenameDotObject(joined.OpenDotObject(joinedLocation)!, "Joined") && joined.Source.Contains("\"part\" + \"two\" [label=\"Joined\"", StringComparison.Ordinal) &&
+            !joined.Source.Contains("\" Two\"", StringComparison.Ordinal), "replaces concatenated label tokens while retaining concatenated identifiers");
+        Check(joined.Undo() && joined.Source == concatenated, "concatenated-label replacement undoes byte for byte");
         return checks + DotStructureCases.Run();
     }
 }

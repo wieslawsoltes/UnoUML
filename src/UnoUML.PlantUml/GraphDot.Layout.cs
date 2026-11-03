@@ -48,6 +48,7 @@ internal static partial class GraphRenderer
         dot.Root.Visual = DotAppearance(attributes, DotToken.Literal(""), dot.Root.Id, "", true);
         dot.Root.Visual.Label = DotMakeLabel(attributes.Token("label"), dot.Root.Visual.Font, dot.Root.Id);
         var nodeLabelOwners = dot.Nodes.Values.Where(node => node.LabelToken != null).GroupBy(node => node.LabelToken!.Value.Start).ToDictionary(group => group.Key, group => group.Count());
+        var edgeLabelOwners = dot.Edges.Where(edge => edge.LabelToken != null).GroupBy(edge => edge.LabelToken!.Value.Start).ToDictionary(group => group.Key, group => group.Count());
         var nodeStatements = dot.Nodes.Values.Where(node => node.Explicit).GroupBy(node => node.Span.Start).ToDictionary(group => group.Key, group => group.Count());
         var edgeStatements = dot.Edges.GroupBy(edge => edge.Span.Start).ToDictionary(group => group.Key, group => group.Count());
         foreach (var scope in dot.Scopes.Where(scope => scope.IsCluster))
@@ -103,7 +104,7 @@ internal static partial class GraphRenderer
         {
             edge.Visual = DotAppearance(edge.Attributes, DotToken.Literal(""), dot.Root.Id, "", edge: true,
                 tail: edge.From.Node.Id, head: edge.To.Node.Id, directed: dot.Directed);
-            edge.Visual.LabelShared = edgeStatements[edge.Span.Start] > 1;
+            edge.Visual.LabelShared = edgeStatements[edge.Span.Start] > 1 || edge.LabelToken is { } owned && edgeLabelOwners[owned.Start] > 1;
             if (edge.LabelToken == null || edge.Visual.LabelShared) SuppressDotLabelEditing(edge.Visual.Label);
             string label = edge.Attributes.Get("label");
             var font = edge.Visual.Font with
