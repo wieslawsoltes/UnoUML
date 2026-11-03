@@ -3,6 +3,7 @@ import { indexHits, parseSvg } from './svg.js';
 import { download, includeFiles, includeRevision } from './files.js';
 import { beginResourcePass, prepareResources } from './resources.js';
 export { readResource } from './resources.js';
+export { configureAccessibility, removeAccessibility } from './accessibility.js';
 export { openFile, saveFile, importIncludes, readInclude, listIncludes, updateInclude, openArchive, saveArchive, readArchive, readArchiveVersion, listArchives, updateArchive, downloadArchive } from './files.js';
 
 import { getServerEndpoint, getServerTransport, layoutOnServer } from './server.js';
@@ -214,10 +215,11 @@ class Viewport {
       this.marked = (id && this.index?.byId.get(id)) || this.index?.byLine.get(line) || null;
     this.outline(this.selection, this.marked);
   }
-  setAdditional(lines, text) {
+  setAdditional(values, text, byId = false) {
     this.clipboard = text;
     this.additional?.forEach(el => el.classList.remove('multi-mark'));
-    this.additional = lines ? lines.split(',').map(n => this.index?.byLine.get(Number(n))).filter(Boolean) : [];
+    this.additional = values ? values.split(',').map(value => byId
+      ? this.index?.byId.get(decodeURIComponent(value)) : this.index?.byLine.get(Number(value))).filter(Boolean) : [];
     this.additional.forEach(el => el.classList.add('multi-mark'));
   }
   hit(el, kind='select') {
@@ -259,7 +261,7 @@ class Viewport {
       if (event.key === 'Delete' || event.key === 'Backspace') action = 'delete';
       if (event.ctrlKey || event.metaKey) {
         if (event.key.toLowerCase() === 'd') action = 'duplicate';
-        if (event.key.toLowerCase() === 'g') action = 'group';
+        if (event.key.toLowerCase() === 'g') action = event.shiftKey ? 'ungroup' : 'group';
       }
       if (action) {
         event.preventDefault(); event.stopPropagation();
@@ -436,6 +438,7 @@ export async function exportDiagram(id, format, fileName) {
 }
 
 export function setAdditionalSelection(id, lines, clipboard) { views.get(id)?.setAdditional(lines, clipboard); }
+export function setAdditionalDotSelection(id, names, clipboard) { views.get(id)?.setAdditional(names, clipboard, true); }
 
 export function beginLabelEdit(id, label, revision, multiline = false, language = 'text') { return views.get(id)?.direct.beginLabel(label, revision, multiline, language) ?? false; }
 export function setConnectable(id, value) { const v = views.get(id); if (v) v.direct.port.hidden = !value; }

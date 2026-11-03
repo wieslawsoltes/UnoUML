@@ -32,6 +32,7 @@ public sealed partial class MainPage
     private void OnCanvasCommand(string action, string text)
     {
         if (renderedRevision != revision) return;
+        if (doc.Page.Family == "DOT" && action == "paste") { OnDotCanvasCommand(action, text); return; }
         if (JsonSelection != null)
         {
             Status("Double-click to edit this JSON field or use Source to change its structure.");
@@ -44,8 +45,7 @@ public sealed partial class MainPage
         }
         if (DotSelection is { } dot)
         {
-            if (action is "delete" or "cut") Edit(() => doc.RemoveDotEdge(dot), "Select a single literal DOT edge to delete it.");
-            else Status("Use the DOT toolbox and node connection handle to add graph objects.");
+            OnDotCanvasCommand(action, text);
             return;
         }
         var items = SelectionItems();

@@ -214,7 +214,8 @@ export async function verifyPorts(page) {
   assert.equal(await page.getByRole('textbox',{name:'Edit diagram label'}).count(),0);
   assert.equal(await source.inputValue(),input);
   await page.getByText('Edit imported include',{exact:true}).waitFor();
-  const includeEditor = page.locator('textarea').last();
+  const includeEditor = page.getByRole('textbox',{name:'Imported include source'});
+  await includeEditor.waitFor({state:'visible'});
   assert.equal(await includeEditor.inputValue(),originalInclude.replaceAll('\r\n','\n'));
   assert.equal(await includeEditor.evaluate(n => n.selectionStart),"' Imported model\n".length);
   await includeEditor.fill(changedInclude.replaceAll('\r\n','\n'));
@@ -223,6 +224,7 @@ export async function verifyPorts(page) {
   assert.equal(await source.inputValue(),input);
   await paper.locator('[data-qualified-name="IncludedInvoice"] text').filter({hasText:/^Invoice record$/}).first().click();
   await page.getByText('Edit included source…',{exact:true}).click();
+  await includeEditor.waitFor({state:'visible'});
   assert.equal(await includeEditor.inputValue(),changedInclude.replaceAll('\r\n','\n'));
   const [includedFile] = await Promise.all([
     page.waitForEvent('download'),

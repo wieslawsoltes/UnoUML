@@ -40,7 +40,12 @@ public sealed partial class MainPage
         }
         if (FieldSelection is { } field && mode != "Source")
         {
-            bool plain = field.Kind is "number" or "integer" or "date" or "boolean" or "json-scalar" or "chart-category" or "packet-label" ||
+            if (field.Kind == "salt-state")
+            {
+                ToggleSaltState(field);
+                return;
+            }
+            bool plain = field.Kind is "number" or "integer" or "date" or "boolean" or "json-scalar" or "chart-category" or "packet-label" or "timing-binary" ||
                 field.Kind.StartsWith("dot-", StringComparison.Ordinal) || doc.Page.Family == "Chart";
             if (viewport.BeginLabelEdit(field.Text, revision, field.Multiline, plain ? "text" : "creole")) editingSourceField = field;
             return;
@@ -164,6 +169,7 @@ public sealed partial class MainPage
     private void SelectCanvasRegion(DiagramHit[] hits, bool add)
     {
         if (renderedRevision != revision) return;
+        if (doc.Page.Family == "DOT") { SelectDotRegion(hits, add); return; }
         selectedGenerated = null; selectedJsonField = null; selectedSourceField = null; selectedDot = null;
         if (add && selected != null) additionalSelection.Add(selected);
         else if (!add) additionalSelection.Clear();

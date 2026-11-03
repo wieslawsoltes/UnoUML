@@ -129,8 +129,10 @@ public sealed partial class MainPage
         {
             SelectionType.Text = doc.Page.Family.ToUpperInvariant() + " " + literal.Role.ToUpperInvariant();
             SelectionTitle.Text = literal.Text;
-            Properties.Children.Add(Caption(literal.Kind is "number" or "integer" ? "Enter a numeric value." : "Edit the displayed value on the canvas. Its surrounding syntax and formatting are preserved."));
-            Properties.Children.Add(Item("Edit field…", "edit", () => BeginCanvasEdit(item)));
+            Properties.Children.Add(Caption(literal.Kind == "salt-state" ? "Double-click the indicator to change its checked state." :
+                literal.Kind is "number" or "integer" ? "Enter a numeric value." : "Edit the displayed value on the canvas. Its surrounding syntax and formatting are preserved."));
+            Properties.Children.Add(Item(literal.Kind == "salt-state" ? "Toggle checked state" : "Edit field…", "edit", () => BeginCanvasEdit(item)));
+            AddSaltFieldActions(literal);
         }
         else if (DotSelection is { } dot) ShowDotInspector(dot);
         else if (additionalSelection.Count > 0 && selected != null) ShowSelectionActions();
@@ -157,7 +159,7 @@ public sealed partial class MainPage
                 var rename = new TextBox { Style = (Style)Resources["Field"], AcceptsReturn = item.MultilineLabel,
                     Text = item.EditableLabel, PlaceholderText = labelCaption, MaxHeight = item.MultilineLabel ? 180 : double.PositiveInfinity,
                     TextWrapping = item.MultilineLabel ? TextWrapping.Wrap : TextWrapping.NoWrap };
-                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(rename, "Object display name");
+                BrowserAccessibility.SetName(rename, "Object display name");
                 Properties.Children.Add(rename);
                 Properties.Children.Add(Item("Apply label", "edit", () => EditProperty(item, () => doc.Rename(item, rename.Text))));
                 if (item.MultilineLabel || item.Kind == "Formula") Properties.Children.Add(Item("Edit on canvas…", "edit", () => BeginCanvasEdit(item)));
@@ -172,7 +174,7 @@ public sealed partial class MainPage
                     var swatch = new Button { Width = 26, Height = 24, MinWidth = 0, MinHeight = 0, BorderThickness = new Thickness(1),
                         Background = Brush((byte)(color >> 16), (byte)(color >> 8), (byte)color), CornerRadius = new CornerRadius(5),
                         BorderBrush = Brush(207, 204, 219), Padding = new Thickness(0) };
-                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(swatch, name + " fill");
+                    BrowserAccessibility.SetName(swatch, name + " fill");
                     ToolTipService.SetToolTip(swatch, name + " " + hex);
                     swatch.Click += (_, _) => EditProperty(item, () => doc.SetFill(item, hex));
                     palette.Children.Add(swatch);
@@ -253,11 +255,17 @@ public sealed partial class MainPage
     {
         var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = title, Content = content,
             PrimaryButtonText = accept, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
+        BrowserAccessibility.PrepareDialog(dialog);
         return await dialog.ShowAsync();
     }
 
-    TextBox StatementField(string text, string hint) => new() { AcceptsReturn = true, Text = text, PlaceholderText = hint,
-        TextWrapping = TextWrapping.Wrap, MinHeight = 100, MaxHeight = 250, IsSpellCheckEnabled = false, FontFamily = new FontFamily("monospace"), FontSize = 13 };
+    TextBox StatementField(string text, string hint)
+    {
+        var field = new TextBox { AcceptsReturn = true, Text = text, PlaceholderText = hint,
+            TextWrapping = TextWrapping.Wrap, MinHeight = 100, MaxHeight = 250, IsSpellCheckEnabled = false, FontFamily = new FontFamily("monospace"), FontSize = 13 };
+        BrowserAccessibility.SetName(field, hint);
+        return field;
+    }
 
     async Task EditStatementAsync(DiagramObject item)
     {

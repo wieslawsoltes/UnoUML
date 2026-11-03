@@ -81,4 +81,131 @@ export async function verifyDotEditing(page, source) {
   await merged.locator('text').filter({hasText:'Merged label'}).waitFor();
   assert.equal(await paper.locator('[data-dot-kind="edge"]').count(),1);
   console.log('Verified DOT labels, escaped identities, implicit declarations, literal connection/retarget/delete handles, HTML/record cells and safe strict-merged edge editing.');
+  await verifyDotStructure(page, source);
+}
+
+async function verifyDotStructure(page, source) {
+  await page.setViewportSize({width:1390,height:860});
+  const paper = page.locator('.paper').first(), surface = page.locator('.surface').first();
+  const node = id => paper.locator(`[data-dot-id=${JSON.stringify('node:' + id)}]`);
+  const load = async input => {
+    const previous = await paper.locator('svg').elementHandle();
+    await source.fill(input);
+    if (previous) await page.waitForFunction(svg => !svg.isConnected, previous);
+    await paper.locator('svg').waitFor();
+    assert.equal(await paper.getAttribute('data-renderer'),'managed');
+  };
+  const pair = async (first, second) => {
+    await node(first).click();
+    await node(second).click({modifiers:['Shift']});
+    await page.getByText('DOT MULTIPLE SELECTION',{exact:true}).waitFor();
+    assert.equal(await paper.locator('.multi-mark').count(),1);
+    assert.equal(await page.getByRole('button',{name:'Connect selected object',exact:true}).isVisible(),false);
+  };
+  const sourceValue = async value => page.waitForFunction(expected => [...document.querySelectorAll('textarea')].some(input => input.value === expected),value);
+  const original = '@startdot\ndigraph {\n node[shape=box,color=blue];\n a[label="Alpha"]; b[label="Beta"]; c[label="Outside"];\n a:out->b:in[label="Calls"]; a->c[label="External"];\n}\n@enddot';
+  await load(original);
+  await pair('a','b');
+  await surface.press('Control+d');
+  await node('aCopy').waitFor();
+  await node('bCopy').waitFor();
+  assert.equal(await paper.locator('[data-dot-kind="node"]').count(),5);
+  assert.equal(await paper.locator('[data-dot-kind="edge"]').count(),3);
+  assert.match(await source.inputValue(),/aCopy:out -> bCopy:in/);
+  await surface.press('Control+z');
+  await sourceValue(original);
+  await node('aCopy').waitFor({state:'detached'});
+
+  await pair('a','b');
+  await surface.press('Control+g');
+  await page.getByText('Group selected DOT nodes',{exact:true}).waitFor();
+  await page.locator('textarea:visible').last().fill('Canvas group');
+  await page.getByText('Group',{exact:true}).last().click();
+  const cluster = paper.locator('[data-dot-id="cluster:cluster_Group"]');
+  await cluster.locator('text').filter({hasText:'Canvas group'}).waitFor();
+  assert.match(await source.inputValue(),/label="Canvas group"/);
+  await cluster.locator('text').filter({hasText:'Canvas group'}).click();
+  await page.getByText('Ungroup cluster',{exact:true}).waitFor();
+  await surface.press('Control+Shift+g');
+  await cluster.waitFor({state:'detached'});
+  assert.equal(await paper.locator('[data-dot-kind="node"]').count(),3);
+  assert.match(await source.inputValue(),/cluster=false/);
+  await surface.press('Control+z');
+  await cluster.waitFor();
+  await surface.press('Control+z');
+  await sourceValue(original);
+  await cluster.waitFor({state:'detached'});
+
+  await node('a').click();
+  await surface.press('Delete');
+  await node('a').waitFor({state:'detached'});
+  assert.equal(await paper.locator('[data-dot-kind="node"]').count(),2);
+  assert.equal(await paper.locator('[data-dot-kind="edge"]').count(),0);
+  await surface.press('Control+z');
+  await sourceValue(original);
+  await node('a').waitFor();
+
+  await pair('a','b');
+  const copied = await surface.evaluate(element => {
+    const clipboardData = new DataTransfer();
+    element.dispatchEvent(new ClipboardEvent('copy',{clipboardData,bubbles:true,cancelable:true}));
+    return clipboardData.getData('text/plain');
+  });
+  assert.match(copied,/^@startdot\ndigraph/);
+  assert.match(copied,/a:out -> b:in/);
+  assert.doesNotMatch(copied,/outside|External/);
+  await surface.evaluate((element,text) => {
+    const clipboardData = new DataTransfer(); clipboardData.setData('text/plain',text);
+    element.dispatchEvent(new ClipboardEvent('paste',{clipboardData,bubbles:true,cancelable:true}));
+  },copied);
+  await node('a2').waitFor(); await node('b2').waitFor();
+  assert.equal(await paper.locator('[data-dot-kind="edge"]').count(),3);
+  await surface.press('Control+z');
+  await sourceValue(original);
+  await node('a2').waitFor({state:'detached'});
+
+  const chain = '@startdot\ndigraph { node[color=blue]; a -> b -> c -> d [color=red,label="Chain"]; }\n@enddot';
+  await load(chain);
+  await node('b').click(); await surface.press('Delete');
+  await node('b').waitFor({state:'detached'});
+  assert.equal(await paper.locator('[data-dot-kind="node"]').count(),3);
+  assert.equal(await paper.locator('[data-dot-from-id="c"][data-dot-to-id="d"]').count(),1);
+  assert.equal(await paper.locator('[data-dot-kind="edge"]').count(),1);
+  assert.equal(await paper.getAttribute('data-renderer'),'managed');
+
+  const sameLine = '@startdot\ndigraph { rankdir=LR; "a,b"[label="First"]; "x y"[label="Second"]; "a,b"->"x y"; }\n@enddot';
+  await load(sameLine);
+  await pair('a,b','x y');
+  await surface.press('Control+d');
+  await node('a,bCopy').waitFor(); await node('x yCopy').waitFor();
+  await surface.press('Control+z');
+  await sourceValue(sameLine);
+  await node('a,bCopy').waitFor({state:'detached'});
+  await surface.press('Escape');
+  const bounds = await Promise.all([node('a,b').boundingBox(),node('x y').boundingBox()]);
+  const left = Math.min(...bounds.map(box=>box.x))-8, top = Math.min(...bounds.map(box=>box.y))-8;
+  const right = Math.max(...bounds.map(box=>box.x+box.width))+8, bottom = Math.max(...bounds.map(box=>box.y+box.height))+8;
+  await page.keyboard.down('Shift');
+  await page.mouse.move(left,top); await page.mouse.down(); await page.mouse.move(right,bottom,{steps:8}); await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await page.getByText('DOT MULTIPLE SELECTION',{exact:true}).waitFor();
+  assert.equal(await paper.locator('.multi-mark').count(),1);
+  await surface.press('Delete');
+  await node('a,b').waitFor({state:'detached'});
+  await node('x y').waitFor({state:'detached'});
+  await surface.press('Control+z');
+  await sourceValue(sameLine);
+  await node('a,b').waitFor();
+
+  const product = '@startdot\ndigraph { subgraph cluster_left { a; } -> subgraph cluster_right { b; } [label="Product"]; }\n@enddot';
+  await load(product);
+  await node('a').click();
+  assert.equal(await page.getByText('Duplicate node',{exact:true}).count(),0);
+  await surface.press('Control+d');
+  assert.equal(await source.inputValue(),product);
+  await node('a').click(); await surface.press('Delete');
+  await node('a').waitFor({state:'detached'});
+  assert.equal(await paper.locator('[data-dot-kind="edge"]').count(),0);
+  await node('b').waitFor();
+  console.log('Verified DOT multi-selection, node deletion across chains/products, scoped duplication, grouping/ungrouping, copy/paste with collision remapping, same-line escaped identities and marquee selection.');
 }

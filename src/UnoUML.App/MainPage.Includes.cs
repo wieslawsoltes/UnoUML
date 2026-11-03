@@ -107,6 +107,7 @@ public sealed partial class MainPage
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Primary
             };
+            BrowserAccessibility.PrepareDialog(dialog);
             bool applied = false, persisted = false;
             dialog.PrimaryButtonClick += async (_, args) =>
             {

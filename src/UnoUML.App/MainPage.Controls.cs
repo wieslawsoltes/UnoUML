@@ -1,10 +1,10 @@
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.Foundation;
 using Windows.UI;
+using UnoUML.App.Rendering;
 
 namespace UnoUML.App;
 
@@ -94,7 +94,7 @@ public sealed partial class MainPage
         if (showLabel) row.Children.Add(new TextBlock { Text = title, FontSize = 13, Foreground = primary ? White : Ink, VerticalAlignment = VerticalAlignment.Center });
         var button = new Button { Content = row, Height = 32, MinWidth = 30, MinHeight = 0, Padding = new Thickness(showLabel ? 9 : 6, 3, showLabel ? 9 : 6, 3),
             BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(5), Background = primary ? Accent : Clear, VerticalContentAlignment = VerticalAlignment.Center };
-        AutomationProperties.SetName(button, title);
+        BrowserAccessibility.SetName(button, title);
         ToolTipService.SetToolTip(button, title);
         button.Click += (_, _) => action();
         return button;
@@ -104,6 +104,7 @@ public sealed partial class MainPage
     {
         var button = new Button { Content = title, MinWidth = 0, MinHeight = 0, Height = 28, FontSize = 12,
             Padding = new Thickness(8, 1, 8, 1), Foreground = Muted, Background = Clear, CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(0) };
+        BrowserAccessibility.SetName(button, title);
         button.Click += (_, _) => action();
         return button;
     }
@@ -127,7 +128,7 @@ public sealed partial class MainPage
         var button = new Button { Content = row, MinHeight = colored ? 34 : 27, MinWidth = 0, Background = Clear, BorderThickness = new Thickness(0),
             CornerRadius = new CornerRadius(5), Padding = new Thickness(5, 2, 5, 2), HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch };
-        AutomationProperties.SetName(button, title);
+        BrowserAccessibility.SetName(button, title);
         ToolTipService.SetToolTip(button, title);
         button.Click += (_, _) => action();
         return button;

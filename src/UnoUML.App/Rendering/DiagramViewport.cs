@@ -39,6 +39,11 @@ public sealed partial class DiagramViewport : ContentControl
         if (mounted) BrowserBridge.SetAdditionalSelection(HostId, lines, clipboard);
     }
 
+    public void SetAdditionalDotSelection(string names, string clipboard)
+    {
+        if (mounted) BrowserBridge.SetAdditionalDotSelection(HostId, names, clipboard);
+    }
+
     public event EventHandler<DiagramHit>? Hit;
     public event EventHandler<DiagramGesture>? Gesture;
     public event EventHandler<string>? DropSnippet;

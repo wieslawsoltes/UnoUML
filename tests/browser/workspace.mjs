@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { verifyAccessibility } from './accessibility.mjs';
 import { verifyPorts } from './ports.mjs';
 import { compareRenderers } from './managed.mjs';
 import { verifyStudioEditing } from './direct-editing.mjs';
@@ -6,10 +7,12 @@ import { verifyCompatibilityEditing } from './compat-editing.mjs';
 import { verifyArchiveImport, verifyArchiveAliasEditing } from './archive.mjs';
 import { verifyNativeCompatibility } from './native-compatibility.mjs';
 import { verifyTypedFields } from './typed-fields.mjs';
+import { verifySaltEditing } from './salt-editing.mjs';
+import { verifyYamlEditing } from './yaml-editing.mjs';
 import { verifyDotEditing } from './dot-editing.mjs';
 import { verifyImportedPageRouting } from './imported-editing.mjs';
 import { createReadStream } from 'node:fs';
-import { mkdir, stat } from 'node:fs/promises';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, resolve, sep } from 'node:path';
 import { chromium } from 'playwright';
@@ -38,8 +41,9 @@ const external = process.env.WORKSPACE_URL;
 if (!external && !process.argv[2]) throw new Error('Pass the published wwwroot directory or set WORKSPACE_URL');
 const server = external ? null : await servePublishedSite(resolve(process.argv[2]));
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, headless: true });
+let page;
 try {
-  const page = await browser.newPage({ viewport: { width: 1390, height: 860 }, colorScheme: 'light', acceptDownloads: true });
+  page = await browser.newPage({ viewport: { width: 1390, height: 860 }, colorScheme: 'light', acceptDownloads: true });
   const errors = [];
   page.setDefaultTimeout(35000);
   page.on('pageerror', error => errors.push(error.message));
@@ -59,14 +63,10 @@ try {
   assert.equal(await page.locator('.paper').first().getAttribute('data-renderer'), 'managed', 'The starter diagram must render in C#');
   assert.equal(page.frames().filter(f => f.url().includes('/uml/engine.html')).length, 0, 'The managed path must leave the JS engine unloaded');
   await screenshot('unouml-desktop');
-  await click('Split');
-  await page.locator('textarea:visible').first().waitFor();
+  const textbox = await verifyAccessibility(page);
   // Normal pointer clicks exercise the Uno native-host presenter and hit testing in the shadow SVG.
   await store.click();
   await page.getByText('Apply label', { exact: true }).waitFor();
-  const editor = await page.locator('textarea').evaluateAll(nodes => nodes.findIndex(node => node.value.startsWith('@startuml')));
-  assert.ok(editor >= 0, 'Source editor is available in Split view');
-  const textbox = page.locator('textarea').nth(editor);
   await verifyStudioEditing(page, textbox);
   const modified = (await textbox.inputValue()).replace('Place order', 'Confirm basket');
   await textbox.fill(modified);
@@ -90,6 +90,7 @@ try {
   await click('Diagrams');
   await click('Domain model');
   await page.locator('.paper [data-qualified-name="Order"]').first().waitFor({ timeout: 25000 });
+  await page.getByRole('combobox', { name: 'Diagram page', exact: true }).waitFor({ state: 'visible' });
   const node = name => page.locator(`.paper [data-qualified-name="${name}"] text`).filter({ hasText: new RegExp('^' + name + '$') }).first();
   const selectPair = async () => {
     await node('Order').click();
@@ -127,6 +128,8 @@ try {
   await verifyPorts(page);
   await verifyCompatibilityEditing(page, textbox);
   await verifyTypedFields(page, textbox);
+  await verifySaltEditing(page, textbox);
+  await verifyYamlEditing(page, textbox);
   await verifyDotEditing(page, textbox);
   await verifyArchiveImport(page, textbox);
   await verifyArchiveAliasEditing(page, textbox);
@@ -135,6 +138,15 @@ try {
   await compareRenderers(page);
   assert.deepEqual(errors, []);
   console.log('Passed published workspace startup, native hit testing, source edit, toolbox insertion, zoom, template pages, multi-select, duplicate and group, standard library search and inclusion, source download, mobile layout and draft restoration.');
+} catch (error) {
+  if (page && process.env.SCREENSHOT_DIR) {
+    try {
+      await mkdir(process.env.SCREENSHOT_DIR, { recursive: true });
+      await page.screenshot({ path: resolve(process.env.SCREENSHOT_DIR, 'unouml-failure.png') });
+      await writeFile(resolve(process.env.SCREENSHOT_DIR, 'unouml-failure.html'), await page.content());
+    } catch (captureError) { console.error('Could not capture workspace failure:', captureError); }
+  }
+  throw error;
 } finally {
   await browser.close();
   if (server) await new Promise(resolve => server.close(resolve));

@@ -31,6 +31,9 @@ public sealed partial class MainPage : Page
     public MainPage()
     {
         InitializeComponent();
+        BrowserAccessibility.Attach(SourceEditor);
+        BrowserAccessibility.Attach(SearchBox);
+        BrowserAccessibility.Attach(PagePicker);
         BuildCommands();
         ViewportHost.Children.Add(viewport);
         SourceEditor.SelectionChanged += (_, _) => OnSourceSelection();
@@ -363,7 +366,13 @@ public sealed partial class MainPage : Page
         selectedGenerated = null;
         SelectJsonField(hit.Token);
         SelectSourceField(hit.Field);
-        SelectDot(hit.Dot);
+        SelectDot(hit.Dot, hit.Kind == "toggle" && hit.Field == null);
+        if (hit.Kind == "toggle" && hit.Dot != null && hit.Field == null)
+        {
+            additionalSelection.Clear(); selected = null;
+            ShowInspector(); SyncCanvasSelection();
+            return;
+        }
         if (hit.Kind == "toggle" && JsonSelection == null && FieldSelection == null && DotSelection == null) { ToggleSelection(Resolve(hit)); return; }
         additionalSelection.Clear();
         selected = DotSelection == null ? Resolve(hit) : null;
@@ -378,15 +387,22 @@ public sealed partial class MainPage : Page
     void SyncCanvasSelection()
     {
         var dot = DotSelection;
+        var dotItems = DotSelectionItems();
         viewport.SetSelection(dot?.Location.Id ?? selected?.Alias ?? GeneratedSelection?.Id ?? "", selected == null ? GeneratedSelection?.Line ?? -1 : selected.Line - doc.Page.StartLine);
         if (JsonSelection != null) viewport.SelectJsonToken(jsonStart);
         if (FieldSelection != null) viewport.SelectJsonToken(fieldStart);
-        viewport.SetConnectable((dot?.IsConnectable == true || selected?.IsConnectable == true) && additionalSelection.Count == 0 && FieldSelection == null);
+        viewport.SetConnectable((dot?.IsConnectable == true || selected?.IsConnectable == true) && additionalSelection.Count == 0 && dotItems.Length <= 1 && FieldSelection == null);
         var edge = additionalSelection.Count == 0 && selected?.Kind == "Relationship" ? selected : null;
         if (edge != null && (doc.Find(edge.From)?.IsConnectable != true || doc.Find(edge.To)?.IsConnectable != true)) edge = null;
         viewport.SetEndpoints(dot?.CanEditConnection == true && dot.Location.FromId.Length > 0 ? "node:" + dot.Location.FromId : edge?.From ?? "",
             dot?.CanEditConnection == true && dot.Location.ToId.Length > 0 ? "node:" + dot.Location.ToId : edge?.To ?? "");
         var items = SelectionItems();
+        if (dot != null && FieldSelection == null)
+        {
+            viewport.SetAdditionalDotSelection(string.Join(",", additionalDots.Keys.Select(Uri.EscapeDataString)),
+                doc.CopyDotSelection(dotItems) ?? doc.Page.Source.Substring(dot.Location.Start, dot.Location.Length));
+            return;
+        }
         viewport.SetAdditionalSelection(string.Join(",", additionalSelection.Select(o => o.Line - doc.Page.StartLine)),
             JsonSelection is { } json ? doc.Source.Substring(json.Offset,json.Length) : FieldSelection is { } field && !(field.Kind == "activity-label" && selected?.Kind == "Activity") ? field.Text :
             dot != null ? doc.Page.Source.Substring(dot.Location.Start, dot.Location.Length) :

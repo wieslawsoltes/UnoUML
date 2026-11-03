@@ -143,6 +143,11 @@ export function indexHits(svg, source, exactSourceMap = false) {
       if (Number.isSafeInteger(start) && Number.isSafeInteger(length) && start >= 0 && (length > 0 || length === 0 && ['yaml-string','salt-text'].includes(kind)) &&
           start <= source.length - length && kind && ['label','key','value','member'].includes(role)) {
         hit.field = {start,length,kind,role};
+        if (kind === 'salt-state') {
+          const checked = /x/i.test(source.slice(start,start + length));
+          const caption = el.closest('.salt-widget')?.querySelector('text')?.textContent || 'control';
+          hit.label = (checked ? 'Checked ' : 'Unchecked ') + caption;
+        }
         byToken.set(start,el);
         if (el.localName === 'g') el.setAttribute('pointer-events', 'bounding-box');
       }

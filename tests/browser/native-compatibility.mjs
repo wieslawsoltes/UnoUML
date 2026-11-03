@@ -49,6 +49,9 @@ export async function verifyNativeCompatibility(page) {
       ['Nested YAML and measured styles', '@startyaml\n<style>\nyamlDiagram { node { FontSize 22; Padding 8; MaximumWidth 180 } }\n</style>\n- name: First\n  values: [same, same, 12]\n  note: >-\n    folded\n    text\n@endyaml', 'folded text', '[data-edit-kind="yaml-block"]'],
       ['JSON highlighting and rich labels', '@startjson\n#highlight "nested" / "label"\n{"nested":{"label":"**Rich** <math>sqrt x</math>","number":12}}\n@endjson', 'Rich', '[data-style-name="node highlight"]'],
       ['Measured Salt widgets', '@startsalt\n<style>\nbutton { FontSize 24; Padding 9 }\n</style>\n{\n[**Submit**] | "Account       "\n}\n@endsalt', 'Submit', '[data-edit-kind="salt-text"]'],
+      ['Nested Salt controls and popups', '@startsalt\n{+\n{/ General | Advanced }\n{^"Account"\nAccess | { [ ] Enabled | (X) Public }\nPlan | ^Basic^^Professional^^Enterprise^\n}\n{T# + Region | Count\n++ Europe | 12\n}\n{SI Notes\n.\n}\n}\n@endsalt', 'Enterprise', '[data-edit-kind="salt-state"]'],
+      ['Timing anchors and decorations', '@startuml\nmanual time-axis\nscale 1 as 40 pixels\nconcise "Data bus" as Bus\nbinary "Enabled" as Enable\n@0 as :start\nBus is Idle\nEnable is low\n@5 as :ready\nBus is "Data ready"\nEnable is high\nBus@:start <-> @:ready : Transfer time\nhighlight :start to :ready #Gold;line:DimGrey : Payload window\nnote top of Bus : Ready for transfer\n@enduml', 'Payload window', '.timing-constraint'],
+      ['YAML folded literals and directive boundaries', '@startyaml\nvalue:\n  &base literal\n  *base\n  !!str 42\n!custom: tagged\n@endyaml', '&base literal *base !!str 42', '[data-edit-kind="yaml-folded-text"]'],
       ['Extended TeX layout', '@startlatex\n\\begin{aligned} x &= \\textcolor{red}{\\frac{a}{b}} \\\\ y &= \\overbrace{a+b}^{n} \\end{aligned}\n@endlatex', 'a', 'svg'],
     ];
     for (const [name, source, expectedText, selector] of documents) {
@@ -60,6 +63,6 @@ export async function verifyNativeCompatibility(page) {
     }
     return output;
   });
-  assert.equal(results.length, 25);
+  assert.equal(results.length, 28);
   console.log('Verified native compatibility in published WebAssembly for ' + results.join(', ') + '.');
 }
