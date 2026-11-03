@@ -6,6 +6,7 @@
     <UnoSingleProject>true</UnoSingleProject>
     <UnoDisableHotDesign>true</UnoDisableHotDesign>
     <UnoFeatures>NativeRenderer</UnoFeatures>
+    <WindowsCompatibilityVersion>10.0.14</WindowsCompatibilityVersion>
     <ApplicationTitle>UnoUML</ApplicationTitle>
     <ApplicationId>io.github.wieslawsoltes.unouml</ApplicationId>
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
