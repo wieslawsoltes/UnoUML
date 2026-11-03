@@ -23,6 +23,7 @@ jobs:
           cache: npm
       - name: Test source editing
         run: |
+          node --test tests/publish-layout.mjs
           dotnet run --project tests/UnoUML.Core.Tests -c Release
           dotnet run --project tests/UnoUML.PlantUml.Tests -c Release
       - name: Pack the portable C# library
@@ -53,10 +54,12 @@ jobs:
           cp "$GITHUB_WORKSPACE/docs/packages/"*.nupkg packages/
           cp "$RUNNER_TEMP/packages/"*.nupkg packages/
           test -s packages/UnoUML.PlantUml.0.5.0.nupkg
+      - name: Stage immutable application assets
+        run: node scripts/stage-pages.mjs "$RUNNER_TEMP/site/wwwroot" "$RUNNER_TEMP/pages"
       - name: Exercise the published desktop and mobile workspace
         env:
           SCREENSHOT_DIR: ${{ runner.temp }}/workspace-checks
-        run: CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/workspace.mjs "$RUNNER_TEMP/site/wwwroot"
+        run: CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/workspace.mjs "$RUNNER_TEMP/pages"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -65,7 +68,7 @@ jobs:
           if-no-files-found: ignore
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: ${{ runner.temp }}/site/wwwroot
+          path: ${{ runner.temp }}/pages
   deploy:
     needs: browser
     runs-on: ubuntu-latest
