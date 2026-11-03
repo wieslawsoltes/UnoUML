@@ -32,8 +32,10 @@ public sealed record DotSourceLocation
 
 public sealed class DotObjectEdit
 {
-    internal DotObjectEdit(string document, int page, int offset, DotSourceLocation location, bool canRename, bool canEditConnection)
-        => (Document, Page, Offset, Location, CanRename, CanEditConnection) = (document, page, offset, location, canRename, canEditConnection);
+    internal DotObjectEdit(string document, int page, int offset, DotSourceLocation location, bool canRename, bool canEditConnection,
+        bool canRemove, bool canDuplicate, bool canUngroup)
+        => (Document, Page, Offset, Location, CanRename, CanEditConnection, CanRemove, CanDuplicate, CanUngroup) =
+            (document, page, offset, location, canRename, canEditConnection, canRemove, canDuplicate, canUngroup);
     internal string Document { get; }
     internal int Page { get; }
     public DotSourceLocation Location { get; }
@@ -41,6 +43,9 @@ public sealed class DotObjectEdit
     public string Text => Location.Text;
     public bool CanRename { get; }
     public bool CanEditConnection { get; }
+    public bool CanRemove { get; }
+    public bool CanDuplicate { get; }
+    public bool CanUngroup { get; }
     public bool IsConnectable => Location.Kind == "node";
 }
 
@@ -60,9 +65,13 @@ public sealed partial class StudioDocument
         if (location.Kind == "edge" && (!DotRange(location.ArrowStart, location.ArrowLength) ||
             Page.Source.Substring(location.ArrowStart, location.ArrowLength) is not ("->" or "--"))) return null;
         bool singleEdge = location.Kind == "edge" && SingleDotEdge(location);
+        bool editableEdge = singleEdge && !location.Merged && DotRange(location.FromStart, location.FromLength) && DotRange(location.ToStart, location.ToLength);
+        bool editableNode = DotStructure is { } syntax && DotNodeMatches(syntax, location);
+        bool editableCluster = DotStructure is { } parsed && DotCluster(parsed, location) != null;
         return new(Source, ActivePage, Index.Lines[Page.StartLine].Start + location.Start, location,
             location.Format == "text" && (location.Kind != "edge" || singleEdge),
-            singleEdge && !location.Merged && DotRange(location.FromStart, location.FromLength) && DotRange(location.ToStart, location.ToLength));
+            editableEdge, editableNode || editableCluster || editableEdge,
+            editableNode && CanDuplicateDotNode(DotStructure!, DotStructure!.Nodes[location.Name]), editableCluster);
     }
 
     public bool RenameDotObject(DotObjectEdit item, string label)

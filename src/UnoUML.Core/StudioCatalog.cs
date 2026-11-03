@@ -88,6 +88,14 @@ public static class StudioCatalog
         yield return new("Wireframe", "Checkbox", "[X] Checkbox", "Wireframe");
         yield return new("Wireframe", "Dropdown", "^Option^", "Wireframe");
         yield return new("Wireframe", "Radio button", "() Option", "Wireframe");
+        yield return new("Wireframe", "Group box", "{^\"Group\"\n    Name | \"Value       \"\n    [Apply]\n  }", "Wireframe");
+        yield return new("Wireframe", "Nested form", "{\n    (X) Public | () Private\n    [] Enabled | [] Verified\n  }", "Wireframe");
+        yield return new("Wireframe", "Spanning table", "{# Name | First | Second\n    Details | A spanning description | *\n  }", "Wireframe");
+        yield return new("Wireframe", "Tree table", "{T# + Name | Value\n    ++ Child | 12\n    +++ Detail | [Open]\n  }", "Wireframe");
+        yield return new("Wireframe", "Tabs", "{/ <b>General | Advanced | Saving }", "Wireframe");
+        yield return new("Wireframe", "Menu", "{* File | Edit\n    File | New | Open | - | Close }", "Wireframe");
+        yield return new("Wireframe", "Scroll area", "{S Text area\n    .\n    \"                    \"\n  }", "Wireframe");
+        yield return new("Wireframe", "Open dropdown", "^Basic^^Basic^^Professional^^Enterprise^", "Wireframe");
         yield return new("Data", "Property", "{id}: value", "YAML");
         yield return new("C4", "Person", "Person({id}, \"Person\", \"Description\")", "C4");
         yield return new("C4", "Software system", "System({id}, \"System\", \"Description\")", "C4");
@@ -162,6 +170,7 @@ public static class StudioCatalog
         Template("JSON", "JSON structure", "json", "{\n  \"service\": \"store\",\n  \"regions\": [\"eu\", \"us\"],\n  \"online\": true\n}"),
         Template("YAML", "Service configuration", "yaml", "service: checkout\nregions:\n  - Europe\n  - America"),
         Template("Wireframe", "Sign-in panel", "salt", "{\n  Sign in\n  User | \"Username      \"\n  () Remember me\n  [Submit]\n}"),
+        Template("Wireframe", "Settings panel", "salt", "{+\n  {/ <b>Account | Appearance | Advanced }\n  {^\"Account\"\n    Name | \"Ada           \"\n    Access | { (X) Public | () Private\n               [X] Notifications | [] Digest }\n    Plan | ^Professional^\n  }\n  {# Property | Value\n    Locale | Europe\n    Notes | Configured for this account }\n  [Cancel] | [Apply]\n}"),
         Template("Network", "Office network", "nwdiag", "nwdiag {\n  network office {\n    address = \"192.0.2.0/24\";\n    client [address = \"192.0.2.10\"];\n    server [address = \"192.0.2.20\"];\n  }\n}"),
         Template("EBNF", "Identifier grammar", "ebnf", "digit = \"0\" | \"1\";\nsequence = digit, { digit };"),
         Template("Regex", "Regular expression", "regex", "[A-Z][a-z]+"),

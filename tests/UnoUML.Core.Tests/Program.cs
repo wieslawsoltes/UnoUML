@@ -158,4 +158,6 @@ SequenceEditCases.Run(Check);
 BlockEditCases.Run(Check);
 assertions += ArchiveEditCases.Run();
 assertions += SourceFieldCases.Run();
+assertions += SaltEditCases.Run();
+assertions += YamlFieldCases.Run();
 Console.WriteLine($"PASS {assertions} assertions, {StudioCatalog.Templates.Count} templates, {StudioCatalog.Tools.Count} tools.");

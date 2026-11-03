@@ -17,7 +17,7 @@ public sealed class SourceFieldEdit
     public string Kind { get; }
     public string Role { get; }
     public string Text { get; }
-    public bool Multiline => Kind == "yaml-block" || Text.IndexOfAny(['\r', '\n']) >= 0;
+    public bool Multiline => Kind is "yaml-block" or "yaml-folded-text" || Text.IndexOfAny(['\r', '\n']) >= 0;
 }
 
 public sealed partial class StudioDocument
@@ -31,10 +31,10 @@ public sealed partial class StudioDocument
         int body = first.Code.TrimStart('\ufeff', ' ', '\t').StartsWith("@start", StringComparison.OrdinalIgnoreCase) ? first.Next - pageStart : 0;
         int end = last.Code.TrimStart().StartsWith("@end", StringComparison.OrdinalIgnoreCase) ? last.Start - pageStart : Page.Source.Length;
         if (start < body || start + length > end) return null;
-        if (kind.StartsWith("yaml-", StringComparison.Ordinal) && Page.Family != "YAML" || kind == "salt-text" && Page.Family != "Wireframe" ||
+        if (kind.StartsWith("yaml-", StringComparison.Ordinal) && Page.Family != "YAML" || kind.StartsWith("salt-", StringComparison.Ordinal) && Page.Family != "Wireframe" ||
             kind.StartsWith("dot-", StringComparison.Ordinal) && Page.Family != "DOT" || kind == "chart-category" && Page.Family != "Chart" ||
             kind == "packet-label" && Page.Family != "Packet" || kind == "activity-label" && Page.Family is not ("Activity" or "UML") ||
-            kind == "timing-state" && Page.Family is not ("Timing" or "UML")) return null;
+            kind is "timing-state" or "timing-binary" && Page.Family is not ("Timing" or "UML")) return null;
         string token = Page.Source.Substring(start, length);
         int lineStart = start;
         while (lineStart > 0 && Page.Source[lineStart - 1] is not ('\r' or '\n')) lineStart--;
@@ -43,8 +43,7 @@ public sealed partial class StudioDocument
             var before = Page.Source.AsSpan(lineStart, start - lineStart).Trim();
             if (!before.EndsWith(":") && !before.SequenceEqual("-")) return null;
         }
-        int indent = 0;
-        while (lineStart + indent < Page.Source.Length && Page.Source[lineStart + indent] == ' ') indent++;
+        int indent = YamlBlockParentIndent(Page.Source[lineStart..start]);
         string? text = kind == "yaml-block" ? DecodeYamlBlock(token, indent) : DecodeField(token, kind);
         return text == null ? null : new(Source, ActivePage, pageStart + start, length, kind, role, text);
     }
@@ -54,7 +53,14 @@ public sealed partial class StudioDocument
         ArgumentNullException.ThrowIfNull(text);
         if (!ReferenceEquals(edit.Document, Source) || edit.Page != ActivePage || text == edit.Text || text.Length > 65536 ||
             text.Any(c => char.IsControl(c) && c is not ('\t' or '\r' or '\n'))) return false;
-        string? replacement = edit.Kind == "activity-label" ? EncodeActivityLabel(edit, text) : EncodeField(text, edit.Kind);
+        if (edit.Kind == "salt-text") return ApplySaltTextField(edit, text);
+        string? replacement = edit.Kind switch
+        {
+            "activity-label" => EncodeActivityLabel(edit, text),
+            "salt-state" => EncodeSaltState(edit, text),
+            "yaml-folded-text" => EncodeYamlFoldedText(edit, text),
+            _ => EncodeField(text, edit.Kind)
+        };
         if (replacement == null || DecodeField(replacement, edit.Kind == "yaml-block" ? "yaml-double" : edit.Kind) == null) return false;
         if (edit.Kind == "yaml-block")
         {
@@ -69,7 +75,6 @@ public sealed partial class StudioDocument
                 replacement += (padding == comment ? " " : "") + header[padding..].ToString();
             }
         }
-        if (edit.Kind == "salt-text" && edit.Length == 0 && edit.Offset > 0 && Source[edit.Offset - 1] is ']' or ')') replacement = " " + replacement;
         if (edit.Kind == "yaml-string" && edit.Length == 0)
         {
             if (edit.Offset > 0 && Source[edit.Offset - 1] is ':' or '-') replacement = " " + replacement;
@@ -82,6 +87,7 @@ public sealed partial class StudioDocument
     {
         switch (kind)
         {
+            case "yaml-folded-text": return DecodeYamlFoldedText(token);
             case "yaml-double":
             case "json-string":
                 try { using var json = JsonDocument.Parse(token); return json.RootElement.ValueKind == JsonValueKind.String ? json.RootElement.GetString() : null; }
@@ -142,7 +148,13 @@ public sealed partial class StudioDocument
                 return string.Join("\n", token.ReplaceLineEndings("\n").Split('\n').Select(line => line.Trim())).Replace("\\n", "\n", StringComparison.Ordinal);
             case "timing-state":
                 return DecodeField(token, token.StartsWith('"') ? "quoted" : "text");
+            case "timing-binary":
+                string? binary = DecodeField(token, token.StartsWith('"') ? "quoted" : "text");
+                return binary?.ToLowerInvariant() is "0" or "1" or "low" or "high" or "down" ? binary : null;
+            case "salt-state":
+                return token switch { "[X]" or "[x]" or "(X)" or "(x)" => "true", "[]" or "[ ]" or "()" or "( )" => "false", _ => null };
             case "salt-text":
+                return token.IndexOfAny(['\r', '\n']) < 0 ? DecodeSaltText(token).Replace("\\n", "\n", StringComparison.Ordinal) : null;
             case "chart-category":
             case "packet-label":
             case "text":
@@ -175,8 +187,8 @@ public sealed partial class StudioDocument
                 }
                 return record.ToString();
             case "salt-text":
-                if (text.IndexOfAny(['|', '{', '}', '[', ']', '^', '"', '\r', '\n']) >= 0) return null;
-                return text;
+                if (text.IndexOfAny(['[', ']', '^', '"']) >= 0 || text is "*" or "." || text.TrimStart().StartsWith('@') || text.TrimStart().StartsWith('!')) return null;
+                return text.Replace("|", "\\|", StringComparison.Ordinal).Replace("{", "\\{", StringComparison.Ordinal).Replace("}", "\\}", StringComparison.Ordinal).ReplaceLineEndings("\\n");
             case "chart-category":
                 return text.Length is > 0 and <= 1024 && text == text.Trim() && text.IndexOfAny([',', '[', ']', '"', '\r', '\n']) < 0 ? text : null;
             case "packet-label":
@@ -184,6 +196,8 @@ public sealed partial class StudioDocument
             case "timing-state":
                 if (string.IsNullOrWhiteSpace(text)) return null;
                 return text.All(c => char.IsLetter(c) || char.IsNumber(c) || c is '_' or '.' or '+' or '-') ? text : EncodeField(text, "quoted");
+            case "timing-binary":
+                return text.ToLowerInvariant() is "0" or "1" or "low" or "high" or "down" ? text : null;
             case "text":
                 if (text.TrimStart().StartsWith('@') || text.TrimStart().StartsWith('!')) return null;
                 return text.ReplaceLineEndings("\\n");
@@ -228,10 +242,10 @@ public sealed partial class StudioDocument
         if (rows.Length == 1) return "";
         if (indent == 0)
         {
-            indent = rows.Skip(1).Where(row => row.Trim().Length > 0).Select(row => row.Length - row.TrimStart(' ').Length).DefaultIfEmpty(-1).Min();
-            if (indent < 0) indent = rows.Skip(1).Select(row => row.Length - row.TrimStart(' ').Length).DefaultIfEmpty(parentIndent + 1).Max();
+            indent = rows.Skip(1).Where(row => row.Trim().Length > 0).Select(YamlIndent).DefaultIfEmpty(-1).Min();
+            if (indent < 0) indent = rows.Skip(1).Select(YamlIndent).DefaultIfEmpty(parentIndent + 1).Max();
         }
-        var content = rows.Skip(1).Select(row => row.Length >= indent ? row[indent..] : row.Trim().Length == 0 ? "" : null).ToArray();
+        var content = rows.Skip(1).Select(row => StripYamlIndent(row, indent)).ToArray();
         if (content.Any(row => row == null)) return null;
         var value = new StringBuilder();
         for (int i = 0; i < content.Length; i++)

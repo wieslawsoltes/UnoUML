@@ -197,6 +197,7 @@ public sealed partial class StudioDocument
             string id = NewAlias(string.Concat(tool.Name.Where(char.IsLetterOrDigit)));
             expanded = expanded.Replace("{id}", id, StringComparison.Ordinal);
         }
+        if (Page.Family == "Wireframe" && tool.Group == "Wireframe") return InsertSaltWidget(expanded);
         if (Page.Family == "Ditaa") return Insert(Index.NewLine + expanded); // separate grids by an empty row
         if (Page.Family == "DOT" && tool.Group == "Topology")
         {

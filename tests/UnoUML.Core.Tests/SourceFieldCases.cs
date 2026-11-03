@@ -93,6 +93,14 @@ internal static class SourceFieldCases
         var state = timing.OpenSourceField(timing.Source.IndexOf("Idle", StringComparison.Ordinal), 4, "timing-state", "value")!;
         Check(timing.ApplySourceField(state, "Working now: ready") && timing.Source == timingBefore.Replace("Idle", "\"Working now: ready\"", StringComparison.Ordinal), "quotes timing states containing spaces or annotation delimiters");
         Check(timing.Undo() && timing.Source == timingBefore, "timing state quote rewrite undoes atomically");
+        foreach (string value in new[] { "0", "1", "Low", "HIGH", "down", "\"low\"" })
+        {
+            var binary = new StudioDocument("@startuml\nbinary Enable\n@0\nEnable is " + value + "\n@enduml");
+            string before = binary.Source;
+            var binaryField = binary.OpenSourceField(before.IndexOf("is ", StringComparison.Ordinal) + 3, value.Length, "timing-binary", "value")!;
+            Check(!binary.ApplySourceField(binaryField, "unavailable") && !binary.ApplySourceField(binaryField, "2") && binary.Source == before, "binary values reject invalid states atomically");
+            Check(binary.ApplySourceField(binaryField, binaryField.Text == "1" ? "0" : "1") && binary.Undo() && binary.Source == before, "binary aliases and quoted values have atomic undo");
+        }
         const string activitySource = "\ufeff@startuml\r\nstart\r\n  #lightblue: First line\r\n    **Second line**  ; <<procedure>> <<important>>\r\nstop\r\n@enduml";
         var activity = new StudioDocument(activitySource);
         int actionAt = activitySource.IndexOf("First line", StringComparison.Ordinal), actionEnd = activitySource.IndexOf("  ;", StringComparison.Ordinal);

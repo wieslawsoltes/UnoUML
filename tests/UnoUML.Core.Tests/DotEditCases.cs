@@ -60,6 +60,6 @@ internal static class DotEditCases
         var joinedLocation = new DotSourceLocation { Id = "node:parttwo", Kind = "node", Name = "parttwo", Text = "One Two", NameStart = joinedName, NameLength = "\"part\" + \"two\"".Length,
             Start = joinedName, Length = concatenated.IndexOf(';') - joinedName, LabelStart = joinedLabel, LabelLength = "\"One\" + \" Two\"".Length, LabelKind = "quoted", Explicit = true, Directed = true };
         Check(joined.RenameDotObject(joined.OpenDotObject(joinedLocation)!, "Joined") && joined.Source == concatenated.Replace("\"One\" + \" Two\"", "\"Joined\"", StringComparison.Ordinal), "replaces concatenated label tokens while retaining concatenated identifiers");
-        return checks;
+        return checks + DotStructureCases.Run();
     }
 }
