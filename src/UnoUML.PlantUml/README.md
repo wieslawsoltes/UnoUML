@@ -21,10 +21,10 @@ if (PlantUmlRenderer.TryRender(source, out var diagram))
 }
 ```
 
-Reference the project directly or download the package into a local NuGet source. [UnoUML.PlantUml.0.4.0.nupkg](https://wieslawsoltes.github.io/UnoUML/packages/UnoUML.PlantUml.0.4.0.nupkg)
+Reference the project directly or download the package into a local NuGet source. [UnoUML.PlantUml.0.5.0.nupkg](https://wieslawsoltes.github.io/UnoUML/packages/UnoUML.PlantUml.0.5.0.nupkg)
 
 ```sh
-dotnet add package UnoUML.PlantUml --version 0.4.0 --source ./packages
+dotnet add package UnoUML.PlantUml --version 0.5.0 --source ./packages
 ```
 
 Build a local package with `dotnet pack src/UnoUML.PlantUml -c Release`.
@@ -46,6 +46,10 @@ Integrated graph, sequence, mind-map/WBS and Creole painters support HTML and Cr
 Rich labels can embed native `<math>` and `<latex>` vectors. The formula layout supports fractions, roots, scripts, large operators, aligned arrays, colors, annotations, accents, braces, cancellation, mathematical alphabets and phantom spacing. YAML supports nested collections, quoted keys, comments, literal/folded strings and path highlighting. DOT supports scoped defaults, strict edge merging, subgraphs, nested clusters, rank constraints, ports, record labels, HTML tables, common shapes, compound arrows, gradients and hyperlinks.
 
 Literal JSON, YAML, Salt, DOT, chart, packet, timing and activity fields carry exact UTF-16 token ranges for canvas editing, including BOM-prefixed inputs and CR/LF line endings. Generated statements retain their physical-source provenance, while exact token metadata is emitted only when it maps to the source being edited.
+
+Salt uses a bounded recursive parser and intrinsic layout for nested grids, titled groups, horizontal spans, separators, tree tables, tabs, menus and scroll areas. Open menus and dropdowns paint in a separate pass over the grid, with their drawn extents included in the SVG dimensions. Widget captions, group titles, tree labels, menu items and checkbox/radio markers expose separate exact token ranges. The editor uses these ranges for label changes, direct state toggles and dropdown selection.
+
+Timing supports robust, concise, rectangle, binary, analog and clock tracks with exact decimal and relative times, participant-oriented transitions, named anchors, clock references, date/hour axes, manual axes and explicit scale. State definitions, notes, constraints, highlights and messages use measured layout. Message endpoints follow the waveform, including analog interpolation before the first timed sample. The parser and layout bound track, transition and image sizes and decline inputs that exceed those limits.
 
 ## Multi-page sequences
 
@@ -117,7 +121,7 @@ Dynamic library expansion executes TIM once and records a native C4/ArchiMate la
 
 ## Compatibility boundaries
 
-The application also supplies the official JavaScript renderer and an optional JVM endpoint. Non-dot Graphviz engines, overlapping clusters, some HTML-table and graph-layout attributes, extended TeX packages, YAML anchors/tags, nested Salt forms, wider diagram-specific grammars and some layout-sensitive style combinations remain on those paths. Native geometry uses the library's own layout and generic font measurements. Complete upstream language and layout parity remains unfinished. Regression counts describe exercised fixtures and edits.
+The application also supplies the official JavaScript renderer and an optional JVM endpoint. Non-dot Graphviz engines, overlapping clusters, some HTML-table and graph-layout attributes, extended TeX packages, wider diagram-specific grammars and some layout-sensitive style combinations remain on those paths. YAML anchor-, alias- and tag-looking values follow the pinned PlantUML parser's literal-text behavior. Native geometry uses the library's own layout and generic font measurements. Complete upstream language and layout parity remains unfinished. Regression counts describe exercised fixtures and edits.
 
 Localized timezone display names are pinned to the OpenJDK 17.0.20 catalog across 1,015 locale tags and 632 zone IDs. Other date fields honor the supplied `CultureInfo`. UTC offsets and historical transitions follow the host CLR `TimeZoneInfo` database. Regenerate the portable catalog with `java -Xmx512m scripts/GenerateTimezoneCatalog.java` using that pinned runtime.
 

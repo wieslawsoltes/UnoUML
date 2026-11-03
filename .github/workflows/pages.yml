@@ -52,9 +52,17 @@ jobs:
           mkdir -p packages
           cp "$GITHUB_WORKSPACE/docs/packages/"*.nupkg packages/
           cp "$RUNNER_TEMP/packages/"*.nupkg packages/
-          test -s packages/UnoUML.PlantUml.0.4.0.nupkg
+          test -s packages/UnoUML.PlantUml.0.5.0.nupkg
       - name: Exercise the published desktop and mobile workspace
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/workspace-checks
         run: CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/workspace.mjs "$RUNNER_TEMP/site/wwwroot"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workspace-checks
+          path: ${{ runner.temp }}/workspace-checks/
+          if-no-files-found: ignore
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ${{ runner.temp }}/site/wwwroot
