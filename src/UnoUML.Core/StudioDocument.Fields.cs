@@ -157,12 +157,12 @@ public sealed partial class StudioDocument
         {
             case "json-string":
             case "yaml-block":
-            case "yaml-double": return JsonSerializer.Serialize(text);
+            case "yaml-double": return "\"" + JsonEncodedText.Encode(text) + "\"";
             case "yaml-quoted": return text.IndexOfAny(['\r', '\n']) < 0 ? "'" + text.Replace("'", "''", StringComparison.Ordinal) + "'" : null;
             case "yaml-string":
                 if (text.Length == 0 || text != text.Trim() || "!&*%|>{}[]@`#\"'".Contains(text[0]) || text.Contains(": ", StringComparison.Ordinal) ||
                     text.Contains(" #", StringComparison.Ordinal) || text.StartsWith("- ", StringComparison.Ordinal) || text.StartsWith("? ", StringComparison.Ordinal) ||
-                    text.EndsWith(':') || text.IndexOfAny(['\r', '\n', ',', '[', ']', '{', '}']) >= 0) return JsonSerializer.Serialize(text);
+                    text.EndsWith(':') || text.IndexOfAny(['\r', '\n', ',', '[', ']', '{', '}']) >= 0) return "\"" + JsonEncodedText.Encode(text) + "\"";
                 return text;
             case "quoted": return "\"" + text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal).ReplaceLineEndings("\\n") + "\"";
             case "dot-html-text": return WebUtility.HtmlEncode(text).ReplaceLineEndings("&#10;");

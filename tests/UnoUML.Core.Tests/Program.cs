@@ -19,12 +19,15 @@ if (args.Contains("--catalog"))
     return;
 }
 
+// Match the reflection-free JSON contract of the trimmed browser build.
+AppContext.SetSwitch("System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault", false);
 int assertions = 0;
 void Check(bool condition, string name)
 {
     if (!condition) throw new Exception(name);
     assertions++;
 }
+Check(!JsonSerializer.IsReflectionEnabledByDefault, "JSON reflection is disabled for editing regressions");
 
 const string source = "\uFEFF' header\r\n@startuml first\r\nclass \"Shopping cart\" as Cart #red {\r\n  +id : int\r\n}\r\nclass Order\r\nCart --> Order : create\r\n' untouched   \r\n@enduml\r\n\r\n@startmindmap\n* Roadmap\n** Alpha\n@endmindmap\n";
 var doc = new StudioDocument(source);
