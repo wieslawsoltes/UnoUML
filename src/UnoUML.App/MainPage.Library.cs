@@ -10,6 +10,7 @@ public sealed partial class MainPage
 {
     string? libraryFamily;
     bool includeSourceInOutline;
+    int dialogGeneration, activeDialogs;
 
     void ShowLibrary()
     {
@@ -256,7 +257,14 @@ public sealed partial class MainPage
         var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = title, Content = content,
             PrimaryButtonText = accept, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
         BrowserAccessibility.PrepareDialog(dialog);
-        return await dialog.ShowAsync();
+        return await ShowDialogAsync(dialog);
+    }
+
+    async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog)
+    {
+        dialogGeneration++; activeDialogs++;
+        try { return await dialog.ShowAsync(); }
+        finally { activeDialogs--; dialogGeneration++; }
     }
 
     TextBox StatementField(string text, string hint)

@@ -144,6 +144,9 @@ public sealed partial class MainPage
         if (resourceHistoryBusy) return;
         resourceHistoryBusy = true; SourceEditor.IsReadOnly = true;
         var owner = doc;
+        int ownerRevision = revision, ownerRenderedRevision = renderedRevision, ownerPage = doc.ActivePage;
+        int ownerDialogGeneration = dialogGeneration;
+        var originSelection = GeneratedSelection;
         var initial = edit.Document.Fork();
         try
         {
@@ -152,9 +155,18 @@ public sealed partial class MainPage
             var result = await BrowserIncludes.UpdateAsync(edit.Origin.Path, initial.Source, edit.Document.Source, edit.Origin.Archive);
             if (!result.Updated)
             {
-                Status("The imported source changed. Copy your label before reopening its current version.", true);
-                if (viewport.BeginLabelEdit(label, revision, edit.Item.MultilineLabel, edit.Item.EditorLanguage))
+                // Selection, page navigation and dialogs remain available while the resource write is pending.
+                // Recover the draft only on the same rendered object that initiated the update.
+                string language = edit.Item.EditorLanguage == "text" ? "creole" : edit.Item.EditorLanguage;
+                bool recovered = ReferenceEquals(owner, doc) && revision == ownerRevision && renderedRevision == ownerRenderedRevision &&
+                    renderedRevision == revision && doc.ActivePage == ownerPage && mode != "Source" &&
+                    dialogGeneration == ownerDialogGeneration && activeDialogs == 0 &&
+                    originSelection != null && ReferenceEquals(originSelection, GeneratedSelection) && editingCanvasLabel == null &&
+                    viewport.BeginLabelEdit(label, ownerRevision, edit.Item.MultilineLabel, language);
+                if (recovered)
                     editingCanvasLabel = new ImportedLabelEdit(edit with { Document = initial, Item = initial.Find(edit.Item.Alias, edit.Item.Line)! });
+                Status(recovered ? "The imported source changed. Copy your label before reopening its current version." :
+                    "The imported source changed. Its current version was kept, and your label was not applied.", true);
                 return;
             }
             includeHistory[edit.Origin.Key] = edit.Document;

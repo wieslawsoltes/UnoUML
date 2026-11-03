@@ -131,7 +131,7 @@ public sealed partial class MainPage
                 catch (Exception error) { errorMessage.Text = error.Message; }
                 finally { field.IsEnabled = true; UpdateHistory(); deferral.Complete(); }
             };
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary || !applied) return;
+            if (await ShowDialogAsync(dialog) != ContentDialogResult.Primary || !applied) return;
             selectedGenerated = null; revision++;
             Refresh(); await RenderPageAsync();
             Status(persisted ? $"Updated {origin}" : $"Updated {origin} for this session. Download to retain a separate copy.");
