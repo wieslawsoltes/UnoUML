@@ -98,7 +98,11 @@ export class CanvasScene {
       const routes=geometry.filter(r=>r.length>=longest.length*.94);
       const paths=routes.map(({el:old})=>{
         const path=document.createElementNS(ns,'path');
-        for(const attribute of old.attributes) if(!['points','x1','x2','y1','y2','d','transform'].includes(attribute.name)) path.setAttribute(attribute.name,attribute.value);
+        for(const attribute of old.attributes) if(!['points','x1','x2','y1','y2'].includes(attribute.name)) path.setAttribute(attribute.name,attribute.value);
+        // The standalone viewport can render before a native layout snapshot
+        // arrives. Retain a complete original route throughout that interval.
+        if(old.localName==='line') path.setAttribute('d',`M${old.x1.baseVal.value},${old.y1.baseVal.value}L${old.x2.baseVal.value},${old.y2.baseVal.value}`);
+        else if(old.localName==='polyline') path.setAttribute('d',routePath([...old.points].map(p=>({x:p.x,y:p.y})),'polyline'));
         old.replaceWith(path); path.setAttribute('vector-effect','non-scaling-stroke');
         return path;
       });

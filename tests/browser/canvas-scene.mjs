@@ -17,6 +17,9 @@ export async function verifyCanvasSceneIdentity(page,render) {
     assert.deepEqual(pairs(state.edges),expected.map(pair=>JSON.stringify(pair)).sort(),`Compatibility endpoints retain ${name}`);
     assert.equal(new Set(state.edges.map(edge=>edge.id)).size,state.edges.length,'Each parallel, reversed and self connector has its own canvas identity');
     assert.ok(state.edges.every(edge=>state.nodes.some(node=>node.id===edge.source)&&state.nodes.some(node=>node.id===edge.target)&&edge.waypoints.length>=2));
+    assert.equal(await page.locator('g.link[data-canvas-edge]').evaluateAll(groups=>groups.filter(group=>
+      [...group.querySelectorAll('path')].some(path=>path.getTotalLength()>0)).length),state.edges.length,
+      'A standalone render retains visible routes before a native layout snapshot arrives');
     const moved=structuredClone(state);
     for(const node of moved.nodes){node.x+=43;node.y-=17;}
     for(const edge of moved.edges)for(const point of edge.waypoints){point.x+=43;point.y-=17;}
