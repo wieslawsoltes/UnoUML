@@ -253,7 +253,8 @@ public sealed partial class StudioDocument
         builder.Append(text);
     }
 
-    private readonly record struct DotChange(int Start, int End, string Text);
+    private readonly record struct DotEdgeOrigin(int Offset, DotSyntax.Edge Edge);
+    private readonly record struct DotChange(int Start, int End, string Text, IReadOnlyList<DotEdgeOrigin>? Edges = null);
 
     private static void RemoveDotTokens(DotSyntax syntax, List<DotChange> changes, int start, int end, string replacement)
     {
@@ -286,10 +287,15 @@ public sealed partial class StudioDocument
         var ordered = changes.OrderBy(change => change.Start).ThenBy(change => change.End).ToArray();
         int at = 0;
         var output = new StringBuilder(syntax.Source.Length);
+        var generatedEdges = new Dictionary<int, DotSyntax.Edge>();
         foreach (var change in ordered)
         {
             if (change.Start < at || change.End < change.Start || change.End > syntax.Source.Length) return false;
-            output.Append(syntax.Source, at, change.Start - at).Append(change.Text);
+            output.Append(syntax.Source, at, change.Start - at);
+            if (change.Edges != null)
+                foreach (var origin in change.Edges)
+                    if (!generatedEdges.TryAdd(output.Length + origin.Offset, origin.Edge)) return false;
+            output.Append(change.Text);
             at = change.End;
             if (output.Length > 1_048_576) return false;
         }
@@ -300,6 +306,7 @@ public sealed partial class StudioDocument
         while (start < oldEnd && start < newEnd && syntax.Source[start] == source[start]) start++;
         while (oldEnd > start && newEnd > start && syntax.Source[oldEnd - 1] == source[newEnd - 1]) { oldEnd--; newEnd--; }
         string replacement = source[start..newEnd];
-        return CommitCanvasSourceEdit(document => document.PatchDot(start, oldEnd - start, replacement), canvas == null ? null : layout => canvas(layout, next));
+        return CommitCanvasSourceEdit(document => document.PatchDot(start, oldEnd - start, replacement),
+            layout => canvas != null ? canvas(layout, next) : RemapDotCanvasEdits(layout, syntax, next, ordered, generatedEdges));
     }
 }

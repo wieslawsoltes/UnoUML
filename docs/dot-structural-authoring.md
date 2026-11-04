@@ -144,6 +144,16 @@ cluster groups expose `data-canvas-parent` for their direct owning cluster,
 skipping non-cluster scopes. Late node membership uses the cluster selected by
 the native layout rather than the node's first declaration.
 
+DOT edge IDs contain renderer ordinals, so structural edits remap persisted
+connector geometry by source provenance. Surviving arrows retain their original
+logical edge; normalized chain/product statements carry that edge's provenance
+into each generated declaration. This preserves the correct occurrence when
+parallel edges are deleted or reordered, including nested subgraphs and strict
+merged declarations. Deleted or stale DOT edge records are removed. Reattaching
+an endpoint discards the previous route for that connection, matching the
+canvas's existing endpoint-identity guard. Source and metadata changes share one
+undo/redo transaction; untouched nodes retain their saved geometry.
+
 `MainPage` integrates structure controls through `AddDotStructureActions(item)`
 and `AddDotFieldStructureActions(literal)`. Clicking a rendered record field or
 HTML-table text selects the corresponding field/cell in the inspector, including

@@ -62,6 +62,7 @@ public sealed partial class StudioDocument
             if (statement.AttributesStart < statement.End)
                 RemoveDotTokens(syntax, changes, statement.AttributesStart, statement.End, "");
             var text = new StringBuilder(";");
+            var origins = new List<DotEdgeOrigin>();
             if (target != null && target.First.Start >= statement.Start && statement.Uses.Any(use => use.Edge == retargeted))
                 text.Append(DotNewLine).Append("  ").Append(DotName(target.Name)).Append(DotAttributes(syntax, target.Attributes)).Append(';');
             foreach (var use in statement.Uses)
@@ -75,8 +76,9 @@ public sealed partial class StudioDocument
                     else second = second with { Node = target };
                 }
                 first = RenamedDotEndpoint(first, portChanges); second = RenamedDotEndpoint(second, portChanges);
-                text.Append(DotNewLine).Append("  ").Append(DotEndpoint(first.Node.Name, first))
-                    .Append(syntax.Directed ? " -> " : " -- ").Append(DotEndpoint(second.Node.Name, second));
+                text.Append(DotNewLine).Append("  ").Append(DotEndpoint(first.Node.Name, first)).Append(' ');
+                origins.Add(new(text.Length, use.Edge));
+                text.Append(syntax.Directed ? "->" : "--").Append(' ').Append(DotEndpoint(second.Node.Name, second));
                 var attributes = statement.Attributes.ToDictionary(pair => pair.Key, pair => DotValue(syntax, pair.Value), StringComparer.Ordinal);
                 if (portChanges != null)
                     foreach (string name in new[] { "headport", "tailport" })
@@ -89,7 +91,7 @@ public sealed partial class StudioDocument
                     text.Append(" [").Append(string.Join(", ", attributes.Select(pair => DotName(pair.Key) + "=" + pair.Value))).Append(']');
                 text.Append(';');
             }
-            changes.Add(new(statement.End, statement.End, text.ToString()));
+            changes.Add(new(statement.End, statement.End, text.ToString(), origins));
         }
     }
 

@@ -311,6 +311,7 @@ internal static class DotStructureCases
 
         checks += DotSharedCases.Run();
         checks += DotLabelCases.Run();
+        checks += DotCanvasIntegrityCases.Run();
         Console.WriteLine($"DOT structural editing passed {checks} integration checks.");
         return checks;
     }
