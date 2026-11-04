@@ -9,6 +9,16 @@ export async function verifyDotStructuralAuthoring(page, source) {
   const edge = (from,to) => paper.locator(`[data-dot-kind="edge"][data-dot-from-id=${JSON.stringify(from)}][data-dot-to-id=${JSON.stringify(to)}]`);
   const button = name => page.getByRole('button',{name,exact:true});
   const field = name => page.getByRole('textbox',{name,exact:true});
+  // A canvas hit rebuilds the XAML inspector. Its lower table actions may
+  // scroll while focus settles; keyboard activation targets the named button
+  // through the normal Click handler without relying on that moving point.
+  const tableAction = name => button(name).press('Enter');
+  const selectedCell = async (row,column,text) => {
+    await page.getByRole('combobox',{name:'Table cell',exact:true})
+      .filter({hasText:`Row ${row}, column ${column}: ${text}`}).waitFor({state:'visible'});
+    await page.waitForFunction(value => document.querySelector('[role="textbox"][aria-label="Table cell text"]')?.value === value,text);
+    assert.equal(await field('Table cell text').inputValue(),text,'The inspector resolves the selected cell before applying structure');
+  };
   const recordText = text => node('a').locator('[data-edit-kind="dot-record-text"]').filter({hasText:new RegExp('^' + text + '$')});
   const cellText = text => node('a').locator('[data-edit-kind="dot-html-text"]').filter({hasText:new RegExp('^' + text + '$')});
   // Source commits precede rendering. Wait for both so a repeated label cannot
@@ -23,6 +33,12 @@ export async function verifyDotStructuralAuthoring(page, source) {
       await paper.locator('svg').waitFor();
       assert.equal(await source.inputValue(),expected,message);
       assert.equal(await paper.getAttribute('data-renderer'),'managed');
+    } catch (cause) {
+      const [actual,selected] = await Promise.all([
+        source.inputValue({timeout:1000}).catch(() => '(source unavailable)'),
+        page.getByRole('combobox',{name:'Table cell',exact:true}).textContent({timeout:1000}).catch(() => '(no table cell)')
+      ]);
+      throw new Error(`${message}\nExpected source: ${expected}\nActual source: ${actual}\nSelected cell: ${selected}`,{cause});
     } finally {
       await input?.dispose();
       await previous?.dispose();
@@ -97,30 +113,35 @@ export async function verifyDotStructuralAuthoring(page, source) {
   const table = "@startdot\ndigraph {\n  a [shape=plain,label=<<TABLE BORDER='0' CELLBORDER='1'><TR><TD PORT='p'>Alpha</TD><TD>Beta</TD></TR><!-- keep table --><TR><TD>Gamma</TD><TD>Delta</TD></TR></TABLE>>];\n  b; a:p -> b;\n}\n@enddot";
   await load(table);
   await cellText('Gamma').click();
-  assert.equal(await field('Table cell text').inputValue(),'Gamma','Clicking a rendered cell selects its own row and column');
+  await selectedCell(2,1,'Gamma');
   const insertedRow = table.replace('<TR><TD>Gamma','<TR><TD>Cell</TD><TD>Cell</TD></TR><TR><TD>Gamma');
   await change(() => button('Insert row above').click(),insertedRow,'A new row preserves unrelated markup, comments and attribute quoting');
   assert.equal(await cellText('Cell').count(),2);
   await cellText('Cell').first().click();
-  await change(() => button('Remove table row').click(),table,'Removing the inserted row restores the original label');
+  await selectedCell(2,1,'Cell');
+  await change(() => tableAction('Remove table row'),table,'Removing the inserted row restores the original label');
   await undo(insertedRow,'One undo restores the deleted table row');
   await undo(table,'One undo removes the inserted table row');
 
   await cellText('Alpha').click();
+  await selectedCell(1,1,'Alpha');
   const insertedColumn = table.replace('<TD>Beta','<TD>Cell</TD><TD>Beta').replace('<TD>Delta','<TD>Cell</TD><TD>Delta');
   await change(() => button('Insert column after').click(),insertedColumn,'Column insertion updates each row atomically');
   assert.equal(await cellText('Cell').count(),2);
   await cellText('Cell').first().click();
-  await change(() => button('Remove table column').click(),table,'Removing the inserted column retains the live port');
+  await selectedCell(1,2,'Cell');
+  await change(() => tableAction('Remove table column'),table,'Removing the inserted column retains the live port');
   await undo(insertedColumn,'One undo restores the deleted column in every row');
   await undo(table,'One undo removes the inserted column from every row');
 
   await cellText('Alpha').click();
+  await selectedCell(1,1,'Alpha');
   const merged = table.replace("<TD PORT='p'>Alpha</TD><TD>Beta</TD>","<TD PORT='p' COLSPAN=\"2\">Alpha<BR/>Beta</TD>");
-  await change(() => button('Merge with next cell').click(),merged,'Merge keeps the first port and both text values');
+  await change(() => tableAction('Merge with next cell'),merged,'Merge keeps the first port and both text values');
   await cellText('Alpha').click();
+  await selectedCell(1,1,'AlphaBeta');
   const split = merged.replace("<TD PORT='p' COLSPAN=\"2\">Alpha<BR/>Beta</TD>","<TD PORT='p' >Alpha<BR/>Beta</TD><TD>Cell</TD>");
-  await change(() => button('Split spanning cell').click(),split,'Split keeps original content and port in the first cell');
+  await change(() => tableAction('Split spanning cell'),split,'Split keeps original content and port in the first cell');
   await cellText('Cell').waitFor();
   assert.equal(await edge('a','b').count(),1);
   await undo(merged,'One undo restores the spanning cell');
