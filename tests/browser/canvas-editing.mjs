@@ -22,33 +22,51 @@ export async function verifyCanvasEditing(page,source) {
   },{input:sourceElement,expected});
   // Resolve the current SVG through the persistent surface on every poll. Source
   // history and semantic edits can replace the SVG before saved geometry is applied.
-  const waitBounds=(id,expected)=>page.waitForFunction(({surface,id,expected})=>{
-    const node=[...surface.querySelectorAll('[data-canvas-node]')].find(node=>node.dataset.canvasNode===id);
-    if(!node)return false;
-    const actual=node.getBoundingClientRect();
-    return actual.width>0&&actual.height>0&&['x','y','width','height'].every(key=>Math.abs(actual[key]-expected[key])<0.25);
-  },{surface:surfaceElement,id,expected});
+  const measure=locator=>locator.evaluate(node=>{
+    const {x,y,width,height}=node.getBoundingClientRect();return {x,y,width,height};
+  });
+  const waitBounds=async(id,expected)=>{
+    try {
+      await page.waitForFunction(({surface,id,expected})=>{
+        const node=[...surface.querySelectorAll('[data-canvas-node]')].find(node=>node.dataset.canvasNode===id);
+        if(!node)return false;
+        const actual=node.getBoundingClientRect();
+        return actual.width>0&&actual.height>0&&['x','y','width','height'].every(key=>Math.abs(actual[key]-expected[key])<0.25);
+      },{surface:surfaceElement,id,expected});
+    } catch(cause) {
+      const observed=await surface.evaluate((surface,id)=>{
+        const node=[...surface.querySelectorAll('[data-canvas-node]')].find(node=>node.dataset.canvasNode===id);
+        const svg=node?.ownerSVGElement,paper=surface.querySelector('.paper'),rect=node?.getBoundingClientRect();
+        return {bounds:rect?{x:rect.x,y:rect.y,width:rect.width,height:rect.height}:null,
+          viewBox:svg?.getAttribute('viewBox'),svgWidth:svg?.getAttribute('width'),svgHeight:svg?.getAttribute('height'),
+          nodeTransform:node?.getAttribute('transform'),paperTransform:paper?.style.transform};
+      },id).catch(error=>({diagnosticError:error.message}));
+      throw new Error(`Canvas bounds for ${id}: expected ${JSON.stringify(expected)}; observed ${JSON.stringify(observed)}`,{cause});
+    }
+  };
   const menu=async title=>{await page.getByRole('button',{name:'Arrange canvas',exact:true}).click();await page.getByText(title,{exact:true}).last().click();};
   const drag=async(locator,dx,dy,modifiers=[])=>{
-    const box=await locator.boundingBox();assert.ok(box);const x=box.x+box.width/2,y=box.y+box.height/2;
+    const box=await measure(locator);assert.ok(box);const x=box.x+box.width/2,y=box.y+box.height/2;
     for(const key of modifiers)await page.keyboard.down(key);
     await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+dx,y+dy,{steps:8});await page.mouse.up();
     for(const key of modifiers.reverse())await page.keyboard.up(key);
   };
   await source.fill(input);await shape('A').waitFor();await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
-  const originalBounds=await shape('A').boundingBox();assert.ok(originalBounds);
+  // Use the same DOM geometry API for snapshots and polling. Chromium's SVG
+  // box-model protocol used by boundingBox() need not share these stroke bounds.
+  const originalBounds=await measure(shape('A'));assert.ok(originalBounds);
   await drag(shape('A'),91,55,['Alt']);
   const movedSource=await source.inputValue(),moved=await metadata();
   assert.equal(movedSource.split('\n').slice(1).join('\n'),input,'Free movement preserves semantic source verbatim');
   assert.equal(moved.nodes.length,3);assert.equal(moved.edges.length,2);
   assert.ok(moved.edges.every(e=>e.waypoints.length>=2),'Incident connectors have complete docked paths');
-  const at=await shape('A').boundingBox();
+  const at=await measure(shape('A'));
   await surface.press('Control+z');await waitSource(input);await waitBounds('A',originalBounds);
   assert.equal(await source.inputValue(),input,'One undo removes a complete pointer gesture');
   await surface.press('Control+y');await waitSource(movedSource);await waitBounds('A',at);
   assert.equal(await source.inputValue(),movedSource);
-  const restored=await shape('A').boundingBox();
+  const restored=await measure(shape('A'));
   assert.ok(Math.abs(restored.x-at.x)<1&&Math.abs(restored.y-at.y)<1,'Redo restores visible geometry without drifting the camera');
 
   await shape('A').click();
@@ -56,7 +74,7 @@ export async function verifyCanvasEditing(page,source) {
   await drag(page.locator('[data-canvas-handle="resize:se"]'),48,27,['Alt']);
   const resized=await metadata(),newA=resized.nodes.find(n=>n.id==='A');
   assert.ok(newA.width>oldA.width+10&&newA.height>oldA.height+10,'Resize handles change persisted dimensions');
-  const resizedSource=await source.inputValue(),resizedBounds=await shape('A').boundingBox();
+  const resizedSource=await source.inputValue(),resizedBounds=await measure(shape('A'));
   const unit=await shape('A').evaluate(node=>{const matrix=node.ownerSVGElement.getScreenCTM();return {x:matrix.a,y:matrix.b};});
   await surface.press('ArrowRight');
   await waitMetadata({nodes:[{id:'A',x:newA.x+1}]});
@@ -98,16 +116,16 @@ export async function verifyCanvasEditing(page,source) {
   assert.equal(exactB.x,-100);assert.equal(exactB.y,180);assert.equal(exactB.rotation,30);
   assert.ok(Number((await paper.locator('svg').first().getAttribute('viewBox')).split(' ')[0])<0,'Negative placement expands the exported viewBox');
 
-  const beforeSemantic=await shape('B').boundingBox(),oldDrawing=await paper.locator('svg').first().elementHandle();
+  const beforeSemantic=await measure(shape('B')),oldDrawing=await paper.locator('svg').first().elementHandle();
   const renamedSource=(await source.inputValue()).replace('class C','class "Renamed C" as C');
   await source.fill(renamedSource);
   await page.waitForFunction(el=>!el.isConnected,oldDrawing);
   await shape('C').getByText('Renamed C',{exact:true}).waitFor();
   await waitBounds('B',beforeSemantic);await waitSource(renamedSource);
-  const afterSemantic=await shape('B').boundingBox();
+  const afterSemantic=await measure(shape('B'));
   assert.ok(Math.abs(beforeSemantic.x-afterSemantic.x)<1&&Math.abs(beforeSemantic.y-afterSemantic.y)<1,'A semantic re-render preserves the camera origin after negative placement');
 
-  const beforeEscape=await source.inputValue(),box=await shape('C').boundingBox();
+  const beforeEscape=await source.inputValue(),box=await measure(shape('C'));
   await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2+25,box.y+box.height/2+20,{steps:4});
   await page.keyboard.press('Escape');await page.mouse.up();assert.equal(await source.inputValue(),beforeEscape,'Escape cancels a preview without history');
 
@@ -119,9 +137,9 @@ export async function verifyCanvasEditing(page,source) {
   // Nested DOM ordering and collapse projection must not corrupt child geometry or manual paths.
   const grouped='@startuml\npackage ZGroup {\n class AChild\n class BChild\n AChild --> BChild : inner\n}\nclass Outside\nAChild --> Outside : outer\n@enduml';
   await source.fill(grouped);await shape('ZGroup').waitFor();await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
-  const beforeChild=await shape('ZGroup.AChild').boundingBox(),group=shape('ZGroup').locator('text').filter({hasText:'ZGroup'}).first();
+  const beforeChild=await measure(shape('ZGroup.AChild')),group=shape('ZGroup').locator('text').filter({hasText:'ZGroup'}).first();
   await drag(group,42,24,['Alt']);
-  const afterChild=await shape('ZGroup.AChild').boundingBox();assert.ok(Math.abs(afterChild.x-beforeChild.x-42)<2&&Math.abs(afterChild.y-beforeChild.y-24)<2,'Group drag translates children exactly once');
+  const afterChild=await measure(shape('ZGroup.AChild'));assert.ok(Math.abs(afterChild.x-beforeChild.x-42)<2&&Math.abs(afterChild.y-beforeChild.y-24)<2,'Group drag translates children exactly once');
   await shape('ZGroup.AChild').click();await menu('Lock selection');
   await group.click();const childLocked=await source.inputValue();await surface.press('Delete');
   assert.equal(await source.inputValue(),childLocked,'Deleting a container cannot bypass a child lock');
@@ -135,9 +153,9 @@ export async function verifyCanvasEditing(page,source) {
   await source.fill(activity);await paper.locator('.activity-Join').waitFor();
   await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
   const join=paper.locator('.activity-Join'),decision=paper.locator('.activity-Decision');
-  const joinBefore=await join.boundingBox(),decisionBefore=await decision.boundingBox();
+  const joinBefore=await measure(join),decisionBefore=await measure(decision);
   await drag(join,31,23,['Alt']);
-  const joinAfter=await join.boundingBox(),decisionAfter=await decision.boundingBox();
+  const joinAfter=await measure(join),decisionAfter=await measure(decision);
   assert.ok(Math.abs(joinAfter.x-joinBefore.x-31)<2&&Math.abs(joinAfter.y-joinBefore.y-23)<2,'A closing junction moves independently of its source construct');
   assert.ok(Math.abs(decisionAfter.x-decisionBefore.x)<1&&Math.abs(decisionAfter.y-decisionBefore.y)<1,'Moving a join does not move the decision header');
   const accept=paper.locator('.activity-Action').filter({hasText:'Accept'});
@@ -152,7 +170,7 @@ export async function verifyCanvasEditing(page,source) {
   // Rebuild literal offsets when that changes the renderer's page-relative input.
   const bom='\uFEFF@startdot\ndigraph G { A [label="Original"]; B; A -> B; }\n@enddot';
   await source.fill(bom);await shape('node:A').waitFor();await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
-  const bomDrawing=await paper.locator('svg').first().elementHandle(),bomBefore=await shape('node:A').boundingBox();
+  const bomDrawing=await paper.locator('svg').first().elementHandle(),bomBefore=await measure(shape('node:A'));
   await drag(shape('node:A'),24,16,['Alt']);
   await page.waitForFunction(el=>!el.isConnected,bomDrawing);
   await waitBounds('node:A',{...bomBefore,x:bomBefore.x+24,y:bomBefore.y+16});
