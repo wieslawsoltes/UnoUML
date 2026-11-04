@@ -120,7 +120,7 @@ export async function verifyCanvasEditing(page,source) {
   const renamedSource=(await source.inputValue()).replace('class C','class "Renamed C" as C');
   await source.fill(renamedSource);
   await page.waitForFunction(el=>!el.isConnected,oldDrawing);
-  await shape('C').getByText('Renamed C',{exact:true}).waitFor();
+  await shape('C').locator('text').filter({hasText:/^Renamed C$/}).waitFor();
   await waitBounds('B',beforeSemantic);await waitSource(renamedSource);
   const afterSemantic=await measure(shape('B'));
   assert.ok(Math.abs(beforeSemantic.x-afterSemantic.x)<1&&Math.abs(beforeSemantic.y-afterSemantic.y)<1,'A semantic re-render preserves the camera origin after negative placement');
@@ -175,11 +175,11 @@ export async function verifyCanvasEditing(page,source) {
   await page.waitForFunction(el=>!el.isConnected,bomDrawing);
   await waitBounds('node:A',{...bomBefore,x:bomBefore.x+24,y:bomBefore.y+16});
   const beforeLabel=await source.inputValue();
-  await shape('node:A').getByText('Original',{exact:true}).dblclick();
+  await shape('node:A').locator('text').filter({hasText:/^Original$/}).dblclick();
   const label=page.getByRole('textbox',{name:'Edit diagram label',exact:true});await label.waitFor();
   await label.fill('After geometry');await label.press('Control+Enter');await label.waitFor({state:'hidden'});
   await waitSource(beforeLabel.replace('A [label="Original"]','A [label="After geometry"]'));
-  await shape('node:A').getByText('After geometry',{exact:true}).waitFor();
+  await shape('node:A').locator('text').filter({hasText:/^After geometry$/}).waitFor();
   assert.ok((await source.inputValue()).startsWith('\uFEFF'),'Canvas authoring preserves the document BOM');
   assert.match(await source.inputValue(),/A \[label="After geometry"\]/,'BOM geometry edits retain valid exact-source label offsets');
   console.log('Verified free geometry, atomic undo, auto layout, source-map identity, compound collapse, activity selection and BOM editing.');
