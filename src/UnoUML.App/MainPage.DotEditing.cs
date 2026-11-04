@@ -74,7 +74,7 @@ public sealed partial class MainPage
         if (item.CanUngroup)
         {
             Properties.Children.Add(Item("Ungroup cluster", "layers", () => Edit(() => doc.UngroupDotObject(item))));
-            Properties.Children.Add(Item("Delete cluster and nodes", "delete", () => Edit(() => doc.RemoveDotObject(item))));
+            Properties.Children.Add(Item("Delete cluster and nodes", "delete", () => DeleteCanvasObjects(() => doc.RemoveDotObject(item))));
         }
         if (item.CanEditConnection)
         {
