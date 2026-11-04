@@ -71,14 +71,19 @@ export async function verifyDotEditing(page, source) {
   await source.fill(strict);
   const merged = paper.locator('[data-dot-kind="edge"][data-dot-merged="true"]');
   await merged.locator('text').filter({hasText:'First'}).click();
-  assert.equal(await page.getByRole('button',{name:'Reattach target endpoint',exact:true}).isVisible(),false);
+  await page.getByRole('button',{name:'Reattach target endpoint',exact:true}).waitFor({state:'visible'});
   await surface.press('Delete');
-  assert.equal(await source.inputValue(),strict);
+  await merged.waitFor({state:'detached'});
+  assert.equal(await source.inputValue(),'@startdot\nstrict digraph { a ; b ;; a ; b ;; c; }\n@enddot');
+  assert.equal(await paper.locator('[data-dot-kind="node"]').count(),3,'Deleting a strict edge preserves its endpoint nodes');
+  await surface.press('Control+z');
+  await merged.locator('text').filter({hasText:'First'}).waitFor();
+  assert.equal(await source.inputValue(),strict,'One undo restores every strict-edge declaration');
   await merged.locator('text').filter({hasText:'First'}).dblclick();
   await editor.fill('Merged label');
   await editor.press('Enter');
-  assert.equal(await source.inputValue(),strict.replace('"First"','"Merged label"'));
   await merged.locator('text').filter({hasText:'Merged label'}).waitFor();
+  assert.equal(await source.inputValue(),'@startdot\nstrict digraph { a ; b ;\n  a -> b [label="First"];; a ; b ;\n  a -> b [color=red, label="Merged label"];; c; }\n@enddot');
   assert.equal(await paper.locator('[data-dot-kind="edge"]').count(),1);
   const sharedStrict = '@startdot\nstrict digraph { a->b->c[label=Shared]; a->b[color=red]; b->c[color=blue]; }\n@enddot';
   await source.fill(sharedStrict);
@@ -89,7 +94,8 @@ export async function verifyDotEditing(page, source) {
   await editor.press('Enter');
   await firstShared.locator('text').filter({hasText:'Only AB'}).waitFor();
   await secondShared.locator('text').filter({hasText:'Shared'}).waitFor();
-  assert.match(await source.inputValue(),/a->b->c\[label=Shared\]/);
+  assert.equal(await source.inputValue(),'@startdot\nstrict digraph { a;b;c;\n  a -> b [label=Shared];\n  b -> c [label=Shared];; a;b;\n  a -> b [color=red, label="Only AB"];; b->c[color=blue]; }\n@enddot',
+    'The selected logical edge receives a final label override while its sibling retains the shared label');
   await surface.press('Control+z');
   assert.equal(await source.inputValue(),sharedStrict);
   const sharedHtml = sharedStrict.replace('label=Shared','label=<Shared <B>edge</B>>');
