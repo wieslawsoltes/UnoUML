@@ -56,6 +56,7 @@ internal static partial class BrowserScrollSynchronization
         {
             if (!mounted || !owner.IsLoaded || synchronizing ||
                 !double.IsFinite(horizontal) || !double.IsFinite(vertical) || horizontal < 0 || vertical < 0 ||
+                horizontal > owner.ScrollableWidth || vertical > owner.ScrollableHeight ||
                 owner.HorizontalOffset == horizontal && owner.VerticalOffset == vertical) return;
 
             // Uno 6.7.135 can keep CancelNextNativeScroll set after a handled
@@ -65,6 +66,8 @@ internal static partial class BrowserScrollSynchronization
             // reads the native offsets into ScrollOffsets. Use the browser's
             // actual position before the same real pointer event reaches Uno;
             // this neither resets scrolling nor clears Uno's internal latch.
+            // If managed extent is still smaller than the native offset, skip
+            // synchronization: ChangeView would clamp and move the browser.
             synchronizing = true;
             try { owner.ChangeView(horizontal, vertical, null, disableAnimation: true); }
             finally { synchronizing = false; }
