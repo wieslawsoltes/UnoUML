@@ -147,6 +147,9 @@ export async function verifyCanvasEditing(page,source) {
   await waitMetadata({settings:{algorithm:'grid'}});
   const routedCaptions=await source.inputValue();
   assert.equal(routedCaptions.slice(routedCaptions.indexOf('\n')+1),cardinalities);
+  // This fixture is wider than the preceding three-node scene. Fit it before
+  // pointer actions so Playwright need not scroll the clipped canvas to a label.
+  await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
   const intersects=(a,b)=>a.x<b.x+b.width-.1&&a.x+a.width>b.x+.1&&a.y<b.y+b.height-.1&&a.y+a.height>b.y+.1;
   const captionBefore=[await measure(sourceCaption),await measure(targetCaption)];
   for(const caption of captionBefore)for(const id of ['Order','LineItem','Struct','Class','Abstractclass'])
@@ -157,10 +160,19 @@ export async function verifyCanvasEditing(page,source) {
   }
   await paper.locator('[data-canvas-label-role="center"] text').filter({hasText:/^contains$/}).click();
   const moveLabel=page.getByRole('button',{name:'Move connector label',exact:true});await moveLabel.waitFor();
+  const endpointsBeforeDrag=[await measure(sourceCaption),await measure(targetCaption)];
+  const labelMatrix=caption=>caption.evaluate(node=>{const m=node.transform.baseVal.consolidate().matrix;return [m.a,m.b,m.c,m.d,m.e,m.f];});
+  const endpointTransforms=await Promise.all([sourceCaption,targetCaption].map(labelMatrix));
+  const beforeLabelState=await metadata();
   await drag(moveLabel,28,-18,['Alt']);
+  const afterLabelState=await metadata();
+  assert.deepEqual(afterLabelState.nodes,beforeLabelState.nodes);
+  assert.deepEqual(afterLabelState.edges.map(e=>e.waypoints),beforeLabelState.edges.map(e=>e.waypoints));
   for(const [i,caption] of [sourceCaption,targetCaption].entries()) {
     const actual=await measure(caption);
-    for(const key of ['x','y','width','height'])assert.ok(Math.abs(actual[key]-captionBefore[i][key])<.25,'Moving the central label must not move endpoint multiplicities');
+    assert.ok((await labelMatrix(caption)).every((value,j)=>Math.abs(value-endpointTransforms[i][j])<1e-7),'Central label drag preserves endpoint world transforms');
+    for(const key of ['x','y','width','height'])assert.ok(Math.abs(actual[key]-endpointsBeforeDrag[i][key])<.25,
+      `Central label drag shifted endpoint ${i}: before ${JSON.stringify(endpointsBeforeDrag[i])}; after ${JSON.stringify(actual)}`);
   }
   await surface.press('Control+z');await waitSource(routedCaptions);
   await surface.press('Control+z');await waitSource(cardinalities);
