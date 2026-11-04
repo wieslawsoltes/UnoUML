@@ -128,6 +128,14 @@ internal static class TreeDiagram
                     node.Label, occurrence.ToString(CultureInfo.InvariantCulture));
             }
         }
+        else if (nodes.Count <= 2048)
+        {
+            // Match the canvas node limit without restricting the native listing renderer.
+            // A path is semantic identity; explicit/implicit directory declarations are equivalent.
+            foreach (var node in nodes)
+                node.CanvasId = CanvasIdentity.Create("files", node.Parent < 0 ? "" : nodes[node.Parent].CanvasId,
+                    node.Label, node.Directory ? "directory" : "file");
+        }
         MeasureStyles(nodes, skin, kind == DiagramKind.Files);
         if (kind == DiagramKind.WorkBreakdown)
             foreach (var siblings in nodes.Where(n => n.Parent >= 0).GroupBy(n => n.Parent))
@@ -297,7 +305,7 @@ internal static class TreeDiagram
             var n = nodes[index];
             int x = n.Level * 18 - 17 + n.Padding.Left + n.Margin.Left, y = 6 + n.Padding.Top + row + n.Margin.Top;
             row += n.OuterHeight;
-            svg.Append(CultureInfo.InvariantCulture, $"<g data-style-name=\"{n.Category}\" data-style-id=\"{index}\"{(n.Line < 0 ? "" : " data-source-line=\"" + n.Line.ToString(CultureInfo.InvariantCulture) + "\"")}>");
+            svg.Append(CultureInfo.InvariantCulture, $"<g data-style-name=\"{n.Category}\" data-style-id=\"{index}\"{(n.CanvasId.Length == 0 ? "" : " data-canvas-id=\"" + n.CanvasId + "\"")}{(n.Line < 0 ? "" : " data-source-line=\"" + n.Line.ToString(CultureInfo.InvariantCulture) + "\"")}>");
             string path = n.Directory ? "M0 4h6l2 2h8v10H0z" : "M3 1h7l4 4v12H3z";
             svg.Append(CultureInfo.InvariantCulture, $"<path transform=\"translate({x} {y})\" d=\"{path}\" stroke=\"#73738b\" fill=\"{(n.Directory ? "#efdb9e" : "#eeeefa")}\"/>");
             int textTop = y + n.FontSize + 1 - SvgText.Ascent("M", n.FontSize);

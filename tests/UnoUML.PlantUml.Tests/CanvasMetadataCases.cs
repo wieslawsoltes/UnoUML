@@ -147,6 +147,66 @@ internal static class CanvasMetadataCases
         Check(branch.ToString() == Activity(branchBody).ToString(), "activity metadata is deterministic");
         var sequence = Render("@startuml\nAlice -> Bob: hello\n@enduml");
         Check(!sequence.Descendants().Any(element => element.Attribute("data-canvas-id") != null), "sequence semantics stay under the sequence editor");
+
+        const string networkSource = "@startnwdiag\nnwdiag {\nnetwork shared {\naddress = \"192.0.2.0/24\";\nshared [address=\"192.0.2.2\",description=\"Gateway\"];\nleaf [address=\"192.0.2.3\"];\n}\nnetwork inside {\nshared [address=\"10.0.0.1\"];\ndb [address=\"10.0.0.2\"];\n}\nnetwork storage {\nshared [address=\"172.16.0.1\"];\n}\n}\n@endnwdiag";
+        var network = Render(networkSource);
+        Valid(network);
+        Check(Nodes(network).Count() == 6 && Edges(network).Count() == 5, "network buses and shared hosts have one node, with one complete edge per interface");
+        var networkIds = Nodes(network).ToDictionary(Id, StringComparer.Ordinal);
+        XElement NetworkNode(XDocument document, string kind, string alias) => Nodes(document).Single(n => (string?)n.Attribute("class") == kind && (string?)n.Attribute("data-qualified-name") == alias);
+        Check(Id(NetworkNode(network, "network", "shared")) != Id(NetworkNode(network, "entity", "shared")), "network and host alias namespaces cannot collide");
+        Check(Nodes(network).All(n => n.Attribute("data-canvas-parent") == null), "network membership is connectivity, not containment");
+        foreach (var edge in Edges(network))
+        {
+            var bus = networkIds[(string)edge.Attribute("data-entity-1")!];
+            var host = networkIds[(string)edge.Attribute("data-entity-2")!];
+            var rail = bus.Elements().Single(n => n.Name.LocalName == "rect");
+            var shape = host.Elements().Single(n => n.Name.LocalName == "rect");
+            string route = MainPath(edge); var endpoint = LastPoint(route);
+            var start = Regex.Match(route, @"^M(-?\d+) (-?\d+)", RegexOptions.CultureInvariant);
+            int x = int.Parse(start.Groups[1].Value, CultureInfo.InvariantCulture), y = int.Parse(start.Groups[2].Value, CultureInfo.InvariantCulture);
+            Check((int)rail.Attribute("height")! >= 1 && (int)rail.Attribute("width")! >= 1 &&
+                x >= (int)rail.Attribute("x")! && x <= (int)rail.Attribute("x")! + (int)rail.Attribute("width")! &&
+                (y == (int)rail.Attribute("y")! || y == (int)rail.Attribute("y")! + (int)rail.Attribute("height")!), "network route starts on the finite bus rail boundary");
+            Check(endpoint.X == (int)shape.Attribute("x")! + (int)shape.Attribute("width")! / 2 &&
+                (endpoint.Y == (int)shape.Attribute("y")! || endpoint.Y == (int)shape.Attribute("y")! + (int)shape.Attribute("height")!), "network interface ends at the shared host boundary");
+            Check(route.Count(c => c == 'M') == 1 && edge.Descendants().Count(n => (string?)n.Attribute("class") == "interface") == 1 &&
+                edge.Descendants().Any(n => (string?)n.Attribute("class") == "interface-address" && n.Attribute("data-source-line") != null), "interface route, port and address remain individually source mapped");
+        }
+        var busCaption = network.Descendants().Single(n => (string?)n.Attribute("data-canvas-decoration-for") == Id(NetworkNode(network, "network", "shared")));
+        Check(Text(busCaption) == "shared192.0.2.0/24" && (int?)busCaption.Attribute("data-source-line") == 2 &&
+            busCaption.Descendants().Any(n => (int?)n.Attribute("data-source-line") == 3), "bus caption and address move together without changing source lines or docking bounds");
+        var addedNetwork = Render(networkSource.Replace("network shared {", "network unrelated {\nisolated;\n}\nnetwork shared {", StringComparison.Ordinal));
+        foreach (var original in Nodes(network))
+            Check(Id(original) == Id(NetworkNode(addedNetwork, (string)original.Attribute("class")!, (string)original.Attribute("data-qualified-name")!)), "network alias identity survives an unrelated earlier network");
+        Check(Edges(network).Select(Id).All(id => Edges(addedNetwork).Any(edge => Id(edge) == id)), "existing interface identities survive inserted buses and hosts");
+        var describedNetwork = Render(networkSource.Replace("Gateway", "Renamed gateway", StringComparison.Ordinal));
+        Check(Id(NetworkNode(network, "entity", "shared")) == Id(NetworkNode(describedNetwork, "entity", "shared")), "network aliases retain geometry across description changes");
+        Check(network.ToString() == Render(networkSource).ToString(), "network metadata is deterministic");
+
+        const string filesSource = "@startfiles\n/src/A.cs\n/tests/A.cs\n/src/\n/README.md\n/src/nested/Leaf.txt\n@endfiles";
+        var files = Render(filesSource);
+        Valid(files);
+        Check(Nodes(files).Count() == 7 && !Edges(files).Any() && Nodes(files).All(n => n.Attribute("data-canvas-parent") == null), "files expose individual rows without invented connectors or enclosing folder geometry");
+        Check((int?)WithText(files, "src").Attribute("data-source-line") == 3 && WithText(files, "tests").Attribute("data-source-line") == null,
+            "explicit and implicit file directories preserve source ownership");
+        Check(Nodes(files).Where(n => Text(n) == "A.cs").Select(Id).Distinct().Count() == 2, "identical file names under different paths remain distinct");
+        var filesAdded = Render(filesSource.Replace("/src/A.cs", "' independent comment\n/docs/Guide.md\n/src/A.cs", StringComparison.Ordinal));
+        Check(Nodes(files).Select(Id).All(id => Nodes(filesAdded).Any(n => Id(n) == id)), "unrelated file path insertion preserves every existing identity");
+        var filesImplicit = Render(filesSource.Replace("/src/\n", "", StringComparison.Ordinal));
+        Check(Id(WithText(files, "src")) == Id(WithText(filesImplicit, "src")), "making a directory implicit does not change path identity");
+        var filesRenamed = Render(filesSource.Replace("/src/A.cs", "/src/B.cs", StringComparison.Ordinal));
+        Check(!Nodes(files).Any(n => Id(n) == Id(WithText(filesRenamed, "B.cs"))) && Id(WithText(files, "src")) == Id(WithText(filesRenamed, "src")) &&
+            Id(WithText(files, "Leaf.txt")) == Id(WithText(filesRenamed, "Leaf.txt")), "renamed file gets new identity while unrelated paths remain stable");
+        Check(files.ToString() == Render(filesSource).ToString(), "file metadata is deterministic");
+        foreach (int size in new[] { 2048, 2049 })
+        {
+            string largeFiles = "@startfiles\n<style>\nfile {\nFontSize 8\nPadding 0\n}\n</style>\n" +
+                string.Join("\n", Enumerable.Range(0, size).Select(i => "/file" + i.ToString(CultureInfo.InvariantCulture))) + "\n@endfiles";
+            var listing = Render(largeFiles);
+            Check(listing.Descendants().Count(n => n.Name.LocalName == "text") == size, "large native listing retains every file");
+            Check(Nodes(listing).Count() == (size <= 2048 ? size : 0), "files metadata respects the editor's 2048-node bound without rejecting native rendering");
+        }
         return assertions;
     }
 

@@ -10,6 +10,7 @@ internal static partial class NetworkRenderer
     private sealed class Network(string id, int line)
     {
         public string Id { get; } = id;
+        public string CanvasId { get; } = CanvasIdentity.Create("network-bus", id);
         public int Line { get; } = line;
         public string Caption = id, Address = "", Color = "#aab6ce";
         public int AddressLine = line;
@@ -19,6 +20,7 @@ internal static partial class NetworkRenderer
     private sealed class Host(string id, int first, int line)
     {
         public string Id { get; } = id;
+        public string CanvasId { get; } = CanvasIdentity.Create("network-host", id);
         public int First { get; } = first;
         public int Line { get; } = line;
         public int Last = first, Slot, Center, Width;
@@ -181,7 +183,9 @@ internal static partial class NetworkRenderer
         for (int i = 0; i < networks.Count; i++)
         {
             var n = networks[i]; int y = top + i * pitch;
-            s.Append(CultureInfo.InvariantCulture, $"<g class=\"network\" data-qualified-name=\"{SvgText.Escape(n.Id)}\" data-source-line=\"{n.Line}\"><title>{SvgText.Escape(n.Caption)}</title><rect x=\"{railStart}\" y=\"{y - 3}\" width=\"{railEnd - railStart}\" height=\"6\" rx=\"3\" fill=\"{n.Color}\" stroke=\"#4b5363\"/>");
+            s.Append(CultureInfo.InvariantCulture, $"<g class=\"network\" data-canvas-id=\"{n.CanvasId}\" data-qualified-name=\"{SvgText.Escape(n.Id)}\" data-source-line=\"{n.Line}\"><title>{SvgText.Escape(n.Caption)}</title><rect x=\"{railStart}\" y=\"{y - 3}\" width=\"{railEnd - railStart}\" height=\"6\" rx=\"3\" fill=\"{n.Color}\" stroke=\"#4b5363\"/></g>");
+            // The caption travels with its bus without enlarging the rail's docking boundary.
+            s.Append(CultureInfo.InvariantCulture, $"<g class=\"network-caption\" data-canvas-decoration-for=\"{n.CanvasId}\" data-source-line=\"{n.Line}\">");
             Text(margin, y + 2, n.Caption, 14, bold: true);
             if (n.Address.Length > 0)
             {
@@ -191,17 +195,27 @@ internal static partial class NetworkRenderer
         }
         foreach (var host in hosts)
         {
-            int x = host.Center, first = top + host.First * pitch, y = first + 52, last = top + host.Last * pitch;
-            s.Append(CultureInfo.InvariantCulture, $"<path d=\"M{x} {first + 3}V{Math.Max(y, last - 3)}\" fill=\"none\" stroke=\"#586177\"/>");
+            int x = host.Center, first = top + host.First * pitch, y = first + 52;
             foreach (var p in host.Interfaces)
             {
                 int bus = top + p.Network * pitch;
+                var network = networks[p.Network];
+                string edgeId = CanvasIdentity.Create("network-interface", network.CanvasId, host.CanvasId);
+                // Each interface is a complete bus-to-host connection. Shared lower segments
+                // retain the original visible spine, while geometry edits can route them separately.
+                int from = bus + (p.Network == host.First ? 3 : -3), to = p.Network == host.First ? y : y + 36;
+                s.Append(CultureInfo.InvariantCulture, $"<g class=\"link\" data-style-name=\"arrow\" data-style-metrics=\"fontsize\" data-canvas-id=\"{edgeId}\" data-entity-1=\"{network.CanvasId}\" data-entity-2=\"{host.CanvasId}\"><path d=\"M{x} {from}V{to}\" fill=\"none\" stroke=\"#586177\"/>");
                 s.Append(CultureInfo.InvariantCulture, $"<g class=\"interface\" data-source-line=\"{p.Line}\"><title>{SvgText.Escape(host.Id)}</title><circle cx=\"{x}\" cy=\"{bus}\" r=\"3\" fill=\"#535f78\"/>");
-                if (p.Address.Length > 0) Text(x, bus + (p.Network == host.First ? 22 : -9), p.Address, 12, "middle");
+                s.Append("</g>");
+                if (p.Address.Length > 0)
+                {
+                    s.Append(CultureInfo.InvariantCulture, $"<g class=\"interface-address\" data-source-line=\"{p.Line}\">");
+                    Text(x, bus + (p.Network == host.First ? 22 : -9), p.Address, 12, "middle"); s.Append("</g>");
+                }
                 s.Append("</g>");
             }
             int left = x - host.Width / 2, right = left + host.Width, h = 36;
-            s.Append(CultureInfo.InvariantCulture, $"<g class=\"entity\" data-qualified-name=\"{SvgText.Escape(host.Id)}\" data-source-line=\"{host.Line}\"><title>{SvgText.Escape(host.Caption)}</title>");
+            s.Append(CultureInfo.InvariantCulture, $"<g class=\"entity\" data-canvas-id=\"{host.CanvasId}\" data-qualified-name=\"{SvgText.Escape(host.Id)}\" data-source-line=\"{host.Line}\"><title>{SvgText.Escape(host.Caption)}</title>");
             string? shape = host.Shape switch
             {
                 "database" => FormattableString.Invariant($"M{left} {y + 7}C{left} {y - 3} {right} {y - 3} {right} {y + 7}V{y + h - 6}C{right} {y + h + 3} {left} {y + h + 3} {left} {y + h - 6}ZM{left} {y + 7}C{left} {y + 16} {right} {y + 16} {right} {y + 7}"),
