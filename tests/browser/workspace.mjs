@@ -40,6 +40,47 @@ async function servePublishedSite(wwwroot) {
   return server;
 }
 
+async function verifyIndependentAuthoring(browser, url) {
+  const scenarios = [
+    ['dot-structure', verifyDotStructuralAuthoring],
+    ['structured-editing', verifyStructuredEditing],
+    ['canvas-editing', verifyCanvasEditing]
+  ];
+  const results = await Promise.allSettled(scenarios.map(async ([name, verify]) => {
+    const check = await browser.newPage({ viewport: { width: 1480, height: 960 }, colorScheme: 'light', acceptDownloads: true });
+    const errors = [];
+    check.setDefaultTimeout(35000);
+    check.on('pageerror', error => errors.push(error.message));
+    try {
+      await check.goto(url, { waitUntil: 'domcontentloaded' });
+      await check.locator('.paper svg').first().waitFor({ state: 'visible', timeout: 120000 });
+      await check.getByRole('button', {name:'Split',exact:true}).click();
+      const source = check.getByRole('textbox', {name:'PlantUML source',exact:true});
+      await source.waitFor({state:'visible'});
+      await verify(check, source);
+      assert.deepEqual(errors, [], `${name} must not produce browser errors`);
+      console.log(`Passed independent ${name} workspace scenario.`);
+    } catch (error) {
+      if (process.env.SCREENSHOT_DIR) {
+        try {
+          await mkdir(process.env.SCREENSHOT_DIR, {recursive:true});
+          const stem = resolve(process.env.SCREENSHOT_DIR, name + '-failure');
+          await check.screenshot({path:stem + '.png'});
+          await writeFile(stem + '.html', await check.content());
+          const source = check.getByRole('textbox', {name:'PlantUML source',exact:true});
+          if (await source.count()) await writeFile(stem + '.puml', await source.inputValue({timeout:1000}));
+        } catch (captureError) { console.error(`Could not capture ${name} failure:`, captureError); }
+      }
+      console.error(`Failed independent ${name} workspace scenario:`, error);
+      throw new Error(`${name} workspace scenario failed`, {cause:error});
+    } finally {
+      await check.close();
+    }
+  }));
+  const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);
+  if (failures.length) throw new AggregateError(failures, 'Independent authoring workspace checks failed');
+}
+
 const external = process.env.WORKSPACE_URL;
 if (!external && !process.argv[2]) throw new Error('Pass the published wwwroot directory or set WORKSPACE_URL');
 const server = external ? null : await servePublishedSite(resolve(process.argv[2]));
@@ -134,9 +175,7 @@ try {
   await verifySaltEditing(page, textbox);
   await verifyYamlEditing(page, textbox);
   await verifyDotEditing(page, textbox);
-  await verifyDotStructuralAuthoring(page, textbox);
-  await verifyStructuredEditing(page, textbox);
-  await verifyCanvasEditing(page, textbox);
+  await verifyIndependentAuthoring(browser, url);
   await verifyArchiveImport(page, textbox);
   await verifyArchiveAliasEditing(page, textbox);
   await verifyImportedPageRouting(page, textbox);
