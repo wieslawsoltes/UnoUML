@@ -124,12 +124,21 @@ export async function verifyNetworkEditing(page, source) {
 
   const sourceRow = page.getByRole('button',{name:sameLine.split('\n')[1],exact:true});
   await sourceRow.click();
-  await page.getByRole('combobox',{name:'Shared host',exact:true}).waitFor();
+  const hosts = page.getByRole('combobox',{name:'Shared host',exact:true});
+  await hosts.click();
+  const hostChoices = page.getByRole('listbox',{name:'Shared host',exact:true});
+  await hostChoices.getByRole('option',{name:'Second · b',exact:true}).click();
+  await hostChoices.waitFor({state:'hidden'});
+  await hosts.filter({hasText:'Second · b'}).waitFor();
+  // Restore focus to the ambiguous outline button before the shortcut, so a
+  // native picker cannot consume Delete as an input gesture.
   await sourceRow.press('Delete');
   await page.getByText('This source line contains several network objects. Select the exact shape or interface on the canvas.',{exact:true}).last().waitFor();
   assert.equal(await source.inputValue(),sameLine,'An ambiguous outline row never deletes the previous canvas selection');
 
-  await paper.locator('g.network[data-qualified-name="direct"] > rect').click({position:{x:8,y:3}});
+  // The outline highlights the rail. Hit inside its body, clear of the resize
+  // grip at the left edge, to test semantic network picking.
+  await paper.locator('g.network[data-qualified-name="direct"] > rect').click({position:{x:30,y:3}});
   await page.getByText('Rename network identifier…',{exact:true}).last().click();
   dialog = page.getByRole('dialog',{name:'Rename network identifier',exact:true});
   assert.equal(await dialog.getByRole('textbox',{name:'Network identifier',exact:true}).inputValue(),'direct','Rail picking resolves the network that shares a line with its hosts');
