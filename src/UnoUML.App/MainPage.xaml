@@ -104,7 +104,7 @@
                 </Border>
             </Grid>
             <Border x:Name="InspectorPanel" Grid.Column="2" Background="#FFFFFF" BorderBrush="#DEDEE8" BorderThickness="1,0,0,0" Padding="14,16,14,8">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer x:Name="InspectorScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Spacing="11">
                         <StackPanel Spacing="3">
                             <TextBlock Text="PROPERTIES" Style="{StaticResource Eyebrow}"/>

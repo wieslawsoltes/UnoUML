@@ -5,6 +5,7 @@ import { download, includeFiles, includeRevision } from './files.js';
 import { beginResourcePass, prepareResources } from './resources.js';
 export { readResource } from './resources.js';
 export { configureAccessibility, configureAccessibilityPopup, removeAccessibility } from './accessibility.js';
+export { configureScrollSynchronization, removeScrollSynchronization } from './scroll-synchronization.js';
 export { openFile, saveFile, importIncludes, readInclude, listIncludes, updateInclude, openArchive, saveArchive, readArchive, readArchiveVersion, listArchives, updateArchive, downloadArchive } from './files.js';
 
 import { getServerEndpoint, getServerTransport, layoutOnServer } from './server.js';

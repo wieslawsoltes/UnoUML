@@ -34,6 +34,7 @@ public sealed partial class MainPage : Page
         BrowserAccessibility.Attach(SourceEditor);
         BrowserAccessibility.Attach(SearchBox);
         BrowserAccessibility.Attach(PagePicker);
+        BrowserScrollSynchronization.Attach(InspectorScrollViewer);
         BuildCommands();
         ViewportHost.Children.Add(viewport);
         SourceEditor.SelectionChanged += (_, _) => OnSourceSelection();
