@@ -208,6 +208,10 @@ public static partial class CanvasLayoutEngine
         foreach (var locked in before.Nodes.Where(node => node.Locked))
             if (changed.Any(id => Ancestor(locked.Id, id) || Ancestor(id, locked.Id)))
                 throw new ArgumentException($"The gesture would transform the locked subtree containing '{locked.Id}'.");
+        var routeAffected = new HashSet<string>(changed, StringComparer.Ordinal);
+        foreach (var container in nodes.Values.Where(node => node.Collapsed != oldNodes[node.Id].Collapsed))
+            foreach (var node in nodes.Values)
+                if (node.Id == container.Id || Ancestor(container.Id, node.Id)) routeAffected.Add(node.Id);
         var reroute = new HashSet<string>(StringComparer.Ordinal);
         var edges = new List<CanvasEdge>(after.Edges.Count);
         foreach (var edge in after.Edges)
@@ -218,7 +222,7 @@ public static partial class CanvasLayoutEngine
                 !(edge.Waypoints ?? []).SequenceEqual(old.Waypoints ?? []) || edge.LabelOffset != old.LabelOffset;
             if (old.Locked && routeChange) throw new ArgumentException($"Edge '{edge.Id}' is locked.");
             bool moved = changed.Contains(edge.Source) || changed.Contains(edge.Target);
-            if (!edge.Locked && !edge.Manual && (moved || portChange || edge.Routing != old.Routing || old.Manual)) reroute.Add(edge.Id);
+            if (!edge.Locked && !edge.Manual && (routeAffected.Contains(edge.Source) || routeAffected.Contains(edge.Target) || portChange || edge.Routing != old.Routing || old.Manual)) reroute.Add(edge.Id);
             edges.Add(!edge.Locked && edge.Manual && (moved || portChange)
                 ? CanvasEdgeRouter.Reattach(edge, oldNodes[edge.Source], oldNodes[edge.Target], nodes[edge.Source], nodes[edge.Target], portChange)
                 : edge);

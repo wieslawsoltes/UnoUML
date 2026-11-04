@@ -111,6 +111,34 @@ internal static class CanvasLayoutCases
         var implicitPage = new StudioDocument("class A");
         Check(!implicitPage.SetCanvasLayout(simple) && implicitPage.Source == "class A", "implicit page is not wrapped or rewritten");
 
+        var transaction = new StudioDocument(source);
+        Check(transaction.Insert("class Added"), "source insertion precedes automatic placement");
+        long insertionState = transaction.HistoryState;
+        Check(transaction.TrySetCanvasLayout(simple, insertionState, out error) && error == null, "automatic placement merges with the expected source transaction");
+        string combinedSource = transaction.Source;
+        Check(transaction.HistoryState != insertionState && !transaction.CanReachHistoryState(insertionState) && transaction.CanReachHistoryState(0), "amendment assigns a new state and removes only the amended state");
+        Check(transaction.Undo() && transaction.Source == source && !transaction.CanUndo, "source insertion and placement undo atomically with BOM and CRLF");
+        Check(transaction.Redo() && transaction.Source == combinedSource, "combined transaction redoes exactly");
+        var staleTransaction = new StudioDocument(source);
+        Check(!staleTransaction.TrySetCanvasLayout(simple, staleTransaction.HistoryState, out error) && error != null && !staleTransaction.CanUndo, "amendment requires a preceding history item");
+        staleTransaction.Insert("class First"); long expectedState = staleTransaction.HistoryState;
+        staleTransaction.Insert("class Second"); string interveningSource = staleTransaction.Source; long currentState = staleTransaction.HistoryState;
+        Check(!staleTransaction.TrySetCanvasLayout(simple, expectedState, out error) && error != null && staleTransaction.Source == interveningSource && staleTransaction.HistoryState == currentState, "stale expected state cannot amend an intervening edit");
+        Check(staleTransaction.TrySetCanvasLayout(simple, currentState, out error) && staleTransaction.Undo() && staleTransaction.Source.Contains("class First") && !staleTransaction.Source.Contains("class Second") && staleTransaction.CanUndo, "amendment retains earlier source history");
+        Check(staleTransaction.Undo() && staleTransaction.Source == source, "earlier source edit remains byte-exact after amendment");
+        var branching = new StudioDocument(source);
+        branching.Insert("class First"); long branchState = branching.HistoryState;
+        branching.Insert("class Abandoned"); branching.Undo();
+        Check(branching.CanRedo && branching.TrySetCanvasLayout(simple, branchState, out error) && !branching.CanRedo, "amendment invalidates the old redo branch");
+        Check(branching.Undo() && branching.Source == source, "branched amendment still has one undo");
+        var inverse = new StudioDocument(source);
+        inverse.SetCanvasLayout(simple);
+        Check(inverse.TrySetCanvasLayout(null, inverse.HistoryState, out error) && inverse.Source == source && !inverse.CanUndo && inverse.HistoryState == 0, "inverse amendment removes an empty transaction");
+        var invalidTransaction = new StudioDocument(source);
+        invalidTransaction.Insert("class Added"); long validState = invalidTransaction.HistoryState; string validSource = invalidTransaction.Source;
+        Check(!invalidTransaction.TrySetCanvasLayout(simple with { Nodes = [Node(simple, "A"), Node(simple, "A")] }, validState, out error) && error != null &&
+            invalidTransaction.Source == validSource && invalidTransaction.HistoryState == validState, "invalid layout leaves source and history unchanged before amendment");
+
         var graph = new CanvasLayoutState([
             new("A", 20, 30, 70, 35, Rotation: 15, ZIndex: 4), new("B", 20, 30, 110, 40),
             new("C", 20, 30, 45, 70), new("D", 20, 30, 75, 45), new("E", 20, 30, 60, 32)
@@ -167,6 +195,13 @@ internal static class CanvasLayoutCases
         Throws<ArgumentException>(() => CanvasLayoutEngine.UpdateGeometry(lockedChild, Move(lockedChild, 10, 0, "Group")), "ancestor movement cannot bypass a locked descendant");
         var lockedGroup = compound with { Nodes = compound.Nodes.Select(node => node.Id == "Group" ? node with { Locked = true } : node).ToArray() };
         Throws<ArgumentException>(() => CanvasLayoutEngine.UpdateGeometry(lockedGroup, Move(lockedGroup, 10, 0, "Child")), "descendant movement cannot bypass an ancestor lock");
+        var hiddenGraph = new CanvasLayoutState([new("Group", 0, 0, 200, 100), new("A", 20, 20, 40, 40, "Group"), new("B", 400, 20, 40, 40)],
+            [new("AB", "A", "B", SourcePort: new(1, 0.5), TargetPort: new(0, 0.5))]);
+        var visibleGraph = CanvasLayoutEngine.RouteEdges(hiddenGraph);
+        var hidden = CanvasLayoutEngine.UpdateGeometry(visibleGraph, visibleGraph with { Nodes = visibleGraph.Nodes.Select(node => node.Id == "Group" ? node with { Collapsed = true } : node).ToArray() });
+        var hiddenMoved = CanvasLayoutEngine.UpdateGeometry(hidden, Move(hidden, 100, 0, "Group", "A"));
+        var expanded = CanvasLayoutEngine.UpdateGeometry(hiddenMoved, hiddenMoved with { Nodes = hiddenMoved.Nodes.Select(node => node.Id == "Group" ? node with { Collapsed = false } : node).ToArray() });
+        Check(Edge(expanded, "AB").Waypoints![0] == new CanvasPoint(160, 40), "expanding regenerates automatic routes skipped while endpoints were hidden");
 
         var alignment = new CanvasLayoutState([new("A", 20, 20, 40, 30), new("B", 100, 100, 60, 40), new("Reference", 0, 200, 90, 50, Pinned: true)], []);
         var aligned = CanvasLayoutEngine.Align(alignment, CanvasAlignment.Left, ["A", "B", "Reference"]);
