@@ -44,7 +44,12 @@ export class CanvasScene {
     this.base={version:1,nodes:[],edges:[],settings:{...defaults}};
     this.capture(); this.state=clone(this.base);
   }
-  matrix(el) { return this.svg.getScreenCTM().inverse().multiply(el.getScreenCTM()); }
+  matrix(el) {
+    // Chromium may expose the legacy SVGMatrix interface from getScreenCTM;
+    // its multiply() rejects a modern DOMMatrix. Normalize at the boundary.
+    const modern=m=>new DOMMatrix([m.a,m.b,m.c,m.d,m.e,m.f]);
+    return modern(this.svg.getScreenCTM()).inverse().multiply(modern(el.getScreenCTM()));
+  }
   box(el) {
     const b=el.getBBox(),m=this.matrix(el),p=[point({x:b.x,y:b.y},m),point({x:b.x+b.width,y:b.y},m),
       point({x:b.x,y:b.y+b.height},m),point({x:b.x+b.width,y:b.y+b.height},m)];
