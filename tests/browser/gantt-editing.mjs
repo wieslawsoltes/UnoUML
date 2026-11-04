@@ -110,13 +110,16 @@ export async function verifyGanttEditing(page,source) {
   await surface.press('Control+x');
   assert.equal(await source.inputValue(),beforeCut,'Caption clipboard cannot remove a complete schedule task');
 
-  const scaled='@startgantt\nskinparam dpi 192\n[A] lasts 2 days\n[B] starts at [A]\'s end and lasts 3 days\n@endgantt';
-  await source.fill(scaled);await task('B').waitFor();await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
-  bar=task('B').locator('.gantt-bar');box=await bar.boundingBox();
-  day=await task('B').evaluate(e=>Number(e.dataset.ganttUnit)*e.getScreenCTM().a);
+  // Use distinct identities as the render-completion witness. Reusing B from
+  // the preceding fixture can measure its old SVG before the source debounce
+  // renders the new DPI, then send the pointer to stale screen coordinates.
+  const scaled='@startgantt\nskinparam dpi 192\n[Scaled A] as [SA] lasts 2 days\n[Scaled B] as [SB] starts at [SA]\'s end and lasts 3 days\n@endgantt';
+  await source.fill(scaled);await task('SB').waitFor();await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
+  bar=task('SB').locator('.gantt-bar');box=await bar.boundingBox();
+  day=await task('SB').evaluate(e=>Number(e.dataset.ganttUnit)*e.getScreenCTM().a);
   await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();
   await page.mouse.move(box.x+box.width/2+day,box.y+box.height/2,{steps:6});await page.mouse.up();
-  await paper.locator('g.task[data-gantt-id="B"][data-gantt-start="3"]').waitFor();
+  await paper.locator('g.task[data-gantt-id="SB"][data-gantt-start="3"]').waitFor();
   await undo(scaled);
 
   const generated="@startgantt\n[Plan /'comment-like'/ stage] as [A] lasts 2 days\n@endgantt";
