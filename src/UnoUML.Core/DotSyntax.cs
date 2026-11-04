@@ -43,6 +43,10 @@ internal sealed class DotSyntax
         internal readonly List<NodeList> Lists = [];
         internal int End, After;
         internal bool Edge;
+        internal readonly List<EdgeUse> Uses = [];
+        internal Dictionary<string, Token> Attributes = new(StringComparer.Ordinal);
+        internal int AttributesStart;
+        internal readonly List<Token> Arrows = [];
     }
 
     internal sealed class Node(string name, Token token, Statement first, Dictionary<string, Token> defaults)
@@ -54,7 +58,13 @@ internal sealed class DotSyntax
         internal readonly Dictionary<Scope, Statement> Appearances = [];
     }
 
-    internal readonly record struct Endpoint(Node Node, Token Name, int End, string Port, string Compass);
+    internal readonly record struct Endpoint(Node Node, Token Name, int End, string Port, string Compass)
+    {
+        internal Token? PortToken { get; init; }
+        internal Token? CompassToken { get; init; }
+    }
+
+    internal sealed record EdgeUse(Edge Edge, Endpoint From, Endpoint To, Statement Statement, Token Arrow);
     internal sealed class NodeList(Statement owner)
     {
         internal readonly Statement Owner = owner;
@@ -66,6 +76,7 @@ internal sealed class DotSyntax
     {
         internal Endpoint From = from, To = to;
         internal readonly Statement First = first;
+        internal readonly List<EdgeUse> Uses = [];
         internal readonly Dictionary<string, Token> Attributes = new(first.Scope.EdgeDefaults, StringComparer.Ordinal);
     }
 
@@ -185,6 +196,8 @@ internal sealed class DotSyntax
                 {
                     statement.Edge = true;
                     if (Current.Value != (Directed ? "->" : "--")) throw new InvalidSyntax();
+                    var arrow = Current;
+                    statement.Arrows.Add(arrow);
                     cursor++;
                     var next = Endpoints(statement, depth);
                     if ((long)endpoints.Count * next.Count + Edges.Count > 6000) throw new InvalidSyntax();
@@ -204,11 +217,16 @@ internal sealed class DotSyntax
                                 edge.From = MergeEndpoint(edge.From, edge.From.Node == from.Node ? from : to);
                                 edge.To = MergeEndpoint(edge.To, edge.To.Node == to.Node ? to : from);
                             }
+                            var use = new EdgeUse(edge, from, to, statement, arrow);
+                            statement.Uses.Add(use);
+                            edge.Uses.Add(use);
                             added.Add(edge);
                         }
                     endpoints = next;
                 }
+                statement.AttributesStart = cursor < tokens.Count ? Current.Start : Previous.End;
                 var attributes = ReadAttributes();
+                statement.Attributes = attributes;
                 if (statement.Edge)
                 {
                     foreach (var edge in added) Apply(edge.Attributes, attributes);
@@ -228,7 +246,7 @@ internal sealed class DotSyntax
     }
 
     private static Endpoint MergeEndpoint(Endpoint previous, Endpoint current) =>
-        current.Port.Length == 0 && current.Compass.Length == 0 ? current with { Port = previous.Port, Compass = previous.Compass } : current;
+        current.Port.Length == 0 && current.Compass.Length == 0 ? current with { Port = previous.Port, Compass = previous.Compass, PortToken = previous.PortToken, CompassToken = previous.CompassToken } : current;
 
     private List<Endpoint> Endpoints(Statement owner, int depth)
     {
@@ -266,10 +284,16 @@ internal sealed class DotSyntax
         {
             var name = Name();
             string port = "", compass = "";
+            Token? portToken = null, compassToken = null;
             if (Eat(":"))
             {
-                port = Text(Name());
-                if (Eat(":")) compass = Text(Name());
+                portToken = Name();
+                port = Text(portToken.Value);
+                if (Eat(":"))
+                {
+                    compassToken = Name();
+                    compass = Text(compassToken.Value);
+                }
             }
             if (!Nodes.TryGetValue(name.Value, out var node))
             {
@@ -279,7 +303,7 @@ internal sealed class DotSyntax
             }
             node.Appearances.TryAdd(scope, owner);
             for (var ancestor = scope; ancestor != null; ancestor = ancestor.Parent) ancestor.Members.Add(node.Name);
-            list.Nodes.Add(new(node, name, Previous.End, port, compass));
+            list.Nodes.Add(new(node, name, Previous.End, port, compass) { PortToken = portToken, CompassToken = compassToken });
             if (!At(",")) break;
             list.Commas.Add(Current);
             cursor++;

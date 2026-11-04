@@ -35,7 +35,7 @@ internal static class DotEditCases
         Check(doc.Undo() && doc.Source == source, "relationship edit undo restores comments and CRLF");
         var merged = Open(edge with { Merged = true });
         Check(!merged.CanEditConnection && !doc.RemoveDotEdge(merged) && !doc.RetargetDot(merged, Open(c), false) && doc.Source == source, "merged strict declarations cannot be partially deleted or reconnected");
-        Check(merged.CanRename && doc.RenameDotObject(merged, "Merged label") && doc.Undo(), "merged relationship labels retain exact-token editing");
+        Check(!merged.CanRename && !doc.RenameDotObject(merged, "Merged label"), "forged merge metadata cannot open a label edit");
         Check(doc.OpenDotObject(b with { NameStart = -1 }) == null && doc.OpenDotObject(edge with { ArrowStart = 0 }) == null, "rejects invalid metadata");
         const string shared = "@startdot\ndigraph { a,b [label=\"Both\"]; }\n@enddot";
         var common = new StudioDocument(shared);

@@ -64,12 +64,11 @@ public sealed partial class StudioDocument
         else if ((location.LabelInsert < location.Start && location.Explicit) || location.LabelInsert < 0 || location.LabelInsert > Page.Source.Length) return null;
         if (location.Kind == "edge" && (!DotRange(location.ArrowStart, location.ArrowLength) ||
             Page.Source.Substring(location.ArrowStart, location.ArrowLength) is not ("->" or "--"))) return null;
-        bool singleEdge = location.Kind == "edge" && SingleDotEdge(location);
-        bool editableEdge = singleEdge && !location.Merged && DotRange(location.FromStart, location.FromLength) && DotRange(location.ToStart, location.ToLength);
+        bool editableEdge = DotStructure is { } edgeSyntax && ResolvedDotEdge(edgeSyntax, location) != null;
         bool editableNode = DotStructure is { } syntax && DotNodeMatches(syntax, location);
         bool editableCluster = DotStructure is { } parsed && DotCluster(parsed, location) != null;
         return new(Source, ActivePage, Index.Lines[Page.StartLine].Start + location.Start, location,
-            location.Format == "text" && (location.Kind != "edge" || singleEdge),
+            location.Format == "text" && (location.Kind != "edge" || editableEdge),
             editableEdge, editableNode || editableCluster || editableEdge,
             editableNode && CanDuplicateDotNode(DotStructure!, DotStructure!.Nodes[location.Name]), editableCluster);
     }
@@ -79,6 +78,8 @@ public sealed partial class StudioDocument
         if (!CurrentDot(item) || !item.CanRename || label == item.Text || label.Length > 65536 || label.Any(c => char.IsControl(c) && c is not ('\t' or '\r' or '\n'))) return false;
         var location = item.Location;
         string value = QuoteDot(label);
+        if (location.Kind == "edge" && DotStructure is { } syntax && ResolvedDotEdge(syntax, location) is { } edge && NeedsDotNormalization(edge))
+            return ChangeSharedDotEdge(syntax, edge, label: value);
         if (location.Kind == "node" && location.Explicit && (MultipleDotNodes(location) || SharedDotLabel(location)))
             return PatchDot(location.Start + location.Length, 0, ";" + DotNewLine + "  " + DotIdentifier(item) + " [label=" + value + "]");
         // A strict edge can inherit its final label from an earlier chain even when
@@ -111,15 +112,16 @@ public sealed partial class StudioDocument
     {
         if (!CurrentDot(edge) || !CurrentDot(target) || !edge.CanEditConnection || !target.IsConnectable ||
             DotStructure is not { } syntax || !DotNodeMatches(syntax, target.Location) ||
-            LiteralDotEdge(syntax, edge.Location) is not { } connection) return false;
-        return RetargetDotEdge(syntax, connection, syntax.Nodes[target.Location.Name], from);
+            ResolvedDotEdge(syntax, edge.Location) is not { } connection) return false;
+        return NeedsDotNormalization(connection) ? ChangeSharedDotEdge(syntax, connection, target: syntax.Nodes[target.Location.Name], from: from) :
+            RetargetDotEdge(syntax, connection, syntax.Nodes[target.Location.Name], from);
     }
 
     public bool RemoveDotEdge(DotObjectEdit edge)
     {
         if (!CurrentDot(edge) || !edge.CanEditConnection || DotStructure is not { } syntax ||
-            LiteralDotEdge(syntax, edge.Location) is not { } connection) return false;
-        return RemoveDotConnection(syntax, connection);
+            ResolvedDotEdge(syntax, edge.Location) is not { } connection) return false;
+        return NeedsDotNormalization(connection) ? ChangeSharedDotEdge(syntax, connection, remove: true) : RemoveDotConnection(syntax, connection);
     }
 
     private bool CurrentDot(DotObjectEdit item) => ReferenceEquals(item.Document, Source) && item.Page == ActivePage;

@@ -64,6 +64,7 @@ public sealed partial class MainPage
             Properties.Children.Add(Item("Edit on canvas…", "edit", () => BeginCanvasEdit(null)));
         }
         else Properties.Children.Add(Caption("Double-click an individual table cell or record field to edit its displayed text."));
+        AddDotStructureActions(item);
         if (item.IsConnectable)
         {
             Properties.Children.Add(Caption("Drag the connection handle to another node to add an edge. Shift-click to select several nodes."));
@@ -77,10 +78,10 @@ public sealed partial class MainPage
         }
         if (item.CanEditConnection)
         {
-            Properties.Children.Add(Caption("Drag an endpoint handle onto another node to reconnect a literal edge."));
-            Properties.Children.Add(Item("Delete edge", "delete", () => Edit(() => doc.RemoveDotEdge(item), "Select a single literal edge to delete it.")));
+            Properties.Children.Add(Caption("Drag an endpoint handle onto another node to reconnect this edge."));
+            Properties.Children.Add(Item("Delete edge", "delete", () => Edit(() => doc.RemoveDotEdge(item), "Select an editable DOT edge to delete it.")));
         }
-        else if (item.Location.Kind == "edge") Properties.Children.Add(Caption("This edge combines multiple source declarations or endpoints. Use Source to change its structure."));
+        else if (item.Location.Kind == "edge") Properties.Children.Add(Caption("This edge metadata no longer matches the source. Select it again after rendering."));
     }
 
     private void AddDotNodeActions(DotObjectEdit[] items)
@@ -105,7 +106,7 @@ public sealed partial class MainPage
         switch (action)
         {
             case "cut":
-            case "delete": Edit(() => doc.RemoveDotObjects(items), "Choose nodes, a cluster, or one literal edge to delete."); break;
+            case "delete": Edit(() => doc.RemoveDotObjects(items), "Choose nodes, a cluster, or an edge to delete."); break;
             case "duplicate": Edit(() => doc.DuplicateDotObjects(items), "Choose nodes whose subgraph memberships are independent of edge products."); break;
             case "group": _ = GroupDotSelectionAsync(items); break;
             case "ungroup":
@@ -138,7 +139,7 @@ public sealed partial class MainPage
         if (from == null || to == null) { Status("Choose two editable DOT objects.", true); return true; }
         if (gesture.Kind == "connect") Edit(() => doc.ConnectDot(from, to), "Choose two DOT nodes to connect.");
         else if (gesture.Kind is "retargetFrom" or "retargetTo")
-            Edit(() => doc.RetargetDot(from, to, gesture.Kind == "retargetFrom"), "Choose a single literal edge and a node to reconnect it.");
+            Edit(() => doc.RetargetDot(from, to, gesture.Kind == "retargetFrom"), "Choose an editable edge and a node in its scope to reconnect it.");
         else Status("DOT layout follows its graph attributes and edge constraints.");
         return true;
     }

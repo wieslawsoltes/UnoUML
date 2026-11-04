@@ -309,12 +309,14 @@ internal static class DotStructureCases
         Check(Render(parallelEdges).Descendants().Single(element => (string?)element.Attribute("data-dot-kind") == "edge").Value.Contains("Second", StringComparison.Ordinal),
             "parallel-edge deletion retains the other relationship's attributes");
 
+        checks += DotSharedCases.Run();
+        checks += DotLabelCases.Run();
         Console.WriteLine($"DOT structural editing passed {checks} integration checks.");
         return checks;
     }
 
     private static StudioDocument Document(string body) => new("@startdot\n" + body + "\n@enddot");
-    private static XElement Render(StudioDocument document)
+    internal static XElement Render(StudioDocument document)
     {
         if (!PlantUmlRenderer.TryRender(document.Page.Source, out var result) || result.Kind != DiagramKind.Dot)
             throw new Exception("Native DOT declined structural edit result\n" + document.Page.Source);
@@ -326,9 +328,9 @@ internal static class DotStructureCases
         .Select(element => (string?)element.Attribute("data-dot-from-id") + "->" + (string?)element.Attribute("data-dot-to-id")).Order(StringComparer.Ordinal);
     private static XElement Node(XElement svg, string name) => svg.Descendants().Single(element => (string?)element.Attribute("data-dot-kind") == "node" &&
         (string?)element.Attribute("data-qualified-name") == name);
-    private static DotObjectEdit Open(StudioDocument document, string kind, string name) => Open(document, Render(document).Descendants().Single(element =>
+    internal static DotObjectEdit Open(StudioDocument document, string kind, string name) => Open(document, Render(document).Descendants().Single(element =>
         (string?)element.Attribute("data-dot-kind") == kind && (string?)element.Attribute("data-qualified-name") == name));
-    private static DotObjectEdit Open(StudioDocument document, XElement element)
+    internal static DotObjectEdit Open(StudioDocument document, XElement element)
     {
         string Text(string key) => (string?)element.Attribute("data-dot-" + key) ?? "";
         int Number(string key) => int.TryParse(Text(key), out int result) ? result : -1;

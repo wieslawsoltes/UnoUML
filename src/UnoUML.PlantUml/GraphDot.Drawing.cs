@@ -31,7 +31,7 @@ internal static partial class GraphRenderer
         foreach (var scope in dot.Scopes.Where(scope => scope.IsCluster && !scope.Visual!.Invisible))
         {
             var box = scope.Box!; var visual = scope.Visual!;
-            DotGroupStart(body, "cluster", "cluster:" + scope.Id, scope.Id, scope.Span, scope.Insert, scope.LabelToken, visual, true);
+            DotGroupStart(body, "cluster", "cluster:" + scope.Id, scope.Id, scope.Span, scope.Insert, scope.LabelToken, visual, true, canvasParent: DotClusterParent(scope.Parent)?.Id);
             bool link = DotLinkStart(body, visual.Link, visual.Target, visual.Tooltip);
             DrawDotShape(body, visual, box.X, box.Y, box.Width, box.Height, ref paintId);
             visual.Label.Draw(body);
@@ -55,7 +55,8 @@ internal static partial class GraphRenderer
             var visual = node.Visual;
             if (visual.Invisible) continue;
             var box = DotShapeBox(node);
-            DotGroupStart(body, "node", "node:" + node.Id, node.Id, node.Span, node.Insert, node.LabelToken, visual, node.Explicit, nameToken: node.NameToken);
+            DotGroupStart(body, "node", "node:" + node.Id, node.Id, node.Span, node.Insert, node.LabelToken, visual, node.Explicit, nameToken: node.NameToken,
+                canvasParent: dot.Scopes.FirstOrDefault(scope => scope.IsCluster && ReferenceEquals(scope.Box, node.Box.Parent))?.Id);
             bool link = DotLinkStart(body, visual.Link, visual.Target, visual.Tooltip);
             DrawDotShape(body, visual, box.X, box.Y, box.Width, box.Height, ref paintId);
             visual.Image?.Draw(body);
@@ -93,11 +94,13 @@ internal static partial class GraphRenderer
         return svg.Append(body).Append("</svg>").ToString();
     }
 
-    private static void DotGroupStart(StringBuilder svg, string kind, string id, string name, DotSpan span, int insert, DotToken? label, DotVisual visual, bool explicitNode, DotEdge? edge = null, DotToken? nameToken = null)
+    private static void DotGroupStart(StringBuilder svg, string kind, string id, string name, DotSpan span, int insert, DotToken? label, DotVisual visual, bool explicitNode, DotEdge? edge = null, DotToken? nameToken = null, string? canvasParent = null)
     {
         string cssClass = kind == "node" ? "entity" : kind == "edge" ? "link" : kind;
         if (visual.Class.Length != 0) cssClass += " " + visual.Class;
         svg.Append(CultureInfo.InvariantCulture, $"<g class=\"{SvgText.Escape(cssClass)}\" data-dot-kind=\"{kind}\" data-dot-id=\"{DotAttribute(id)}\" data-qualified-name=\"{DotAttribute(name)}\" data-source-line=\"{span.Line}\" data-source-end-line=\"{span.EndLine}\" data-dot-start=\"{span.Start}\" data-dot-length=\"{span.End - span.Start}\" data-dot-explicit=\"{(explicitNode ? "true" : "false")}\" data-dot-label-text=\"{DotAttribute(visual.Label.Plain)}\" data-dot-label-format=\"{visual.LabelFormat}\"");
+        if (kind != "graph") svg.Append(" data-canvas-id=\"").Append(DotAttribute(id)).Append('"');
+        if (canvasParent != null) svg.Append(" data-canvas-parent=\"cluster:").Append(DotAttribute(canvasParent)).Append('"');
         if (nameToken is { } identifier) svg.Append(CultureInfo.InvariantCulture, $" data-dot-name-start=\"{identifier.Start}\" data-dot-name-length=\"{identifier.Length}\"");
         if (visual.LabelShared) svg.Append(" data-dot-label-shared=\"true\"");
         if (visual.SvgId.Length != 0) svg.Append(" id=\"").Append(SvgText.Escape(visual.SvgId)).Append('"');
