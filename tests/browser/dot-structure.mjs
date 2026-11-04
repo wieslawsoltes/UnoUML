@@ -9,10 +9,35 @@ export async function verifyDotStructuralAuthoring(page, source) {
   const edge = (from,to) => paper.locator(`[data-dot-kind="edge"][data-dot-from-id=${JSON.stringify(from)}][data-dot-to-id=${JSON.stringify(to)}]`);
   const button = name => page.getByRole('button',{name,exact:true});
   const field = name => page.getByRole('textbox',{name,exact:true});
-  // A canvas hit rebuilds the XAML inspector. Its lower table actions may
-  // scroll while focus settles; keyboard activation targets the named button
-  // through the normal Click handler without relying on that moving point.
+  // Retain keyboard coverage alongside real pointer activation below.
   const tableAction = name => button(name).press('Enter');
+  let pointerTrace;
+  const pointerTableAction = async name => {
+    const target = button(name);
+    pointerTrace = await target.evaluateHandle(element => {
+      const events = [], start = performance.now(), name = element.getAttribute('aria-label');
+      const describe = node => node instanceof Element ? {id:node.id,tag:node.localName,name:node.getAttribute('aria-label')?.slice(0,120),button:node.closest('[role="button"]')?.getAttribute('aria-label')?.slice(0,120)} : null;
+      const sample = (event = {type:'state'}) => {
+        const box = element.getBoundingClientRect(), scroll = [];
+        for (let parent = element.parentElement; parent; parent = parent.parentElement)
+          if (parent.classList.contains('uno-scrollcontentpresenter')) scroll.push({id:parent.id,top:parent.scrollTop,height:parent.clientHeight,extent:parent.scrollHeight});
+        const x = event.clientX ?? box.x + box.width / 2, y = event.clientY ?? box.y + box.height / 2;
+        return {type:event.type,time:Math.round(performance.now()-start),target:describe(event.target),active:describe(document.activeElement),
+          button:describe(element),connected:element.isConnected,box:{x:box.x,y:box.y,width:box.width,height:box.height},point:{x,y},
+          hit:describe(document.elementFromPoint(x,y)),scroll};
+      };
+      const record = event => { if (events.length === 24) events.shift(); events.push(sample(event)); };
+      const types = ['pointerdown','pointerup','pointercancel','gotpointercapture','lostpointercapture','click','focusin','focusout','scroll'];
+      for (const type of types) document.addEventListener(type,record,true);
+      return {dump:() => ({events,current:sample(),matching:[...document.querySelectorAll('[role="button"]')].filter(node => node.getAttribute('aria-label') === name).slice(0,4).map(describe)}),
+        stop:() => { for (const type of types) document.removeEventListener(type,record,true); }};
+    });
+    // Playwright checks stability before scrolling. Recheck after the native
+    // scroll and XAML inspector layout have had a turn to settle, then click.
+    await target.scrollIntoViewIfNeeded();
+    await target.hover();
+    await target.click();
+  };
   const selectedCell = async (row,column,text) => {
     await page.getByRole('combobox',{name:'Table cell',exact:true})
       .filter({hasText:`Row ${row}, column ${column}: ${text}`}).waitFor({state:'visible'});
@@ -38,8 +63,11 @@ export async function verifyDotStructuralAuthoring(page, source) {
         source.inputValue({timeout:1000}).catch(() => '(source unavailable)'),
         page.getByRole('combobox',{name:'Table cell',exact:true}).textContent({timeout:1000}).catch(() => '(no table cell)')
       ]);
-      throw new Error(`${message}\nExpected source: ${expected}\nActual source: ${actual}\nSelected cell: ${selected}`,{cause});
+      const pointer = pointerTrace ? await pointerTrace.evaluate(trace => trace.dump()).catch(() => '(pointer trace unavailable)') : null;
+      throw new Error(`${message}\nExpected source: ${expected}\nActual source: ${actual}\nSelected cell: ${selected}${pointer ? '\nPointer interaction: ' + JSON.stringify(pointer) : ''}`,{cause});
     } finally {
+      await pointerTrace?.evaluate(trace => trace.stop()).catch(() => {});
+      await pointerTrace?.dispose(); pointerTrace = undefined;
       await input?.dispose();
       await previous?.dispose();
     }
@@ -115,7 +143,7 @@ export async function verifyDotStructuralAuthoring(page, source) {
   await cellText('Gamma').click();
   await selectedCell(2,1,'Gamma');
   const insertedRow = table.replace('<TR><TD>Gamma','<TR><TD>Cell</TD><TD>Cell</TD></TR><TR><TD>Gamma');
-  await change(() => button('Insert row above').click(),insertedRow,'A new row preserves unrelated markup, comments and attribute quoting');
+  await change(() => pointerTableAction('Insert row above'),insertedRow,'A new row preserves unrelated markup, comments and attribute quoting');
   assert.equal(await cellText('Cell').count(),2);
   await cellText('Cell').first().click();
   await selectedCell(2,1,'Cell');
@@ -126,7 +154,7 @@ export async function verifyDotStructuralAuthoring(page, source) {
   await cellText('Alpha').click();
   await selectedCell(1,1,'Alpha');
   const insertedColumn = table.replace('<TD>Beta','<TD>Cell</TD><TD>Beta').replace('<TD>Delta','<TD>Cell</TD><TD>Delta');
-  await change(() => button('Insert column after').click(),insertedColumn,'Column insertion updates each row atomically');
+  await change(() => pointerTableAction('Insert column after'),insertedColumn,'Column insertion updates each row atomically');
   assert.equal(await cellText('Cell').count(),2);
   await cellText('Cell').first().click();
   await selectedCell(1,2,'Cell');
