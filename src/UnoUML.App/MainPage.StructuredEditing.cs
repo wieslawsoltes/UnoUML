@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using UnoUML.App.Rendering;
 using UnoUML.Core;
 
 namespace UnoUML.App;
@@ -108,12 +109,12 @@ public sealed partial class MainPage
     private static TextBox StructuredTextInput(string name, string value = "")
     {
         var input = new TextBox { Header = name, Text = value, MinWidth = 260 };
-        AutomationProperties.SetName(input, name); return input;
+        BrowserAccessibility.SetName(input, name); return input;
     }
     private static ComboBox StructuredPicker(string name, IEnumerable<string> values, int selected)
     {
         var input = new ComboBox { Header = name, ItemsSource = values.ToArray(), SelectedIndex = selected, MinWidth = 240 };
-        AutomationProperties.SetName(input, name); return input;
+        BrowserAccessibility.SetName(input, name); return input;
     }
     private static bool StructuredInteger(TextBox input, out int value) => int.TryParse(input.Text, NumberStyles.None, CultureInfo.InvariantCulture, out value);
     private static bool StructuredNumber(TextBox input, out double value) => double.TryParse(input.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out value) && double.IsFinite(value);
