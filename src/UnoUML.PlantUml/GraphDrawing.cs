@@ -339,9 +339,14 @@ internal static partial class GraphRenderer
         if (p.Length < 2) { s.Append("</g>"); return (0, 0, 0, 0); }
         Mark(s, p[0], p[1], e.Arrow, true,stroke); Mark(s, p[^1], p[^2], e.Arrow, false,stroke);
         int left = 0, right = 0, top = 0, bottom = 0;
-        void Caption(string label, int x, int y, int size, bool back)
+        void Caption(string label, int x, int y, int size, bool back, double fraction)
         {
             if (label.Length == 0) return;
+            // Keep every row and its background as one upright annotation when
+            // the canvas reroutes the edge. Endpoint ownership is semantic, not
+            // a distance estimate from the label's potentially wide bounds.
+            string role = fraction == 0 ? "source" : fraction == 1 ? "target" : "center";
+            s.Append(CultureInfo.InvariantCulture, $"<g data-canvas-fraction=\"{fraction}\" data-canvas-label-role=\"{role}\">");
             var padding = StyleSpacing.Parse(skin.Style("arrow", "padding", "0"));
             var margin = StyleSpacing.Parse(skin.Style("arrow", "margin", "0"));
             int maximum = skin.Number("arrow", "maximumwidth", 0);
@@ -358,13 +363,14 @@ internal static partial class GraphRenderer
                 Text(s, rowX, rowTop + SvgText.Ascent(row, size), row, size, anchor, color: font);
                 rowTop += SvgText.Height(row, size) + 4;
             }
+            s.Append("</g>");
             left = Math.Min(left, x - width / 2 - 4 - margin.Left); right = Math.Max(right, x + width / 2 + 4 + margin.Right);
             top = Math.Min(top, y - height - padding.Top - margin.Top); bottom = Math.Max(bottom, y + 3 + padding.Bottom + margin.Bottom);
         }
         var (labelX, labelY) = Center(p);
-        Caption(e.Caption, labelX, labelY - 4, skin.Size("arrowfontsize",13), true);
-        Caption(e.Tail, p[0].X + Math.Sign(p[1].X - p[0].X) * 18 + (p[0].X == p[1].X ? 14 : 0), p[0].Y + Math.Sign(p[1].Y - p[0].Y) * 14 - 3, 11, false);
-        Caption(e.Head, p[^1].X + Math.Sign(p[^2].X - p[^1].X) * 18 + (p[^1].X == p[^2].X ? 14 : 0), p[^1].Y + Math.Sign(p[^2].Y - p[^1].Y) * 14 - 3, 11, false);
+        Caption(e.Caption, labelX, labelY - 4, skin.Size("arrowfontsize",13), true, .5);
+        Caption(e.Tail, p[0].X + Math.Sign(p[1].X - p[0].X) * 18 + (p[0].X == p[1].X ? 14 : 0), p[0].Y + Math.Sign(p[1].Y - p[0].Y) * 14 - 3, 11, false, 0);
+        Caption(e.Head, p[^1].X + Math.Sign(p[^2].X - p[^1].X) * 18 + (p[^1].X == p[^2].X ? 14 : 0), p[^1].Y + Math.Sign(p[^2].Y - p[^1].Y) * 14 - 3, 11, false, 1);
         s.Append("</g>"); return (left, right, top, bottom);
     }
 

@@ -474,7 +474,7 @@ internal static partial class GraphRenderer
             double heading = Math.Atan2(away.Y - endpoint.Y, away.X - endpoint.X) + (atHead ? -angle : angle);
             int x = endpoint.X + (int)Math.Round(Math.Cos(heading) * distance);
             int y = endpoint.Y + (int)Math.Round(Math.Sin(heading) * distance) - label.Height / 2;
-            PlaceDotEdgeLabel(svg, label, x, y, edge.Attributes, prefix, bounds);
+            PlaceDotEdgeLabel(svg, label, x, y, edge.Attributes, prefix, bounds, atHead ? 1 : 0);
         }
         EndpointLabel(edge.TailLabel, points[0], points[1], "tail", false);
         EndpointLabel(edge.HeadLabel, points[^1], points[^2], "head", true);
@@ -483,13 +483,16 @@ internal static partial class GraphRenderer
         foreach (var point in points) bounds.Add(point.X - expansion, point.Y - expansion, expansion * 2, expansion * 2);
     }
 
-    private static void PlaceDotEdgeLabel(StringBuilder svg, DotLabel label, int centerX, int top, DotAttributes attributes, string prefix, DotBounds bounds)
+    private static void PlaceDotEdgeLabel(StringBuilder svg, DotLabel label, int centerX, int top, DotAttributes attributes, string prefix, DotBounds bounds, double fraction = .5)
     {
         if (label.Width == 0 && label.Height == 0) return;
         label.Place(centerX - label.Width / 2, top, label.Width, label.Height);
+        string role = fraction == 0 ? "source" : fraction == 1 ? "target" : "center";
+        svg.Append(CultureInfo.InvariantCulture, $"<g data-canvas-fraction=\"{fraction}\" data-canvas-label-role=\"{role}\">");
         bool link = DotLinkStart(svg, attributes.Get(prefix + "href", attributes.Get(prefix + "URL")), attributes.Get(prefix + "target"), attributes.Get(prefix + "tooltip"));
         label.Draw(svg);
         if (link) svg.Append("</a>");
+        svg.Append("</g>");
         bounds.Add(label);
     }
 

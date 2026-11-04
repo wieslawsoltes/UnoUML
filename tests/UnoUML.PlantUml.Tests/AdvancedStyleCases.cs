@@ -106,7 +106,8 @@ internal static class AdvancedStyleCases
         int headY = (int)actor.Element(Ns + "circle")!.Attribute("cy")!;
         int labelY = (int)Text(actor, "Customer").Attribute("y")!;
         Check(labelY - 32 >= headY + 44, "large actor font clears the symbol");
-        var caption = svg.Descendants(Ns + "g").Single(g => (string?)g.Attribute("class") == "link").Element(Ns + "rect")!;
+        var caption = svg.Descendants(Ns + "g").Single(g => (string?)g.Attribute("class") == "link")
+            .Elements(Ns + "g").Single(g => (string?)g.Attribute("data-canvas-label-role") == "center").Element(Ns + "rect")!;
         Check((int)caption.Attribute("y")! >= labelY + 12, "wrapped relationship caption clears the actor label");
 
         var tagged = Render("@startuml\n<style>\nactor { FontSize 32; stereotype { FontSize 18 } }\n</style>\nactor Customer <<Human>>\nrectangle Service\n@enduml", DiagramKind.Graph);

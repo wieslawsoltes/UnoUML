@@ -148,6 +148,55 @@ internal static class CanvasMetadataCases
         var sequence = Render("@startuml\nAlice -> Bob: hello\n@enduml");
         Check(!sequence.Descendants().Any(element => element.Attribute("data-canvas-id") != null), "sequence semantics stay under the sequence editor");
 
+        foreach (var (direction, arrow, tail, head) in new[]
+        {
+            ("", "*--", "1", "many"),
+            ("left to right direction\n", "<--", "a single source owner", "any number of related target items"),
+            ("", "-->", "source\\nsecond row", "target\\nsecond row"),
+            ("left to right direction\n", "-->", "1", "many")
+        })
+        {
+            var annotated = Render("@startuml\n" + direction + "class Order\nclass LineItem\nOrder \"" + tail + "\" " + arrow +
+                " \"" + head + "\" LineItem : **contains**\\nitems\n@enduml");
+            var edge = Edges(annotated).Single();
+            var labels = edge.Elements().Where(element => element.Attribute("data-canvas-fraction") != null).ToArray();
+            Check((string?)edge.Attribute("data-entity-1") == "Order" && (string?)edge.Attribute("data-entity-2") == "LineItem",
+                "native multiplicity attachment follows semantic endpoints for both arrow directions");
+            Check(labels.Length == 3 && labels.All(element => element.Name.LocalName == "g"), "native labels expose one whole-caption wrapper each");
+            Check(labels.All(element => (string?)element.Attribute("data-canvas-label-role") ==
+                ((string?)element.Attribute("data-canvas-fraction") switch { "0" => "source", "1" => "target", _ => "center" })),
+                "native endpoint labels distinguish their rotating attachment frame from midpoint annotations");
+            Check(Text(labels.Single(element => (string?)element.Attribute("data-canvas-fraction") == "0")) == tail.Replace("\\n", "", StringComparison.Ordinal),
+                "source multiplicity retains explicit attachment regardless of length or line count");
+            Check(Text(labels.Single(element => (string?)element.Attribute("data-canvas-fraction") == "1")) == head.Replace("\\n", "", StringComparison.Ordinal),
+                "target multiplicity retains explicit attachment regardless of length or line count");
+            var middle = labels.Single(element => (string?)element.Attribute("data-canvas-fraction") == "0.5");
+            Check(Text(middle) == "containsitems" && middle.Elements().Any(element => element.Name.LocalName == "rect") &&
+                middle.Descendants().Count(element => element.Name.LocalName == "text") == 2,
+                "central caption groups its background and rich multiline text at the midpoint");
+        }
+        foreach (string direction in new[] { "TB", "BT", "LR", "RL" })
+        {
+            var dot = Render("@startdot\ndigraph { rankdir=" + direction + "; a -> b [label=Center, xlabel=External, " +
+                "taillabel=<<TABLE><TR><TD><B>Source long label</B></TD></TR><TR><TD>second row</TD></TR></TABLE>>, " +
+                "headlabel=\"Target long label\\nsecond row\", labeldistance=8, tailhref=\"https://example.test/tail\"]; }\n@enddot");
+            var edge = Edges(dot).Single();
+            var labels = edge.Elements().Where(element => element.Attribute("data-canvas-fraction") != null).ToArray();
+            Check(labels.Length == 4, "DOT annotations retain independent source, target, center and external wrappers");
+            Check(labels.All(element => (string?)element.Attribute("data-canvas-label-role") ==
+                ((string?)element.Attribute("data-canvas-fraction") switch { "0" => "source", "1" => "target", _ => "center" })),
+                "DOT label roles distinguish endpoint annotations from other fraction-attached decorations");
+            var tail = labels.Single(element => (string?)element.Attribute("data-canvas-fraction") == "0");
+            var head = labels.Single(element => (string?)element.Attribute("data-canvas-fraction") == "1");
+            Check(Text(tail) == "Source long labelsecond row" && tail.Descendants().Any(element =>
+                element.Name.LocalName == "a" && (string?)element.Attribute("href") == "https://example.test/tail"),
+                "DOT source table label and hyperlink stay in one endpoint annotation across rank directions");
+            Check(Text(head) == "Target long labelsecond row" && head.Descendants().Count(element => element.Name.LocalName == "text") == 2,
+                "DOT target multiline label stays in one endpoint annotation across rank directions");
+            Check(labels.Where(element => (string?)element.Attribute("data-canvas-fraction") == "0.5").Select(Text).SequenceEqual(["Center", "External"]),
+                "DOT regular and external labels explicitly retain midpoint ownership");
+        }
+
         const string networkSource = "@startnwdiag\nnwdiag {\nnetwork shared {\naddress = \"192.0.2.0/24\";\nshared [address=\"192.0.2.2\",description=\"Gateway\"];\nleaf [address=\"192.0.2.3\"];\n}\nnetwork inside {\nshared [address=\"10.0.0.1\"];\ndb [address=\"10.0.0.2\"];\n}\nnetwork storage {\nshared [address=\"172.16.0.1\"];\n}\n}\n@endnwdiag";
         var network = Render(networkSource);
         Valid(network);
