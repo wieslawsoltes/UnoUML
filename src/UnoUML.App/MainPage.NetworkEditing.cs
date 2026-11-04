@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml.Controls;
+using UnoUML.App.Rendering;
 using UnoUML.Core;
 
 namespace UnoUML.App;
@@ -7,6 +8,28 @@ public sealed partial class MainPage
 {
     private const string NetworkFailure = "The network source changed, an identifier is already used, or a locked object would be removed. Reopen the editor and check the selected network and host.";
     private static string? NetworkOptional(TextBox input) => input.Text.Length == 0 ? null : input.Text;
+    private (string Source, int Revision, string Node, string Edge)? networkCanvasSelection;
+    private bool networkSelectionFromOutline;
+
+    private void CaptureNetworkCanvasSelection(DiagramHit hit)
+    {
+        networkCanvasSelection = null; networkSelectionFromOutline = false;
+        if (doc.Page.Family != "Network" || hit.Generated || viewport.GetCanvasInfo() is not { } canvas) return;
+        if (canvas.Nodes.Length + canvas.Edges.Length == 1)
+            networkCanvasSelection = (doc.Source, revision, canvas.Nodes.FirstOrDefault() ?? "", canvas.Edges.FirstOrDefault() ?? "");
+    }
+    private void ClearNetworkCanvasSelection(bool fromOutline = true)
+    {
+        networkCanvasSelection = null; networkSelectionFromOutline = fromOutline;
+    }
+    private bool AddExactNetworkCanvasActions(NetworkDiagramEdit diagram)
+    {
+        if (networkCanvasSelection is not { } selection || selection.Revision != revision || !ReferenceEquals(selection.Source, doc.Source)) return false;
+        if (diagram.Networks.FirstOrDefault(n => n.CanvasId == selection.Node) is { } network) { AddNetworkActions(network); return true; }
+        if (diagram.Hosts.FirstOrDefault(h => h.CanvasId == selection.Node) is { } host) { AddNetworkHostActions(host); return true; }
+        if (diagram.Interfaces.FirstOrDefault(i => i.CanvasId == selection.Edge) is { } connection) { AddNetworkInterfaceActions(connection); return true; }
+        return false;
+    }
 
     private void AddNetworkDiagramActions()
     {
@@ -38,13 +61,20 @@ public sealed partial class MainPage
     private void AddNetworkObjectActions(DiagramObject item)
     {
         if (doc.OpenNetworkDiagram() is not { } network) return;
-        if (network.Interfaces.FirstOrDefault(i => i.Line == item.Line) is { } connection) AddNetworkInterfaceActions(connection);
-        else if (network.Networks.FirstOrDefault(n => n.Line == item.Line || n.Offset <= item.Offset && n.EndOffset >= item.End) is { } bus) AddNetworkActions(bus);
+        if (AddExactNetworkCanvasActions(network)) return;
+        // Several networks and hosts may share one physical source line. An
+        // outline row cannot identify one of them: expose the explicit pickers.
+        var interfaces = network.Interfaces.Where(i => i.Line == item.Line || i.Offset <= item.Offset && i.EndOffset >= item.End).ToArray();
+        var buses = network.Networks.Where(n => n.Line == item.Line).ToArray();
+        if (interfaces.Length == 1 && buses.Length == 0) AddNetworkInterfaceActions(interfaces[0]);
+        else if (buses.Length == 1 && interfaces.Length == 0) AddNetworkActions(buses[0]);
+        else if (interfaces.Length == 0 && buses.Length == 0 && network.Networks.SingleOrDefault(n => n.Offset <= item.Offset && n.EndOffset >= item.End) is { } owner) AddNetworkActions(owner);
         else AddNetworkDiagramActions();
     }
     private void AddNetworkFieldActions(SourceFieldEdit field)
     {
         if (doc.OpenNetworkDiagram() is not { } network) return;
+        if (AddExactNetworkCanvasActions(network)) return;
         if (network.Interfaces.FirstOrDefault(i => i.Offset <= field.Offset && i.EndOffset >= field.Offset + field.Length) is { } connection) AddNetworkInterfaceActions(connection);
         else if (network.Networks.FirstOrDefault(n => n.Offset <= field.Offset && n.EndOffset >= field.Offset + field.Length) is { } bus) AddNetworkActions(bus);
     }
@@ -64,11 +94,16 @@ public sealed partial class MainPage
         Properties.Children.Add(Item("Move interface to network…", "connect", () => _ = MoveNetworkInterfaceAsync(connection)));
         Properties.Children.Add(Item("Reorder interface…", "up", () => _ = ReorderNetworkInterfaceAsync(connection)));
         Properties.Children.Add(Item("Detach from this network", "delete", () => Edit(() => doc.DetachNetworkHost(connection), NetworkFailure)));
-        Properties.Children.Add(Item("Host properties…", "edit", () => _ = EditNetworkHostAsync(connection.Host)));
-        Properties.Children.Add(Item("Rename host identifier…", "edit", () => _ = RenameNetworkHostAsync(connection.Host)));
-        Properties.Children.Add(Item("Attach host to network…", "connect", () => _ = AttachNetworkHostAsync(connection.Host)));
-        Properties.Children.Add(Item("Manage host interfaces…", "connect", () => _ = ChooseNetworkInterfaceAsync(connection.Host)));
-        Properties.Children.Add(Item("Remove host everywhere", "delete", () => Edit(() => doc.RemoveNetworkHost(connection.Host), NetworkFailure)));
+        AddNetworkHostActions(connection.Host);
+    }
+    private void AddNetworkHostActions(NetworkHostEdit host)
+    {
+        Properties.Children.Add(Caption($"Shared host {host.Alias} · {host.Interfaces.Count} interfaces"));
+        Properties.Children.Add(Item("Host properties…", "edit", () => _ = EditNetworkHostAsync(host)));
+        Properties.Children.Add(Item("Rename host identifier…", "edit", () => _ = RenameNetworkHostAsync(host)));
+        Properties.Children.Add(Item("Attach host to network…", "connect", () => _ = AttachNetworkHostAsync(host)));
+        Properties.Children.Add(Item("Manage host interfaces…", "connect", () => _ = ChooseNetworkInterfaceAsync(host)));
+        Properties.Children.Add(Item("Remove host everywhere", "delete", () => Edit(() => doc.RemoveNetworkHost(host), NetworkFailure)));
     }
 
     private async Task InsertNetworkAsync(NetworkDiagramEdit network)
@@ -185,14 +220,18 @@ public sealed partial class MainPage
         }
         if (action == "delete")
         {
-            if (viewport.GetCanvasInfo() is { } canvas && (canvas.Nodes.Length > 0 || canvas.Edges.Length > 0))
+            if (!networkSelectionFromOutline && viewport.GetCanvasInfo() is { } canvas && (canvas.Nodes.Length > 0 || canvas.Edges.Length > 0))
                 Edit(() => doc.RemoveNetworkSelection(network, canvas.Nodes, canvas.Edges), NetworkFailure);
             else if (FieldSelection is { } field && network.Interfaces.FirstOrDefault(i => i.Offset <= field.Offset && i.EndOffset >= field.Offset + field.Length) is { } connection)
                 Edit(() => doc.DetachNetworkHost(connection), NetworkFailure);
-            else if (selected is { } item && network.Interfaces.FirstOrDefault(i => i.Line == item.Line) is { } attachment)
-                Edit(() => doc.RemoveNetworkHost(attachment.Host), NetworkFailure);
-            else if (selected is { } declaration && network.Networks.FirstOrDefault(n => n.Line == declaration.Line) is { } bus)
-                Edit(() => doc.RemoveNetwork(bus), NetworkFailure);
+            else if (selected is { } item)
+            {
+                var attachments = network.Interfaces.Where(i => i.Line == item.Line).ToArray();
+                var buses = network.Networks.Where(n => n.Line == item.Line).ToArray();
+                if (attachments.Length == 1 && buses.Length == 0) Edit(() => doc.RemoveNetworkHost(attachments[0].Host), NetworkFailure);
+                else if (buses.Length == 1 && attachments.Length == 0) Edit(() => doc.RemoveNetwork(buses[0]), NetworkFailure);
+                else Status("This source line contains several network objects. Select the exact shape or interface on the canvas.");
+            }
             return true;
         }
         Status("Use the network inspector to insert hosts, attach interfaces, rename identifiers, and reorder networks. Source remains available for clipboard restructuring.");

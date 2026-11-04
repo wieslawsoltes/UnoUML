@@ -103,5 +103,43 @@ export async function verifyNetworkEditing(page, source) {
   await page.getByRole('button',{name:'Undo',exact:true}).click();
   await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^203\.0\.113\.1$/}).waitFor();
   assert.equal(await source.inputValue(),compact);
+  const sameLine = '@startnwdiag\nnetwork direct { a [description="First"]; b [description="Second"]; }\n@endnwdiag';
+  await source.fill(sameLine);
+  await paper.locator('g.entity[data-qualified-name="b"]').waitFor();
+  await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
+  // Both host declarations and the bus header have the same source line. Hit
+  // the actual body, outside its exact label token, to exercise object picking.
+  await paper.locator('g.entity[data-qualified-name="b"] > rect').click({position:{x:8,y:8}});
+  await page.getByText('Rename host identifier…',{exact:true}).last().click();
+  dialog = page.getByRole('dialog',{name:'Rename host identifier',exact:true});
+  assert.equal(await dialog.getByRole('textbox',{name:'Host identifier',exact:true}).inputValue(),'b','Body picking resolves the second host, not the first statement on its line');
+  await dialog.getByRole('textbox',{name:'Host identifier',exact:true}).fill('secondHost');
+  await dialog.getByRole('button',{name:'Rename',exact:true}).click();
+  await dialog.waitFor({state:'hidden'});
+  await paper.locator('g.entity[data-qualified-name="secondHost"]').waitFor();
+  assert.equal(await source.inputValue(),sameLine.replace(' b [',' secondHost ['));
+  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await paper.locator('g.entity[data-qualified-name="b"]').waitFor();
+  assert.equal(await source.inputValue(),sameLine);
+
+  const sourceRow = page.getByRole('button',{name:sameLine.split('\n')[1],exact:true});
+  await sourceRow.click();
+  await page.getByRole('combobox',{name:'Shared host',exact:true}).waitFor();
+  await sourceRow.press('Delete');
+  await page.getByText('This source line contains several network objects. Select the exact shape or interface on the canvas.',{exact:true}).last().waitFor();
+  assert.equal(await source.inputValue(),sameLine,'An ambiguous outline row never deletes the previous canvas selection');
+
+  await paper.locator('g.network[data-qualified-name="direct"] > rect').click({position:{x:8,y:3}});
+  await page.getByText('Rename network identifier…',{exact:true}).last().click();
+  dialog = page.getByRole('dialog',{name:'Rename network identifier',exact:true});
+  assert.equal(await dialog.getByRole('textbox',{name:'Network identifier',exact:true}).inputValue(),'direct','Rail picking resolves the network that shares a line with its hosts');
+  await dialog.getByRole('textbox',{name:'Network identifier',exact:true}).fill('outside');
+  await dialog.getByRole('button',{name:'Rename',exact:true}).click();
+  await dialog.waitFor({state:'hidden'});
+  await paper.locator('g.network[data-qualified-name="outside"]').waitFor();
+  assert.equal(await source.inputValue(),sameLine.replace('network direct','network outside'));
+  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await paper.locator('g.network[data-qualified-name="direct"]').waitFor();
+  assert.equal(await source.inputValue(),sameLine);
   console.log('Verified native network structural authoring, shared-host attachment, identity-preserving canvas rename, interface addresses, wrapperless syntax, comment retention and exact atomic undo.');
 }
