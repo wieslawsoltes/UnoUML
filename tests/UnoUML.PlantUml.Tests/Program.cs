@@ -39,6 +39,7 @@ DataStyleCases.Run();
 SequenceCases.Run();
 GraphCases.Run();
 DotCases.Run();
+Console.WriteLine($"PASS {DotSizingCases.Run()} DOT sizing assertions.");
 StateCases.Run();
 ActivityCases.Run();
 Console.WriteLine($"PASS {CanvasMetadataCases.Run()} canvas graph metadata assertions.");
