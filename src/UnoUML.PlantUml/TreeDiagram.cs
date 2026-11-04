@@ -20,6 +20,7 @@ internal static class TreeDiagram
         internal int Line = line, Span, Used, Start, X, Y;
         internal bool West, Boxless, Directory;
         internal string? Fill;
+        internal string CanvasId = "";
     }
 
     internal static string? TryRender(string source, DiagramKind kind)
@@ -115,6 +116,18 @@ internal static class TreeDiagram
             nodes.Add(new(label, parent, depthIndex - 1, line) { West = west, Fill = color, Boxless = boxless, Stereotype = stereotype });
         }
         if (!ended || skinBlock != null || nodes.Count == 0) return null;
+        if (kind != DiagramKind.Files)
+        {
+            var occurrences = new Dictionary<(int Parent, string Label), int>();
+            foreach (var node in nodes)
+            {
+                var key = (node.Parent, node.Label);
+                int occurrence = occurrences.GetValueOrDefault(key);
+                occurrences[key] = occurrence + 1;
+                node.CanvasId = CanvasIdentity.Create(dialect, node.Parent < 0 ? "" : nodes[node.Parent].CanvasId,
+                    node.Label, occurrence.ToString(CultureInfo.InvariantCulture));
+            }
+        }
         MeasureStyles(nodes, skin, kind == DiagramKind.Files);
         if (kind == DiagramKind.WorkBreakdown)
             foreach (var siblings in nodes.Where(n => n.Parent >= 0).GroupBy(n => n.Parent))
@@ -232,12 +245,12 @@ internal static class TreeDiagram
             int y1 = p.Y + (vertical ? p.Height : p.Height / 2), y2 = n.Y + (vertical ? 0 : n.Height / 2);
             string route = vertical ? FormattableString.Invariant($"V{(y1 + y2) / 2} H{x2} V{y2}") :
                 FormattableString.Invariant($"C{(x1+x2)/2} {y1} {(x1+x2)/2} {y2} {x2} {y2}");
-            svg.Append(CultureInfo.InvariantCulture, $"<g data-style-name=\"arrow\" data-style-id=\"edge-{index}\"><path d=\"M{x1} {y1} {route}\" fill=\"none\" stroke=\"#77778e\"/></g>");
+            svg.Append(CultureInfo.InvariantCulture, $"<g class=\"link\" data-canvas-id=\"edge:{n.CanvasId}\" data-entity-1=\"{p.CanvasId}\" data-entity-2=\"{n.CanvasId}\" data-style-name=\"arrow\" data-style-id=\"edge-{index}\"><path d=\"M{x1} {y1} {route}\" fill=\"none\" stroke=\"#77778e\"/></g>");
         }
         for (int index = 0; index < nodes.Count; index++)
         {
             var n = nodes[index];
-            svg.Append(CultureInfo.InvariantCulture, $"<g data-source-line=\"{n.Line}\" data-style-name=\"{n.Category}\" data-style-id=\"{index}\"{(n.Fill == null ? "" : " data-style-fill=\"explicit\"")}>");
+            svg.Append(CultureInfo.InvariantCulture, $"<g data-canvas-id=\"{n.CanvasId}\" data-source-line=\"{n.Line}\" data-style-name=\"{n.Category}\" data-style-id=\"{index}\"{(n.Fill == null ? "" : " data-style-fill=\"explicit\"")}>");
             if (!n.Boxless) svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{n.X}\" y=\"{n.Y}\" width=\"{n.Width}\" height=\"{n.Height}\" rx=\"{(vertical ? 2 : 9)}\" fill=\"{n.Fill ?? (n.Level == 0 ? "#e6e5ff" : "#f3f3f8")}\" stroke=\"#73738b\"/>");
             string alignment = n.Paint.GetValueOrDefault("horizontalalignment").Text ?? "left";
             int x = alignment == "right" ? n.X + n.Width - n.Padding.Right : alignment == "center" ? n.X + n.Width / 2 : n.X + n.Padding.Left;

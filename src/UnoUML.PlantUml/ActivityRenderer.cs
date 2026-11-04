@@ -14,6 +14,7 @@ internal static partial class ActivityRenderer
         internal List<Step> Steps = [];
         internal int Width, Height;
         internal StyleLabel Caption = null!;
+        internal string CanvasId = "";
         internal bool Continues => Steps.Count == 0 || Steps[^1].Continues;
     }
     private sealed class Step(Kind kind, int line, string label = "")
@@ -29,6 +30,8 @@ internal static partial class ActivityRenderer
         internal bool JoinAsDecision;
         internal bool Debug;
         internal int LabelStart = -1, LabelLength;
+        internal string CanvasId = "";
+        internal string? CanvasParent;
     }
 
     [GeneratedRegex(@"^(if|while)\s+\((.*?)\)\s+(then|is)(?:\s+\((.*)\))?$", RegexOptions.CultureInvariant)]
@@ -206,6 +209,7 @@ internal static partial class ActivityRenderer
             }
         }
         if (!ended || inLegend || pendingAction != null || (legendLine >= 0 && legend.Count == 0) || frames.Count != 0 || root.Steps.Count == 0 || !Measure(root)) return null;
+        AssignCanvasIdentities(root, "root", null, []);
         return DrawDocument(root, title, titleLine, swimlanes, legend, legendLine, legendAlign);
     }
 
@@ -251,7 +255,14 @@ internal static partial class ActivityRenderer
                 columns[i] = left + w / 2; left += w;
             }
         }
-        DrawLane(svg, root, width / 2, bodyTop, columns);
+        var pending = DrawLane(svg, root, width / 2, bodyTop, columns);
+        if (pending?.HasRoute == true)
+        {
+            // A terminal loop/partition has an open continuation, not a synthetic
+            // graph vertex. Keep its dangling tail owned by the real source shape.
+            svg.Append("<g data-canvas-decoration-for=\"").Append(pending.Id).Append("\">");
+            Path(svg, pending.Route); svg.Append(pending.Captions).Append("</g>");
+        }
         if (legendHeight > 0)
         {
             int x = legendAlign switch { "left" => 24, "right" => width - 24 - legendWidth, _ => (width - legendWidth) / 2 };
@@ -356,30 +367,38 @@ internal static partial class ActivityRenderer
         return true;
     }
 
-    private static void DrawLane(StringBuilder svg, Lane lane, int x, int top, int[]? columns = null)
+    private static FlowExit? DrawLane(StringBuilder svg, Lane lane, int x, int top, int[]? columns = null, FlowExit? incoming = null)
     {
-        int y = top, previousX = x;
+        int y = top;
+        var previous = incoming;
+        bool first = true;
         foreach (var step in lane.Steps)
         {
             if (columns != null) x = columns[step.Swimlane];
-            if (y != top)
+            if (!first) y += Gap;
+            first = false;
+            if (previous != null)
             {
-                if (x == previousX) Arrow(svg, x, y, x, y + Gap);
-                else { Path(svg, $"M{previousX},{y}V{y + Gap / 2}H{x}V{y + Gap}"); Head(svg, x, y + Gap); }
-                y += Gap;
+                if (x != previous.X) previous = previous.Extend(x, y, $"V{(previous.Y + y) / 2}H{x}V{y}");
+                else if (y != previous.Y) previous = previous.Extend(x, y, $"L{x},{y}");
+                Connect(svg, previous, step.CanvasId);
             }
-            previousX = x;
-            if (step.Lanes.Count == 0) DrawSimple(svg, step, x, y);
-            else if (step.Kind == Kind.Partition) DrawPartition(svg, step, x, y);
-            else if (step.Kind is Kind.While or Kind.Repeat) DrawLoop(svg, step, x, y);
-            else DrawBranches(svg, step, x, y);
+            if (step.Lanes.Count == 0)
+            {
+                DrawSimple(svg, step, x, y);
+                previous = step.Continues ? FlowExit.From(step.CanvasId, x, y + step.Height) : null;
+            }
+            else if (step.Kind == Kind.Partition) previous = DrawPartition(svg, step, x, y);
+            else if (step.Kind is Kind.While or Kind.Repeat) previous = DrawLoop(svg, step, x, y);
+            else previous = DrawBranches(svg, step, x, y);
             y += step.Height;
         }
+        return previous;
     }
 
     private static void DrawSimple(StringBuilder svg, Step step, int x, int y)
     {
-        Open(svg, step.Kind.ToString(), step.Line, step.Stereotype, step.Fill != null, step.LabelStart, step.LabelLength);
+        Open(svg, step.Kind.ToString(), step.Line, step.Stereotype, step.Fill != null, step.LabelStart, step.LabelLength, step.CanvasId, step.CanvasParent);
         switch (step.Kind)
         {
             case Kind.Action:
@@ -420,27 +439,28 @@ internal static partial class ActivityRenderer
         }
     }
 
-    private static void DrawPartition(StringBuilder svg, Step step, int x, int top)
+    private static FlowExit? DrawPartition(StringBuilder svg, Step step, int x, int top)
     {
         int left = x - step.Width / 2, tabWidth = step.Caption.Width + 24, tabHeight = step.HeaderHeight - 18;
-        Open(svg, "Partition", step.Line);
+        Open(svg, "Partition", step.Line, canvasId: step.CanvasId, canvasParent: step.CanvasParent);
         svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{left}\" y=\"{top}\" width=\"{step.Width}\" height=\"{step.Height}\" rx=\"4\" fill=\"#fff\" stroke=\"#555\"/>");
         Path(svg, $"M{left + tabWidth},{top}v{tabHeight - 10}l-10,10H{left}");
         step.Caption.Append(svg, left + 8, top + (tabHeight - step.Caption.Height) / 2, tabWidth - 18, "center");
         svg.Append("</g>");
-        Arrow(svg, x, top, x, top + step.HeaderHeight);
         var body = step.Lanes[0];
-        DrawLane(svg, body, x, top + step.HeaderHeight);
-        if (body.Continues) Path(svg, $"M{x},{top + step.HeaderHeight + body.Height}V{top + step.Height}");
+        var incoming = FlowExit.From(step.CanvasId, x, top).Extend(x, top + step.HeaderHeight, $"L{x},{top + step.HeaderHeight}");
+        var outgoing = DrawLane(svg, body, x, top + step.HeaderHeight, incoming: incoming);
+        return outgoing?.Extend(x, top + step.Height, $"V{top + step.Height}");
     }
 
-    private static void DrawBranches(StringBuilder svg, Step step, int x, int y)
+    private static FlowExit? DrawBranches(StringBuilder svg, Step step, int x, int y)
     {
         bool fork = step.Kind == Kind.Fork;
         int h = fork ? 7 : step.HeaderHeight, splitY = y + h + 9, bodyTop = y + h + step.Lead;
         int bottom = y + step.Height, joinY = bottom - 16;
         int left = x - step.ContentWidth / 2;
-        Open(svg, step.Kind.ToString(), step.Line);
+        string joinId = step.CanvasId + ":join";
+        Open(svg, step.Kind.ToString(), step.Line, canvasId: step.CanvasId, canvasParent: step.CanvasParent);
         if (fork) Bar(svg, left, y, step.ContentWidth, 7);
         else Diamond(svg, x, y, step.Label, step.HeaderHeight, step.Caption, step.HeaderWidth);
         svg.Append("</g>");
@@ -448,19 +468,19 @@ internal static partial class ActivityRenderer
         {
             int bx = left + child.Width / 2;
             left += child.Width + LaneGap;
-            if (fork) Arrow(svg, bx, y + h, bx, bodyTop);
-            else { Path(svg, $"M{x},{y + h}V{splitY}H{bx}V{bodyTop}"); Head(svg, bx, bodyTop); }
-            if (child.Label.Length > 0) Caption(svg, bx, bodyTop - 6 - child.Caption.Height, child.Caption, halo: true);
-            DrawLane(svg, child, bx, bodyTop);
-            if (child.Continues)
+            var incoming = fork ? FlowExit.From(step.CanvasId, bx, y + h).Extend(bx, bodyTop, $"L{bx},{bodyTop}") :
+                FlowExit.From(step.CanvasId, x, y + h).Extend(bx, bodyTop, $"V{splitY}H{bx}V{bodyTop}");
+            incoming = incoming with { Role = child.CanvasId, Captions = CaptionMarkup(bx, bodyTop - 6 - child.Caption.Height, child.Caption) };
+            var outgoing = DrawLane(svg, child, bx, bodyTop, incoming: incoming);
+            if (outgoing != null)
             {
-                int exit = bodyTop + child.Height;
-                if (fork && !step.JoinAsDecision) { Path(svg, $"M{bx},{exit}V{joinY + 5}"); Head(svg, bx, joinY + 5); }
-                else Path(svg, $"M{bx},{exit}V{joinY - 9}H{x}V{joinY}");
+                if (fork && !step.JoinAsDecision) outgoing = outgoing.Extend(bx, joinY + 5, $"V{joinY + 5}");
+                else outgoing = outgoing.Extend(x, joinY, $"V{joinY - 9}H{x}V{joinY}");
+                Connect(svg, outgoing, joinId, head: fork && !step.JoinAsDecision || child.Steps.Count == 0, role: child.CanvasId + ":join");
             }
         }
-        if (!step.Continues) return;
-        Open(svg, "Join", step.CloseLine);
+        if (!step.Continues) return null;
+        Open(svg, "Join", step.CloseLine, canvasId: joinId, canvasParent: step.CanvasParent);
         if (fork && !step.JoinAsDecision)
         {
             Bar(svg, x - step.ContentWidth / 2, joinY + 5, step.ContentWidth, 6);
@@ -468,38 +488,40 @@ internal static partial class ActivityRenderer
         }
         else Diamond(svg, x, joinY, "", 16);
         svg.Append("</g>");
+        return FlowExit.From(joinId, x, bottom);
     }
 
-    private static void DrawLoop(StringBuilder svg, Step step, int x, int y)
+    private static FlowExit DrawLoop(StringBuilder svg, Step step, int x, int y)
     {
         var lane = step.Lanes[0]; bool repeat = step.Kind == Kind.Repeat;
         int topH = repeat ? 16 : step.HeaderHeight;
         int bodyY = y + topH + step.Lead, bottom = y + step.Height;
         int testY = repeat ? bottom - step.HeaderHeight - Math.Max(18, step.ExitCaption.Height + 4) : y;
         int trunk = step.Width / 2 - 6;
-        Open(svg, step.Kind.ToString(), step.Line); Diamond(svg, x, y, repeat ? "" : step.Label, topH, repeat ? null : step.Caption, repeat ? 28 : step.HeaderWidth); svg.Append("</g>");
-        Arrow(svg, x, y + topH, x, bodyY);
-        if (!repeat && lane.Label.Length > 0) Caption(svg, x, bodyY - 9 - lane.Caption.Height, lane.Caption, halo: true);
-        DrawLane(svg, lane, x, bodyY);
-        int exit = bodyY + lane.Height;
+        Open(svg, step.Kind.ToString(), step.Line, canvasId: step.CanvasId, canvasParent: step.CanvasParent); Diamond(svg, x, y, repeat ? "" : step.Label, topH, repeat ? null : step.Caption, repeat ? 28 : step.HeaderWidth); svg.Append("</g>");
+        var incoming = FlowExit.From(step.CanvasId, x, y + topH).Extend(x, bodyY, $"L{x},{bodyY}");
+        if (!repeat) incoming = incoming with { Captions = CaptionMarkup(x, bodyY - 9 - lane.Caption.Height, lane.Caption) };
+        var outgoing = DrawLane(svg, lane, x, bodyY, incoming: incoming)!;
         if (repeat)
         {
-            Arrow(svg, x, exit, x, testY);
-            Open(svg, "LoopTest", step.CloseLine); Diamond(svg, x, testY, step.Label, step.HeaderHeight, step.Caption, step.HeaderWidth); svg.Append("</g>");
+            string testId = step.CanvasId + ":test";
+            Connect(svg, outgoing.Extend(x, testY, $"L{x},{testY}"), testId);
+            Open(svg, "LoopTest", step.CloseLine, canvasId: testId, canvasParent: step.CanvasParent); Diamond(svg, x, testY, step.Label, step.HeaderHeight, step.Caption, step.HeaderWidth); svg.Append("</g>");
             int edge = step.HeaderWidth / 2;
-            Path(svg, $"M{x - edge},{testY + step.HeaderHeight / 2}H{x - trunk}V{y + 8}H{x - 14}");
-            LeftToRightHead(svg, x - 14, y + 8);
-            Path(svg, $"M{x},{testY + step.HeaderHeight}V{bottom}");
-            Caption(svg, x - trunk / 2, testY + step.HeaderHeight / 2 - 4 - lane.Caption.Height, lane.Caption, halo: true);
-            Caption(svg, x, bottom - 3 - step.ExitCaption.Height, step.ExitCaption, halo: true);
+            var back = FlowExit.From(testId, x - edge, testY + step.HeaderHeight / 2)
+                .Extend(x - 14, y + 8, $"H{x - trunk}V{y + 8}H{x - 14}") with
+                { Captions = CaptionMarkup(x - trunk / 2, testY + step.HeaderHeight / 2 - 4 - lane.Caption.Height, lane.Caption) };
+            Connect(svg, back, step.CanvasId, horizontalHead: true, role: "repeat");
+            return FlowExit.From(testId, x, testY + step.HeaderHeight).Extend(x, bottom, $"V{bottom}") with
+                { Captions = CaptionMarkup(x, bottom - 3 - step.ExitCaption.Height, step.ExitCaption) };
         }
         else
         {
             int edge = step.HeaderWidth / 2;
-            Path(svg, $"M{x},{exit}V{bottom - 18}H{x - trunk}V{y + step.HeaderHeight / 2}H{x - edge}");
-            LeftToRightHead(svg, x - edge, y + step.HeaderHeight / 2);
-            Path(svg, $"M{x + edge},{y + step.HeaderHeight / 2}H{x + trunk}V{bottom}H{x}");
-            Caption(svg, x + (edge + trunk) / 2, y + step.HeaderHeight / 2 - 6 - step.ExitCaption.Height, step.ExitCaption, halo: true);
+            Connect(svg, outgoing.Extend(x - edge, y + step.HeaderHeight / 2, $"V{bottom - 18}H{x - trunk}V{y + step.HeaderHeight / 2}H{x - edge}"), step.CanvasId,
+                horizontalHead: true, role: "repeat");
+            return FlowExit.From(step.CanvasId, x + edge, y + step.HeaderHeight / 2).Extend(x, bottom, $"H{x + trunk}V{bottom}H{x}") with
+                { Captions = CaptionMarkup(x + (edge + trunk) / 2, y + step.HeaderHeight / 2 - 6 - step.ExitCaption.Height, step.ExitCaption) };
         }
     }
 
@@ -514,7 +536,6 @@ internal static partial class ActivityRenderer
     private static void Path(StringBuilder svg, string d) => svg.Append(CultureInfo.InvariantCulture, $"<path d=\"{d}\" fill=\"none\" stroke=\"#333\"/>");
     private static void Head(StringBuilder svg, int x, int y) => svg.Append(CultureInfo.InvariantCulture, $"<path d=\"M{x - 4},{y - 7}L{x},{y}l4,-7z\" fill=\"#333\"/>");
     private static void LeftToRightHead(StringBuilder svg, int x, int y) => svg.Append(CultureInfo.InvariantCulture, $"<path d=\"M{x - 7},{y - 4}L{x},{y}l-7,4z\" fill=\"#333\"/>");
-    private static void Arrow(StringBuilder svg, int x1, int y1, int x2, int y2) { Path(svg, $"M{x1},{y1}L{x2},{y2}"); Head(svg, x2, y2); }
     private static string Category(string kind) => kind.ToLowerInvariant() switch
     {
         "action" => "activity",
@@ -528,9 +549,12 @@ internal static partial class ActivityRenderer
         "legend" => "legend",
         _ => "arrow"
     };
-    private static void Open(StringBuilder svg, string kind, int line, string stereotype = "", bool explicitFill = false, int labelStart = -1, int labelLength = 0)
+    private static void Open(StringBuilder svg, string kind, int line, string stereotype = "", bool explicitFill = false, int labelStart = -1, int labelLength = 0,
+        string? canvasId = null, string? canvasParent = null)
     {
         svg.Append(CultureInfo.InvariantCulture, $"<g class=\"activity-{kind}\" data-source-line=\"{line}\"");
+        if (canvasId != null) svg.Append(" data-canvas-id=\"").Append(canvasId).Append('"');
+        if (canvasParent != null) svg.Append(" data-canvas-parent=\"").Append(canvasParent).Append('"');
         if (kind is "Start" or "Stop" or "End" or "Fork")
             svg.Append(" data-style-name=\"").Append(Category(kind)).Append("\" data-style-metrics=\"fontsize\"");
         else StyleLabel.Scope(svg, Category(kind), stereotype);
