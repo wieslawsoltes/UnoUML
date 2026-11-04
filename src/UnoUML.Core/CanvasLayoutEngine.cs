@@ -179,6 +179,16 @@ public static partial class CanvasLayoutEngine
     /// and a common translation of both endpoints translates their complete manual path.
     /// </summary>
     public static CanvasLayoutState UpdateGeometry(CanvasLayoutState before, CanvasLayoutState after, CancellationToken cancellationToken = default)
+        => UpdateGeometry(before, after, false, cancellationToken);
+
+    /// <summary>
+    /// Commit a geometry gesture, optionally allowing a temporary docked segment when
+    /// overlapping geometry prevents automatic routing. The requested routing style is
+    /// retained and retried on subsequent motion. Cancellation and resource limits still
+    /// fail atomically; manual paths and locked geometry keep their normal protections.
+    /// </summary>
+    public static CanvasLayoutState UpdateGeometry(CanvasLayoutState before, CanvasLayoutState after, bool allowOverlapFallback,
+        CancellationToken cancellationToken = default)
     {
         before = CanvasLayoutValidation.Snapshot(before, cancellationToken);
         after = CanvasLayoutValidation.Snapshot(after, cancellationToken);
@@ -228,7 +238,7 @@ public static partial class CanvasLayoutEngine
                 : edge);
         }
         after = after with { Edges = edges.ToArray() };
-        return CanvasEdgeRouter.Route(after, edge => reroute.Contains(edge.Id), cancellationToken);
+        return CanvasEdgeRouter.Route(after, edge => reroute.Contains(edge.Id), cancellationToken, allowOverlapFallback);
     }
 
     private static CanvasLayoutState Finish(EditContext context, CancellationToken cancellationToken)

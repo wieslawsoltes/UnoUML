@@ -9,8 +9,12 @@ internal static class CanvasEdgeRouter
     {
         internal double Length => Distance(Dock, Exit);
     }
+    // A geometric obstruction is distinct from cancellation or bounded-work
+    // exhaustion. Only the former may use an explicit-gesture fallback.
+    private sealed class ObstructedRouteException(string message) : InvalidOperationException(message);
 
-    internal static CanvasLayoutState Route(CanvasLayoutState state, Func<CanvasEdge, bool> include, CancellationToken cancellationToken)
+    internal static CanvasLayoutState Route(CanvasLayoutState state, Func<CanvasEdge, bool> include, CancellationToken cancellationToken,
+        bool allowOverlapFallback = false)
     {
         var nodes = state.Nodes.ToDictionary(node => node.Id, StringComparer.Ordinal);
         var budget = new Budget(cancellationToken);
@@ -43,16 +47,26 @@ internal static class CanvasEdgeRouter
             var obstacles = visible.Where(node => !Ancestor(node.Id, source.Id) && !Ancestor(node.Id, target.Id) &&
                     !Ancestor(source.Id, node.Id) && !Ancestor(target.Id, node.Id))
                 .Select(node => new Obstacle(node.Id, CanvasRect.Of(node).Inflate(state.Settings.RoutingPadding))).ToArray();
-            var starts = Ports(source, edge.SourcePort, state.Settings.RoutingPadding, parallel[edge.Id])
-                .Where(port => ClearStub(port, source.Id, obstacles, budget)).ToArray();
-            var ends = Ports(target, edge.TargetPort, state.Settings.RoutingPadding, parallel[edge.Id])
-                .Where(port => ClearStub(port, target.Id, obstacles, budget)).ToArray();
-            if (starts.Length == 0 || ends.Length == 0)
-                throw new InvalidOperationException($"Edge '{edge.Id}' has no unobstructed port. Separate overlapping nodes or change its port.");
             CanvasPoint[] path;
-            if (source.Id == target.Id && starts.Length == 1 && ends.Length == 1 && Same(starts[0].Dock, ends[0].Dock))
-                path = SamePortLoop(starts[0], obstacles, state.Settings, budget);
-            else path = Orthogonal(starts, ends, obstacles, source.Id == target.Id, state.Settings, budget);
+            try
+            {
+                var starts = Ports(source, edge.SourcePort, state.Settings.RoutingPadding, parallel[edge.Id])
+                    .Where(port => ClearStub(port, source.Id, obstacles, budget)).ToArray();
+                var ends = Ports(target, edge.TargetPort, state.Settings.RoutingPadding, parallel[edge.Id])
+                    .Where(port => ClearStub(port, target.Id, obstacles, budget)).ToArray();
+                if (starts.Length == 0 || ends.Length == 0)
+                    throw new ObstructedRouteException($"Edge '{edge.Id}' has no unobstructed port. Separate overlapping nodes or change its port.");
+                if (source.Id == target.Id && starts.Length == 1 && ends.Length == 1 && Same(starts[0].Dock, ends[0].Dock))
+                    path = SamePortLoop(starts[0], obstacles, state.Settings, budget);
+                else path = Orthogonal(starts, ends, obstacles, source.Id == target.Id, state.Settings, budget);
+            }
+            catch (ObstructedRouteException) when (allowOverlapFallback)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                // Do not change Routing or Manual: moving the endpoints apart must
+                // retry the intended router, not turn a temporary overlap into an edit.
+                path = [Dock(source, Center(target), edge.SourcePort), Dock(target, Center(source), edge.TargetPort)];
+            }
             routes.Add(edge.Id, edge with { Waypoints = path });
         }
         var result = state with { Edges = state.Edges.Select(edge => routes.GetValueOrDefault(edge.Id, edge)).ToArray() };
@@ -213,7 +227,7 @@ internal static class CanvasEdgeRouter
                 queue.Enqueue((key, distance), (distance + remaining, bends[key], remaining, key));
             }
         }
-        if (bestKey < 0) throw new InvalidOperationException("No obstacle-free orthogonal route exists for the current ports and clearance.");
+        if (bestKey < 0) throw new ObstructedRouteException("No obstacle-free orthogonal route exists for the current ports and clearance.");
         var points = new List<CanvasPoint>();
         for (int key = bestKey; key >= 0; key = parents[key]) points.Add(Point(key / 2));
         points.Reverse(); points.Insert(0, starts[origins[bestKey]].Dock); points.Add(ends[bestTarget].Dock);
@@ -233,7 +247,7 @@ internal static class CanvasEdgeRouter
             CanvasPoint[] middle = [a, b, c, d, a];
             if (ClearPath(middle, obstacles, budget)) return Simplify(new[] { port.Dock }.Concat(middle).Append(port.Dock));
         }
-        throw new InvalidOperationException("No clear self-loop fits the chosen port within the routing budget.");
+        throw new ObstructedRouteException("No clear self-loop fits the chosen port within the allowed routing extent.");
     }
 
     private static bool ClearPath(IReadOnlyList<CanvasPoint> points, Obstacle[] obstacles, Budget budget)

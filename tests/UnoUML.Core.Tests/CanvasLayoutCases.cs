@@ -245,6 +245,39 @@ internal static class CanvasLayoutCases
         var parallel = CanvasLayoutEngine.RouteEdges(simple with { Edges = [new("AB1", "A", "B"), new("AB2", "A", "B"), new("AB3", "A", "B")] });
         Check(parallel.Edges.Select(edge => edge.Waypoints![0]).Distinct().Count() == 3, "parallel edges receive distinct automatic ports");
 
+        foreach (string routing in new[] { "orthogonal", "curved", "polyline" })
+        {
+            var movable = CanvasLayoutEngine.RouteEdges(new CanvasLayoutState([new("A", 0, 0, 80, 40), new("B", 300, 0, 200, 200)],
+                [new("AB", "A", "B", Routing: routing, SourcePort: new(1, 0.5), TargetPort: new(0, 0.5), LabelOffset: new(4, -8))]));
+            var overlapping = Move(movable, -350, -50, "B");
+            string beforeOverlap = CanvasLayoutJson.Serialize(movable);
+            Throws<InvalidOperationException>(() => CanvasLayoutEngine.UpdateGeometry(movable, overlapping), "strict geometry rejects obstructed ports");
+            Throws<InvalidOperationException>(() => CanvasLayoutEngine.RouteEdges(overlapping), "explicit routing stays strict");
+            var dragged = CanvasLayoutEngine.UpdateGeometry(movable, overlapping, allowOverlapFallback: true);
+            var temporary = Edge(dragged, "AB");
+            Check(Node(dragged, "B").X == -50 && temporary.Waypoints!.SequenceEqual(new CanvasPoint[] { new(80, 20), new(-50, 50) }), "overlapping gesture commits with exact docked fallback endpoints");
+            Check(temporary.Routing == routing && !temporary.Manual && temporary.LabelOffset == new CanvasPoint(4, -8), "temporary fallback retains intended routing and edge properties");
+            var separated = CanvasLayoutEngine.UpdateGeometry(dragged, Move(dragged, 350, 50, "B"), allowOverlapFallback: true);
+            ClearRoute(Edge(separated, "AB"), [], 12, routing + " restores after overlap");
+            Check(Edge(separated, "AB").Routing == routing && CanvasLayoutJson.Serialize(movable) == beforeOverlap, "fallback and restoration preserve style and input snapshots");
+            using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+            Throws<OperationCanceledException>(() => CanvasLayoutEngine.UpdateGeometry(movable, overlapping, true, cancelled.Token), "fallback never suppresses cancellation");
+        }
+        var routeBudget = new CanvasLayoutState(
+            new[] { new CanvasNode("A", 0, 0, 40, 40), new CanvasNode("B", 400, 0, 40, 40) }
+                .Concat(Enumerable.Range(0, 398).Select(i => new CanvasNode("Obstacle" + i, 2000 + i * 50, 500, 20, 20))).ToArray(),
+            Enumerable.Range(0, 4000).Select(i => new CanvasEdge("Edge" + i, "A", "B")).ToArray());
+        try
+        {
+            CanvasLayoutEngine.UpdateGeometry(routeBudget, Move(routeBudget, 10, 0, "B"), allowOverlapFallback: true);
+            throw new Exception("Canvas layout: expected bounded routing exhaustion");
+        }
+        catch (InvalidOperationException exhausted)
+        {
+            Check(exhausted.Message.Contains("work budget", StringComparison.Ordinal), "overlap fallback cannot bypass shared routing work limits");
+            Check(routeBudget.Edges.All(edge => edge.Waypoints == null) && Node(routeBudget, "B").X == 400, "routing work exhaustion is atomic");
+        }
+
         CanvasPoint[] manualPath = [new(40, 20), new(100, 20), new(100, 80), new(200, 80), new(200, 20)];
         var manual = new CanvasLayoutState([new("A", 0, 0, 40, 40), new("B", 200, 0, 40, 40)],
             [new("AB", "A", "B", manualPath, Manual: true, SourcePort: new(1, 0.5), TargetPort: new(0, 0.5), LabelOffset: new(4, -8))]);
@@ -263,8 +296,12 @@ internal static class CanvasLayoutCases
         Check(!Edge(reset, "AB").Manual && Edge(reset, "AB").Waypoints!.Count >= 2 && Edge(reset, "AB").LabelOffset == new CanvasPoint(4, -8), "explicit route reset clears manual mode and preserves labels");
         var locked = manual with { Edges = [Edge(manual, "AB") with { Locked = true }] };
         Check(Edge(CanvasLayoutEngine.ResetRoutes(locked), "AB").Manual && Edge(CanvasLayoutEngine.UpdateGeometry(locked, Move(locked, 10, 10, "A", "B")), "AB").Waypoints!.SequenceEqual(manualPath), "locked edge geometry survives reset and node motion");
+        Check(Edge(CanvasLayoutEngine.UpdateGeometry(locked, Move(locked, -200, 0, "B"), allowOverlapFallback: true), "AB").Waypoints!.SequenceEqual(manualPath), "overlap fallback preserves locked edge geometry");
+        var manualOverlap = Edge(CanvasLayoutEngine.UpdateGeometry(manual, Move(manual, -200, 0, "B"), allowOverlapFallback: true), "AB");
+        Check(manualOverlap.Manual && manualPath.Skip(1).SkipLast(1).All(manualOverlap.Waypoints!.Contains), "overlap fallback preserves explicit manual bends");
         var lockedNode = manual with { Nodes = manual.Nodes.Select(node => node.Id == "A" ? node with { Locked = true } : node).ToArray() };
         Throws<ArgumentException>(() => CanvasLayoutEngine.UpdateGeometry(lockedNode, Move(lockedNode, 10, 0, "A")), "geometry transaction respects prior node locks");
+        Throws<ArgumentException>(() => CanvasLayoutEngine.UpdateGeometry(lockedNode, Move(lockedNode, 10, 0, "A"), allowOverlapFallback: true), "overlap fallback cannot bypass node locks");
         var pinnedNode = manual with { Nodes = manual.Nodes.Select(node => node.Id == "A" ? node with { Pinned = true } : node).ToArray() };
         Check(Node(CanvasLayoutEngine.UpdateGeometry(pinnedNode, Move(pinnedNode, 10, 0, "A")), "A").X == 10, "pinning permits explicit manual movement");
         Throws<ArgumentException>(() => CanvasLayoutEngine.UpdateGeometry(manual, manual with { Nodes = [.. manual.Nodes, new("New", 0, 0, 20, 20)] }), "gesture cannot replace graph topology");
