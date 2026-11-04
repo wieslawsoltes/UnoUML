@@ -10,6 +10,7 @@ import { verifyTypedFields } from './typed-fields.mjs';
 import { verifySaltEditing } from './salt-editing.mjs';
 import { verifyYamlEditing } from './yaml-editing.mjs';
 import { verifyDotEditing } from './dot-editing.mjs';
+import { verifyDotStructuralAuthoring } from './dot-structure.mjs';
 import { verifyStructuredEditing } from './structured-editing.mjs';
 import { verifyCanvasEditing } from './canvas-editing.mjs';
 import { verifyImportedPageRouting } from './imported-editing.mjs';
@@ -133,6 +134,7 @@ try {
   await verifySaltEditing(page, textbox);
   await verifyYamlEditing(page, textbox);
   await verifyDotEditing(page, textbox);
+  await verifyDotStructuralAuthoring(page, textbox);
   await verifyStructuredEditing(page, textbox);
   await verifyCanvasEditing(page, textbox);
   await verifyArchiveImport(page, textbox);
