@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace UnoUML.App.Rendering;
 
@@ -27,20 +28,30 @@ internal static partial class BrowserBridge
         [JSMarshalAs<JSType.Function<JSType.String, JSType.String>>] Func<string, string> layoutManaged);
     [JSImport("setLocalMode", Module)] internal static partial void SetLocalMode(string id, bool nativeEnabled);
     [JSImport("unmount", Module)] internal static partial void Unmount(string id);
-    [JSImport("render", Module)] internal static partial Task Render(string id, string source, string? fileName);
+    // .NET's browser UTF-16 decoder consumes a leading U+FEFF in a raw
+    // managed string. A JSON envelope preserves every source code unit and
+    // therefore keeps renderer token offsets identical to the document.
+    internal static Task Render(string id, string source, string? fileName) =>
+        RenderSourceJson(id, JsonSerializer.Serialize(source, BrowserTextJson.Default.String), fileName);
+    [JSImport("renderSourceJson", Module)] private static partial Task RenderSourceJson(string id, string sourceJson, string? fileName);
     [JSImport("setTool", Module)] internal static partial void SetTool(string id, string tool);
     [JSImport("setSelection", Module)] internal static partial void SetSelection(string id, string name, int line);
     [JSImport("zoom", Module)] internal static partial void Zoom(string id, double factor);
     [JSImport("fit", Module)] internal static partial void Fit(string id);
     [JSImport("exportDiagram", Module)] internal static partial Task Export(string id, string format, string fileName);
     [JSImport("openFile", Module)] internal static partial Task<string?> Open(string accept);
-    [JSImport("saveFile", Module)] internal static partial void Save(string fileName, string text, string mime);
+    internal static void Save(string fileName, string text, string mime) =>
+        SaveFileJson(fileName, JsonSerializer.Serialize(text, BrowserTextJson.Default.String), mime);
+    [JSImport("saveFileJson", Module)] private static partial void SaveFileJson(string fileName, string textJson, string mime);
     [JSImport("importIncludes", Module)] internal static partial Task<int> ImportIncludes(bool folder);
 
     [JSImport("globalThis.localStorage.getItem")] internal static partial string? StorageGet(string key);
     [JSImport("globalThis.localStorage.setItem")] internal static partial void StorageSet(string key, string value);
     [JSImport("globalThis.localStorage.removeItem")] internal static partial void StorageRemove(string key);
 }
+
+[JsonSerializable(typeof(string))]
+internal partial class BrowserTextJson : JsonSerializerContext { }
 
 public sealed record OpenedFile(string Name, string Text);
 

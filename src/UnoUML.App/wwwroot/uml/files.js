@@ -163,7 +163,9 @@ function pick(accept, multiple, directory) {
 }
 export async function openFile(accept) {
   const [file] = await pick(accept, false, false);
-  return file ? JSON.stringify({ name: file.name, text: await file.text() }) : null;
+  // Blob.text() removes a UTF-8 BOM. Source imports preserve it so downloads,
+  // exact-source edits and renderer offsets all see the same document.
+  return file ? JSON.stringify({ name: file.name, text: new TextDecoder('utf-8', {ignoreBOM:true}).decode(await file.arrayBuffer()) }) : null;
 }
 
 async function encoded(file) {
@@ -222,3 +224,4 @@ export function download(fileName, blob) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 export function saveFile(fileName, text, mime) { download(fileName, new Blob([text], { type: mime })); }
+export function saveFileJson(fileName, textJson, mime) { saveFile(fileName, JSON.parse(textJson), mime); }

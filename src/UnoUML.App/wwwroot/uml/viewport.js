@@ -6,7 +6,7 @@ import { beginResourcePass, prepareResources } from './resources.js';
 export { readResource } from './resources.js';
 export { configureAccessibility, configureAccessibilityPopup, removeAccessibility } from './accessibility.js';
 export { configureScrollSynchronization, removeScrollSynchronization } from './scroll-synchronization.js';
-export { openFile, saveFile, importIncludes, readInclude, listIncludes, updateInclude, openArchive, saveArchive, readArchive, readArchiveVersion, listArchives, updateArchive, downloadArchive } from './files.js';
+export { openFile, saveFile, saveFileJson, importIncludes, readInclude, listIncludes, updateInclude, openArchive, saveArchive, readArchive, readArchiveVersion, listArchives, updateArchive, downloadArchive } from './files.js';
 
 import { getServerEndpoint, getServerTransport, layoutOnServer } from './server.js';
 export { setServerEndpoint } from './server.js';
@@ -450,6 +450,7 @@ export function setSelection(id, name, line) { views.get(id)?.select(name,line);
 export function zoom(id, factor) { views.get(id)?.zoom(factor); }
 export function fit(id) { views.get(id)?.fit(); }
 export async function render(id, source, fileName = '') { await views.get(id).render(source, fileName); }
+export async function renderSourceJson(id, sourceJson, fileName = '') { await render(id, JSON.parse(sourceJson), fileName); }
 export async function exportDiagram(id, format, fileName) {
   const view = views.get(id);
   const svg = view?.pristine && view.svg;

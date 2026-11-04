@@ -204,7 +204,11 @@ public sealed partial class MainPage
         try
         {
             if (await BrowserFiles.OpenAsync(".json") is not { } opened) return;
-            var list = JsonSerializer.Deserialize(opened.Text, StudioJson.Default.ListLibrarySnippet);
+            // Source files retain their BOM; JSON consumes it as an encoding
+            // signature before parsing rather than as document content.
+            ReadOnlySpan<char> json = opened.Text.AsSpan();
+            if (json.StartsWith("\uFEFF", StringComparison.Ordinal)) json = json[1..];
+            var list = JsonSerializer.Deserialize(json, StudioJson.Default.ListLibrarySnippet);
             if (list == null || list.Any(s => !ValidSnippet(s))) throw new FormatException("Use an array of snippets with Name and Source fields.");
             int count = snippets.Count;
             foreach (var s in list.Distinct()) if (!snippets.Contains(s)) snippets.Add(s);
