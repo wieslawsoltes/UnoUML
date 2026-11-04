@@ -133,7 +133,8 @@ internal static partial class ChartRenderer
             }
             else
             {
-                if (series.Kind is "line" or "area")
+                if (series.Kind == "line") DrawLineSeries(svg, series, (point, index) => Position(series, point, index), color);
+                else if (series.Kind == "area")
                 {
                     bool area = series.Kind == "area"; var first = Position(series, series.Points[0], 0);
                     svg.Append(area ? "<polygon" : "<polyline").Append(" fill=\"").Append(area ? color : "none").Append("\" stroke=\"").Append(color).Append("\" stroke-width=\"2\" points=\"");
@@ -144,7 +145,7 @@ internal static partial class ChartRenderer
                 }
                 for (int i = 0; i < series.Points.Length; i++)
                 {
-                    var point = series.Points[i]; var pos = Position(series, point, i);
+                    var point = series.Points[i]; if (point.IsMissing) continue; var pos = Position(series, point, i);
                     svg.Append(CultureInfo.InvariantCulture, $"<g data-point-index=\"{i}\" data-point-x=\"{StructuredText.Format(point.X)}\" data-point-y=\"{StructuredText.Format(point.Y)}\"");
                     if (point.XToken.Length > 0) svg.Append(CultureInfo.InvariantCulture, $" data-x-edit-start=\"{point.XToken.Start}\" data-x-edit-length=\"{point.XToken.Length}\"");
                     svg.Append('>');
@@ -185,6 +186,65 @@ internal static partial class ChartRenderer
             }
         }
         return svg.Append("</svg>").ToString();
+    }
+    private static void DrawLineSeries(StringBuilder svg, ChartSourceSeries series, Func<ChartSourcePoint, int, (double X, double Y)> project, string color)
+    {
+        var visible = series.Points.Select((point, i) => (Point: point, Pixel: project(point, i))).Where(p => !p.Point.IsMissing).Select(p => p.Pixel).ToArray();
+        if (series.Interpolate && NaturalChartPath(visible) is { } curve)
+        {
+            svg.Append("<path data-chart-interpolation=\"natural\" d=\"").Append(curve).Append("\" fill=\"none\" stroke=\"").Append(color).Append("\" stroke-width=\"2\"/>");
+            return;
+        }
+        var segment = new List<(double X, double Y)>();
+        void Flush()
+        {
+            if (segment.Count >= 2)
+            {
+                svg.Append("<polyline fill=\"none\" stroke=\"").Append(color).Append("\" stroke-width=\"2\" points=\"");
+                foreach (var p in segment) svg.Append(F(p.X)).Append(',').Append(F(p.Y)).Append(' ');
+                svg.Append("\"/>");
+            }
+            segment.Clear();
+        }
+        for (int i = 0; i < series.Points.Length; i++)
+        {
+            if (series.Points[i].IsMissing) { if (!series.Connect) Flush(); continue; }
+            segment.Add(project(series.Points[i], i));
+        }
+        Flush();
+    }
+
+    // Natural cubic interpolation, represented as one exact cubic Bezier per knot interval.
+    // The tridiagonal solve fixes the endpoint second derivatives at zero. As in PlantUML,
+    // nonincreasing X coordinates fall back to ordinary segments rather than reordering data.
+    private static string? NaturalChartPath((double X, double Y)[] points)
+    {
+        if (points.Length < 2) return null;
+        int n = points.Length;
+        var widths = new double[n - 1];
+        for (int i = 0; i < widths.Length; i++)
+        { widths[i] = points[i + 1].X - points[i].X; if (!(widths[i] > 0) || !double.IsFinite(widths[i])) return null; }
+        var diagonal = new double[n]; var rhs = new double[n]; var curvature = new double[n];
+        diagonal[0] = diagonal[^1] = 1;
+        for (int i = 1; i < n - 1; i++)
+        {
+            diagonal[i] = 2 * (widths[i - 1] + widths[i]);
+            rhs[i] = 6 * ((points[i + 1].Y - points[i].Y) / widths[i] - (points[i].Y - points[i - 1].Y) / widths[i - 1]);
+            if (i > 1) { double factor = widths[i - 1] / diagonal[i - 1]; diagonal[i] -= factor * widths[i - 1]; rhs[i] -= factor * rhs[i - 1]; }
+        }
+        for (int i = n - 2; i > 0; i--) curvature[i] = (rhs[i] - widths[i] * curvature[i + 1]) / diagonal[i];
+        var path = new StringBuilder().Append("M ").Append(F(points[0].X)).Append(' ').Append(F(points[0].Y));
+        for (int i = 0; i < n - 1; i++)
+        {
+            double width = widths[i], rise = points[i + 1].Y - points[i].Y;
+            double firstY = points[i].Y + rise / 3 - width * width * (2 * curvature[i] + curvature[i + 1]) / 18;
+            double lastY = points[i + 1].Y - rise / 3 - width * width * (curvature[i] + 2 * curvature[i + 1]) / 18;
+            if (!double.IsFinite(firstY) || !double.IsFinite(lastY)) return null;
+            path.Append(" C ").Append(F(points[i].X + width / 3)).Append(' ').Append(F(firstY)).Append(' ')
+                .Append(F(points[i + 1].X - width / 3)).Append(' ').Append(F(lastY)).Append(' ')
+                .Append(F(points[i + 1].X)).Append(' ').Append(F(points[i + 1].Y));
+        }
+        return path.ToString();
     }
     private static string SeriesColor(ChartSourceSeries series) => series.Color is { } color && ManagedSkin.Normalize("linecolor", color, out string normalized)
         ? normalized : series.Kind is "line" or "scatter" ? "#181818" : "#F1F1F1";

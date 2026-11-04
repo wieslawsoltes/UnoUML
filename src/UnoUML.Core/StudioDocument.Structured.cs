@@ -33,7 +33,7 @@ public sealed class PacketFieldEdit
 }
 
 /// <summary>A chart point in source coordinates. Indexed series use only Y.</summary>
-public readonly record struct ChartPoint(double X, double Y);
+public readonly record struct ChartPoint(double X, double Y, bool IsMissing = false);
 
 /// <summary>An immutable chart page snapshot shared by all of its structural edit handles.</summary>
 public sealed class ChartDiagramEdit
@@ -43,6 +43,10 @@ public sealed class ChartDiagramEdit
         Source = source; Page = page; Offset = offset; Syntax = syntax;
         Series = Array.AsReadOnly(syntax.Series.Select((_, i) => new ChartSeriesEdit(this, i)).ToArray());
         Categories = Array.AsReadOnly(syntax.CategoryAxis.Categories.ToArray());
+        HorizontalAxis = new(this, ChartAxisKind.Horizontal, syntax.Horizontal);
+        VerticalAxis = new(this, ChartAxisKind.Vertical, syntax.Vertical);
+        SecondaryAxis = syntax.Secondary == null ? null : new(this, ChartAxisKind.Secondary, syntax.Secondary);
+        Annotations = Array.AsReadOnly(syntax.Annotations.Select((_, i) => new ChartAnnotationEdit(this, i)).ToArray());
     }
     internal string Source { get; }
     internal int Page { get; }
@@ -50,6 +54,13 @@ public sealed class ChartDiagramEdit
     internal ChartSource Syntax { get; }
     public IReadOnlyList<ChartSeriesEdit> Series { get; }
     public IReadOnlyList<string> Categories { get; }
+    public ChartAxisEdit HorizontalAxis { get; }
+    public ChartAxisEdit VerticalAxis { get; }
+    public ChartAxisEdit? SecondaryAxis { get; }
+    public IReadOnlyList<ChartAnnotationEdit> Annotations { get; }
+    public ChartSettings Settings => new(Syntax.Title, Enum.TryParse<ChartLegend>(Syntax.Legend, true, out var legend) ? legend : ChartLegend.None,
+        Syntax.Settings.ContainsKey("orientation") ? IsHorizontal ? ChartOrientation.Horizontal : ChartOrientation.Vertical : null,
+        Syntax.Settings.ContainsKey("stackmode") ? IsStacked ? ChartStackMode.Stacked : ChartStackMode.Grouped : null);
     public bool HasCategoryLabels => Syntax.ExplicitCategories;
     public bool UsesCoordinates => Syntax.Coordinates;
     public bool IsHorizontal => Syntax.HorizontalOrientation;
@@ -75,6 +86,8 @@ public sealed class ChartSeriesEdit
     public string Label => Syntax.Label;
     public bool UsesCoordinates => Syntax.Coordinates;
     public bool UsesSecondaryAxis => Syntax.Secondary;
+    public bool Interpolate => Syntax.Interpolate;
+    public bool ConnectMissingValues => Syntax.Connect;
     public IReadOnlyList<ChartPointEdit> Points { get; }
 }
 
@@ -86,6 +99,7 @@ public sealed class ChartPointEdit
     internal ChartSourcePoint Syntax => Series.Syntax.Points[Index];
     public double X => Syntax.X;
     public double Y => Syntax.Y;
+    public bool IsMissing => Syntax.IsMissing;
     public int Offset => Series.Diagram.Offset + Syntax.YToken.Start;
     public int XOffset => Syntax.XToken.Length == 0 ? -1 : Series.Diagram.Offset + Syntax.XToken.Start;
 }
@@ -270,23 +284,49 @@ public sealed partial class StudioDocument
         changes.Add(new(field.Range.Start, field.Range.End, replacement));
     }
 
-    public bool InsertChartSeries(ChartDiagramEdit chart, int index, string kind, string label, IReadOnlyList<double> values, string? color = null, bool secondary = false, bool labels = false)
+    public bool InsertChartSeries(ChartDiagramEdit chart, int index, string kind, string label, IReadOnlyList<double> values, string? color = null, bool secondary = false, bool labels = false, bool interpolate = false, bool connect = false)
     {
         ArgumentNullException.ThrowIfNull(values);
-        return InsertChartSeriesCore(chart, index, kind, label, values.Select((y, x) => new ChartPoint(x, y)).ToArray(), false, color, secondary, labels);
+        return InsertChartSeriesCore(chart, index, kind, label, values.Select((y, x) => new ChartPoint(x, y)).ToArray(), false, color, secondary, labels, interpolate, connect);
     }
-    public bool InsertChartCoordinateSeries(ChartDiagramEdit chart, int index, string kind, string label, IReadOnlyList<ChartPoint> points, string? color = null, bool secondary = false, bool labels = false)
-        => InsertChartSeriesCore(chart, index, kind, label, points, true, color, secondary, labels);
-    private bool InsertChartSeriesCore(ChartDiagramEdit chart, int index, string kind, string label, IReadOnlyList<ChartPoint> points, bool coordinates, string? color, bool secondary, bool labels)
+    public bool InsertChartCoordinateSeries(ChartDiagramEdit chart, int index, string kind, string label, IReadOnlyList<ChartPoint> points, string? color = null, bool secondary = false, bool labels = false, bool interpolate = false, bool connect = false)
+        => InsertChartSeriesCore(chart, index, kind, label, points, true, color, secondary, labels, interpolate, connect);
+    private bool InsertChartSeriesCore(ChartDiagramEdit chart, int index, string kind, string label, IReadOnlyList<ChartPoint> points, bool coordinates, string? color, bool secondary, bool labels, bool interpolate, bool connect)
     {
         ArgumentNullException.ThrowIfNull(points);
-        if (!Current(chart) || index < 0 || index > chart.Series.Count || kind is not ("bar" or "line" or "area" or "scatter") || !StructuredText.Plain(label) || points.Count is < 1 or > 512 || points.Any(p => !Finite(p.Y) || coordinates && !Finite(p.X))) return false;
+        if (!Current(chart) || index < 0 || index > chart.Series.Count || kind is not ("bar" or "line" or "area" or "scatter") || !StructuredText.Plain(label) || points.Count is < 1 or > 512 || points.Any(p => p.IsMissing ? kind != "line" || coordinates : !Finite(p.Y) || coordinates && !Finite(p.X))) return false;
         int at = index == chart.Series.Count ? chart.Syntax.InsertAt : chart.Syntax.Series[index].Row.Start;
         string indent = chart.Series.Count == 0 ? "" : Indent(chart.Syntax.Series[Math.Min(index, chart.Series.Count - 1)].Row);
         string data = string.Join(", ", points.Select(p => PointText(p, coordinates)));
         string text = indent + kind + (label.Length == 0 ? "" : " " + StructuredText.Quote(label)) + " [" + data + "]" +
-            (color == null ? "" : " " + color) + (secondary ? " v2" : "") + (labels ? " labels" : "") + StructuredNewLine(at);
+            (color == null ? "" : " " + color) + (secondary ? " v2" : "") + (labels ? " labels" : "") + (interpolate ? " interpolate" : "") + (connect ? " connect" : "") + StructuredNewLine(at);
         return CommitChart(chart, [new(at, at, text)]);
+    }
+    /// <summary>Inserts an indexed line series with optional missing values.</summary>
+    public bool InsertChartIndexedSeries(ChartDiagramEdit chart, int index, string kind, string label, IReadOnlyList<double?> values,
+        string? color = null, bool secondary = false, bool labels = false, bool interpolate = false, bool connect = false)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        return InsertChartSeriesCore(chart, index, kind, label, values.Select((y, x) => new ChartPoint(x, y ?? 0, !y.HasValue)).ToArray(), false, color, secondary, labels, interpolate, connect);
+    }
+    /// <summary>Updates line interpolation and missing-value connection without rewriting its data or other flags.</summary>
+    public bool SetChartLineOptions(ChartSeriesEdit series, bool interpolate, bool connect)
+    {
+        if (!Current(series.Diagram) || series.Kind != "line") return false;
+        var changes = new List<Change>();
+        int end = series.Syntax.Row.Start + series.Syntax.Row.Code.TrimEnd().Length;
+        var flags = series.Syntax.Flags;
+        if (series.Interpolate != interpolate)
+        {
+            if (interpolate) { int at = flags.TryGetValue("connect", out var before) ? before.Start : end; changes.Add(new(at, at, at == end ? " interpolate" : "interpolate ")); }
+            else { var token = flags["interpolate"]; changes.Add(new(token.Start, token.End, "")); }
+        }
+        if (series.ConnectMissingValues != connect)
+        {
+            if (connect) changes.Add(new(end, end, " connect"));
+            else { var token = flags["connect"]; changes.Add(new(token.Start, token.End, "")); }
+        }
+        return CommitChart(series.Diagram, changes);
     }
     public bool RemoveChartSeries(ChartSeriesEdit series) => Current(series.Diagram) && CommitChart(series.Diagram, [new(series.Syntax.Row.Start, series.Syntax.Row.Next, "")]);
     public bool MoveChartSeries(ChartSeriesEdit series, int index)
@@ -339,7 +379,7 @@ public sealed partial class StudioDocument
     /// <summary>Inserts into a coordinate or automatically indexed series. Explicit categories require a column operation.</summary>
     public bool InsertChartPoint(ChartSeriesEdit series, int index, ChartPoint point)
     {
-        if (!Current(series.Diagram) || series.Diagram.HasCategoryLabels || index < 0 || index > series.Points.Count || !Finite(point.Y) || series.UsesCoordinates && !Finite(point.X)) return false;
+        if (!Current(series.Diagram) || series.Diagram.HasCategoryLabels || index < 0 || index > series.Points.Count || (point.IsMissing ? series.Kind != "line" || series.UsesCoordinates : !Finite(point.Y) || series.UsesCoordinates && !Finite(point.X))) return false;
         return CommitChart(series.Diagram, [InsertListItem(series.Syntax.Points.Select(p => p.Token).ToArray(), index, PointText(point, series.UsesCoordinates))]);
     }
     public bool RemoveChartPoint(ChartPointEdit point)
@@ -357,15 +397,15 @@ public sealed partial class StudioDocument
     public bool SetChartPoint(ChartPointEdit point, ChartPoint value)
     {
         var series = point.Series;
-        if (!Current(series.Diagram) || !Finite(value.Y) || series.UsesCoordinates && !Finite(value.X)) return false;
+        if (!Current(series.Diagram) || (value.IsMissing ? series.Kind != "line" || series.UsesCoordinates : !Finite(value.Y) || series.UsesCoordinates && !Finite(value.X))) return false;
         var changes = new List<Change>();
-        if (point.Y != value.Y) changes.Add(new(point.Syntax.YToken.Start, point.Syntax.YToken.End, StructuredText.Format(value.Y)));
+        if (point.IsMissing != value.IsMissing || !value.IsMissing && point.Y != value.Y) changes.Add(new(point.Syntax.YToken.Start, point.Syntax.YToken.End, value.IsMissing ? " " : StructuredText.Format(value.Y)));
         if (series.UsesCoordinates && point.X != value.X) changes.Add(new(point.Syntax.XToken.Start, point.Syntax.XToken.End, StructuredText.Format(value.X)));
         return CommitChart(series.Diagram, changes);
     }
 
     private static bool Finite(double number) => double.IsFinite(number) && Math.Abs(number) <= 1e12;
-    private static string PointText(ChartPoint point, bool coordinates) => coordinates ? "(" + StructuredText.Format(point.X) + ", " + StructuredText.Format(point.Y) + ")" : StructuredText.Format(point.Y);
+    private static string PointText(ChartPoint point, bool coordinates) => point.IsMissing ? " " : coordinates ? "(" + StructuredText.Format(point.X) + ", " + StructuredText.Format(point.Y) + ")" : StructuredText.Format(point.Y);
     private string Indent(SourceRow row) => Page.Source[row.Start..row.ContentStart];
     private string StructuredNewLine(int at)
     {
@@ -401,7 +441,7 @@ public sealed partial class StudioDocument
     }
     private List<Change> MoveListItem(SourceToken[] tokens, int index, int target)
     {
-        var items = tokens.Select(t => Page.Source.Substring(t.Start, t.Length)).ToList();
+        var items = tokens.Select(t => t.Length == 0 ? " " : Page.Source.Substring(t.Start, t.Length)).ToList();
         string moved = items[index]; items.RemoveAt(index); items.Insert(target, moved);
         return tokens.Select((t, i) => new Change(t.Start, t.End, items[i])).ToList();
     }

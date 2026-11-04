@@ -58,6 +58,26 @@ internal static class StructuredRendererCases
             "@startchart\nstackMode stacked\nh-axis [A]\nv-axis 0 --> 10\nbar [6]\nbar [5]\n@endchart",
             "@startchart\nh-axis [A]\nv-axis 0 --> 10\nbar [2]\nannotation \"Invalid\" at (Missing,3)\n@endchart" })
             Check(!PlantUmlRenderer.TryRender(bad, out _), "invalid structure delegates without partial SVG");
+        const string spline = "@startchart\nh-axis 0 --> 2\nv-axis 0 --> 2\nline [(0,0),(1,2),(2,0)] interpolate\n@endchart";
+        var curve = Render(spline);
+        var path = Elements(curve, "path").Single(p => p.Attribute("data-chart-interpolation") != null);
+        Check((string?)path.Attribute("d") == "M 60 350 C 126.667 200 193.333 50 260 50 C 326.667 50 393.333 200 460 350", "natural cubic control points and endpoint derivatives");
+        var fallback = Render(spline.Replace("(0,0),(1,2),(2,0)", "(0,0),(1,2),(1,0)", StringComparison.Ordinal));
+        Check(!Elements(fallback, "path").Any(p => p.Attribute("data-chart-interpolation") != null) && Elements(fallback, "polyline").Count() == 1, "repeated X falls back without reordering");
+        const string sparse = "@startchart\nh-axis [A,B,C,D,E]\nv-axis 0 --> 10\nline [1,2, ,8,9]\n@endchart";
+        var broken = Render(sparse);
+        Check(Elements(broken, "polyline").Count() == 2 && Elements(broken, "circle").Count() == 4, "missing value splits line and has no fabricated point");
+        var connected = Render(sparse.Replace("[1,2, ,8,9]", "[1,2, ,8,9] connect", StringComparison.Ordinal));
+        Check(Elements(connected, "polyline").Count() == 1 && Elements(connected, "circle").Count() == 4, "connect joins across missing slot");
+        var interpolated = Render(sparse.Replace("[1,2, ,8,9]", "[1,2, ,8,9] interpolate", StringComparison.Ordinal));
+        Check(Elements(interpolated, "path").Single(p => p.Attribute("data-chart-interpolation") != null).Attribute("d")!.Value.Count(c => c == 'C') == 3, "interpolation uses only available knots");
+        foreach (string kind in new[] { "bar", "scatter", "area" })
+            Check(!PlantUmlRenderer.TryRender("@startchart\n" + kind + " [1,2] interpolate connect\n@endchart", out _), "line-only options rejected for " + kind);
+        const string punctuated = "@startchart\nh-axis [Input (ms), Unmatched )]\nv-axis 0 --> 10\nline [2,4] interpolate\nannotation \"Measured\" at (Unmatched ),4)\n@endchart";
+        var annotationPlot = Render(punctuated);
+        var categoryLabels = Elements(annotationPlot, "text").Where(t => (string?)t.Attribute("data-edit-kind") == "chart-category").ToArray();
+        Check(categoryLabels.Length == 2 && categoryLabels.All(t => punctuated.Substring((int)t.Attribute("data-edit-start")!, (int)t.Attribute("data-edit-length")!) == t.Value), "parentheses in categories retain exact metadata");
+        Check(Elements(annotationPlot, "g").Any(g => (string?)g.Attribute("class") == "annotation"), "annotation anchor accepts parentheses in a category label");
         return count;
     }
 }

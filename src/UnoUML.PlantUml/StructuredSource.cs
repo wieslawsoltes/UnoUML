@@ -86,7 +86,7 @@ internal static class StructuredText
     internal static bool Plain(string text, int max = 1024) => text.Length <= max && !text.Any(c => char.IsControl(c)) && !text.Contains('<') && !text.Contains('>');
     internal static bool Category(string text) => text.Length > 0 && text == text.Trim() && Plain(text) && text.IndexOfAny([',', '[', ']', '"']) < 0 && Unquoted(text);
     internal static bool PacketLabel(string text) => text.Length > 0 && text == text.Trim() && Plain(text, 256) && text.IndexOfAny(['[', ']']) < 0 && Unquoted(text);
-    private static bool Unquoted(string text) => !text.Contains("/\'", StringComparison.Ordinal) && !Regex.IsMatch(text, @"(?:^|\s)'", RegexOptions.CultureInvariant);
+    internal static bool Unquoted(string text) => !text.Contains("/\'", StringComparison.Ordinal) && !Regex.IsMatch(text, @"(?:^|\s)'", RegexOptions.CultureInvariant);
     internal static bool Header(string text, string family) => text.Equals("@start" + family, StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(text, "^@start" + family + @"\s+[\w.-]+$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
     internal static string Format(double value) => value.ToString("G17", CultureInfo.InvariantCulture);
     internal static string Quote(string value) => "\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
@@ -102,7 +102,7 @@ internal static class StructuredText
         return result.ToString();
     }
     internal static SourceToken Token(Group group, int start) => group.Success ? new(start + group.Index, group.Length) : default;
-    internal static SourceToken[] ListTokens(string text, int start)
+    internal static SourceToken[] ListTokens(string text, int start, bool coordinatePairs = true)
     {
         var tokens = new List<SourceToken>();
         int offset = 0, depth = 0;
@@ -114,7 +114,7 @@ internal static class StructuredText
                 char c = text[i];
                 if (quoted && c == '\\' && i + 1 < text.Length) { i++; continue; }
                 if (c == '"') quoted = !quoted;
-                if (!quoted) { if (c == '(') depth++; else if (c == ')') depth--; }
+                if (!quoted && coordinatePairs) { if (c == '(') depth++; else if (c == ')') depth--; }
                 if (c != ',' || quoted || depth != 0) continue;
             }
             var raw = text[offset..i];
