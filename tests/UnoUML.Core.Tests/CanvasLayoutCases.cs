@@ -1,4 +1,6 @@
 using UnoUML.Core;
+using UnoUML.PlantUml;
+using System.Xml.Linq;
 
 internal static class CanvasLayoutCases
 {
@@ -306,6 +308,155 @@ internal static class CanvasLayoutCases
         Check(Node(CanvasLayoutEngine.UpdateGeometry(pinnedNode, Move(pinnedNode, 10, 0, "A")), "A").X == 10, "pinning permits explicit manual movement");
         Throws<ArgumentException>(() => CanvasLayoutEngine.UpdateGeometry(manual, manual with { Nodes = [.. manual.Nodes, new("New", 0, 0, 20, 20)] }), "gesture cannot replace graph topology");
         Check(manualPath[0] == new CanvasPoint(40, 20) && Node(manual, "A").X == 0, "geometry operations do not mutate input snapshots");
+
+        const string cloneSource = "\uFEFF@startuml first\r\npackage Group {\r\n class A\r\n class B\r\n A --> B : internal\r\n}\r\nclass Outside\r\nA --> Outside : external\r\n@enduml\r\n@startuml second\r\nclass Other\r\n@enduml";
+        var cloneLayout = new CanvasLayoutState([
+            new("Group", 100, 200, 380, 240, Rotation: 15, ZIndex: 3),
+            new("Group.A", 140, 260, 120, 70, "Group", Locked: true, Pinned: true, Rotation: 15, ZIndex: 2),
+            new("Group.B", 320, 260, 110, 60, "Group"), new("Outside", 700, 260, 80, 40)
+        ], [new("Group.A->Group.B:0", "Group.A", "Group.B", [new(260, 295), new(285, 295), new(285, 290), new(320, 290)],
+            "curved", true, true, new(1, 0.5), new(0, 0.5), new(7, -9)),
+            new("Group.A->Outside:0", "Group.A", "Outside", [new(260, 295), new(700, 295)])]);
+        var cloneDoc = new StudioDocument(cloneSource); cloneDoc.SetCanvasLayout(cloneLayout);
+        string beforeClone = cloneDoc.Source; long beforeCloneState = cloneDoc.HistoryState;
+        Check(cloneDoc.DuplicateMany([cloneDoc.Find("Group")!]) && cloneDoc.TryGetCanvasLayout(out var copiedLayout, out _), "duplicate subtree copies source and canvas together");
+        copiedLayout = ReadLayout(cloneDoc);
+        var clonedGroup = Node(copiedLayout, "GroupCopy"); var clonedA = Node(copiedLayout, "GroupCopy.ACopy");
+        Check(clonedGroup == Node(cloneLayout, "Group") with { Id = "GroupCopy", X = 132, Y = 232 } &&
+            clonedA == Node(cloneLayout, "Group.A") with { Id = "GroupCopy.ACopy", Parent = "GroupCopy", X = 172, Y = 292 }, "subtree copy retains rotation, sizes, flags and remapped containment at a fixed offset");
+        var clonedEdge = Edge(copiedLayout, "GroupCopy.ACopy->GroupCopy.BCopy:0");
+        Check(clonedEdge.SourcePort == new CanvasPoint(1, 0.5) && clonedEdge.LabelOffset == new CanvasPoint(7, -9) && clonedEdge.Manual && clonedEdge.Locked && clonedEdge.Routing == "curved" &&
+            clonedEdge.Waypoints!.SequenceEqual(Edge(cloneLayout, "Group.A->Group.B:0").Waypoints!.Select(point => new CanvasPoint(point.X + 32, point.Y + 32))), "internal route, ports and relative label offsets are cloned exactly");
+        Check(copiedLayout.Edges.Count == 3 && copiedLayout.Edges.Count(edge => edge.Target == "Outside") == 1 && Node(copiedLayout, "Outside") == Node(cloneLayout, "Outside"), "copy excludes external connections and preserves originals");
+        string afterClone = cloneDoc.Source;
+        Check(cloneDoc.Undo() && cloneDoc.Source == beforeClone && cloneDoc.HistoryState == beforeCloneState, "one undo restores exact pre-copy metadata, BOM and CRLF");
+        Check(cloneDoc.Redo() && cloneDoc.Source == afterClone, "one redo restores source plus cloned geometry");
+        Check(cloneDoc.DuplicateMany([cloneDoc.Find("Group")!]) && Node(ReadLayout(cloneDoc), "GroupCopy2").X == 164, "repeated copies advance without exactly covering the previous copy");
+        Check(cloneDoc.Source.EndsWith("@startuml second\r\nclass Other\r\n@enduml", StringComparison.Ordinal), "geometry copy leaves other pages unchanged");
+
+        cloneDoc = new(beforeClone);
+        string fragment = cloneDoc.CopySelection([cloneDoc.Find("A")!, cloneDoc.Find("B")!])!;
+        Check(fragment.StartsWith(StudioDocument.CanvasSelectionMarker, StringComparison.Ordinal), "clipboard carries geometry only in a dedicated selection comment");
+        var targetDoc = new StudioDocument("@startuml\nclass A\nclass Sentinel\n@enduml");
+        var targetLayout = new CanvasLayoutState([new("A", -400, 0, 50, 40), new("Sentinel", -300, 0, 60, 40)], [])
+            { Settings = new() { GridSize = 10, Algorithm = CanvasLayoutAlgorithm.Circle, Automatic = true } };
+        targetDoc.SetCanvasLayout(targetLayout); string beforePaste = targetDoc.Source;
+        Check(targetDoc.PasteSelection(fragment), "paste accepts geometry with exact parser alias remapping");
+        var pasted = ReadLayout(targetDoc);
+        Check(Node(pasted, "ACopy").X == 160 && Node(pasted, "ACopy").Parent == null && Node(pasted, "B").X == 340 && pasted.Settings == targetLayout.Settings,
+            "paste removes outside containment, remaps collisions and uses destination grid preferences");
+        Check(Edge(pasted, "ACopy->B:0").Waypoints![0] == new CanvasPoint(280, 315) && Edge(pasted, "ACopy->B:0").LabelOffset == new CanvasPoint(7, -9), "paste offsets complete internal routes without changing relative labels");
+        Check(!targetDoc.Source.Contains(StudioDocument.CanvasSelectionMarker, StringComparison.Ordinal) && targetDoc.Undo() && targetDoc.Source == beforePaste, "clipboard transport comment is consumed and paste has one undo");
+        Check(targetDoc.Redo() && targetDoc.PasteSelection(fragment) && Node(ReadLayout(targetDoc), "ACopy2").X == 180, "repeated paste remaps identities and advances deterministic placement");
+
+        var qualifiedCopy = new StudioDocument("@startuml\npackage Group {\n class A\n class B\n Group.A --> Group.B : internal\n}\n@enduml");
+        qualifiedCopy.SetCanvasLayout(cloneLayout);
+        string qualifiedBefore = qualifiedCopy.Source;
+        string qualifiedFragment = qualifiedCopy.CopySelection([qualifiedCopy.Find("A")!, qualifiedCopy.Find("B")!])!;
+        Check(qualifiedFragment.Contains("A --> B : internal", StringComparison.Ordinal) && !qualifiedFragment.Contains("Group.A --> Group.B", StringComparison.Ordinal),
+            "copy normalizes qualified internal endpoints when lifting selected children out of a parent");
+        var qualifiedTarget = new StudioDocument("@startuml\nclass A\n@enduml");
+        Check(qualifiedTarget.PasteSelection(qualifiedFragment) && qualifiedTarget.Source.Contains("ACopy --> B : internal", StringComparison.Ordinal) &&
+            Edge(ReadLayout(qualifiedTarget), "ACopy->B:0").Source == "ACopy", "qualified clipboard connections and saved routes refer to the same copied nodes");
+        Check(qualifiedCopy.DuplicateMany([qualifiedCopy.Find("A")!, qualifiedCopy.Find("B")!]) && qualifiedCopy.Source.Contains("ACopy --> BCopy : internal", StringComparison.Ordinal) &&
+            Node(ReadLayout(qualifiedCopy), "Group.ACopy").Parent == "Group" && Edge(ReadLayout(qualifiedCopy), "Group.ACopy->Group.BCopy:0").Target == "Group.BCopy",
+            "nested duplicate remaps qualified source endpoints and geometry within the retained parent");
+        Check(qualifiedCopy.Undo() && qualifiedCopy.Source == qualifiedBefore, "qualified endpoint normalization and geometry share the source transaction");
+        var dottedAliases = new StudioDocument("@startuml\npackage P.Q {\n class A.B\n class C.D\n P.Q.A.B --> P.Q.C.D\n}\n@enduml");
+        dottedAliases.SetCanvasLayout(new([new("P.Q", 0, 0, 200, 100), new("P.Q.A.B", 20, 30, 40, 40, "P.Q"), new("P.Q.C.D", 120, 30, 40, 40, "P.Q")],
+            [new("P.Q.A.B->P.Q.C.D:0", "P.Q.A.B", "P.Q.C.D", [new(60, 50), new(120, 50)], "straight", true)]));
+        Check(dottedAliases.DuplicateMany([dottedAliases.Find("P.Q")!]) && dottedAliases.Source.Contains("P.QCopy.A.BCopy --> P.QCopy.C.DCopy", StringComparison.Ordinal) &&
+            Node(ReadLayout(dottedAliases), "P.QCopy.A.BCopy").X == 52 && Node(ReadLayout(dottedAliases), "P.Q.A.B").X == 20 &&
+            Edge(ReadLayout(dottedAliases), "P.QCopy.A.BCopy->P.QCopy.C.DCopy:0").Waypoints![0] == new CanvasPoint(92, 82),
+            "dotted alias tokens are remapped through parsed ancestry without confusing alias text and scope separators");
+
+        var singleCopy = new StudioDocument("@startuml\nclass A\nclass B\nA --> B\n@enduml");
+        singleCopy.SetCanvasLayout(simple); string beforeSingle = singleCopy.Source;
+        Check(singleCopy.Duplicate(singleCopy.Find("A")!) && Node(ReadLayout(singleCopy), "ACopy") == Node(simple, "A") with { Id = "ACopy", X = 42, Y = 52 }, "inspector single duplicate preserves exact dimensions and placement");
+        Check(ReadLayout(singleCopy).Edges.Count == 1 && singleCopy.Undo() && singleCopy.Source == beforeSingle, "single declaration duplication does not invent source edges");
+        Check(singleCopy.Rename(singleCopy.Find("A")!, "Renamed label") && singleCopy.Source.Contains("as A", StringComparison.Ordinal) && Node(ReadLayout(singleCopy), "A") == Node(simple, "A"), "ordinary graph label rename preserves its geometry identity");
+        var sourceOnly = new StudioDocument("class A");
+        Check(sourceOnly.CopySelection([sourceOnly.Find("A")!]) == "class A" && sourceOnly.Duplicate(sourceOnly.Find("A")!) && sourceOnly.Source == "class A\nclass ACopy",
+            "implicit pages retain ordinary source-only copy and duplicate behavior");
+        var brokenCopy = new StudioDocument("' @unouml:canvas {broken}\n@startuml\nclass A\n@enduml");
+        string brokenBefore = brokenCopy.Source;
+        Check(!brokenCopy.Duplicate(brokenCopy.Find("A")!) && brokenCopy.Source == brokenBefore && !brokenCopy.CanUndo, "malformed existing geometry rejects composite copy atomically");
+        Check(!singleCopy.PasteSelection(StudioDocument.CanvasSelectionMarker + "{broken}\nclass Fresh"), "malformed clipboard metadata is rejected");
+        var foreign = new CanvasLayoutState([new("NotDeclared", 0, 0, 20, 20)], []);
+        string unchanged = singleCopy.Source; long unchangedState = singleCopy.HistoryState;
+        Check(!singleCopy.PasteSelection(StudioDocument.CanvasSelectionMarker + CanvasLayoutJson.Serialize(foreign) + "\nclass Fresh") && singleCopy.Source == unchanged && singleCopy.HistoryState == unchangedState,
+            "clipboard geometry must map to declarations and cannot mutate source on failure");
+        var nearLimit = new StudioDocument("@startuml\nclass A\n@enduml");
+        Check(nearLimit.SetCanvasLayout(new([new("A", CanvasLayoutLimits.MaxCoordinate - 21, 0, 20, 20)], [])), "near-boundary geometry is valid before copying");
+        string nearBefore = nearLimit.Source; long nearState = nearLimit.HistoryState;
+        Check(!nearLimit.Duplicate(nearLimit.Find("A")!) && nearLimit.Source == nearBefore && nearLimit.HistoryState == nearState, "out-of-range copied geometry is rejected before publishing source");
+
+        string wideA = new string('界', 100) + "A", wideB = new string('界', 100) + "B";
+        var wideCopy = new StudioDocument("@startuml\nclass " + wideA + "\nclass " + wideB + "\n" +
+            string.Join('\n', Enumerable.Repeat(wideA + " --> " + wideB, 1000)) + "\n@enduml");
+        var wideLayout = new CanvasLayoutState([new(wideA, 0, 0, 30, 40), new(wideB, 100, 0, 30, 40)],
+            Enumerable.Range(0, 1000).Select(i => new CanvasEdge(wideA + "->" + wideB + ":" + i, wideA, wideB)).ToArray());
+        Check(CanvasLayoutJson.Serialize(wideLayout).Length > CanvasLayoutLimits.MaxMetadataCharacters / 2 && wideCopy.SetCanvasLayout(wideLayout),
+            "large escaped identifiers form valid metadata within the character budget");
+        string wideBefore = wideCopy.Source; long wideState = wideCopy.HistoryState;
+        Check(!wideCopy.DuplicateMany([wideCopy.Find(wideA)!, wideCopy.Find(wideB)!]) && wideCopy.Source == wideBefore && wideCopy.HistoryState == wideState,
+            "copy exceeding the serialized metadata budget returns false without publishing source or history");
+
+        var dotCopy = new StudioDocument("@startdot\ndigraph { subgraph cluster_box { a; b; } z; a:p -> b:q; a:p -> b:q; b -> z; a -> a; }\n@enddot");
+        var dotLayout = new CanvasLayoutState([new("cluster:cluster_box", 0, 0, 300, 150),
+            new("node:a", 20, 30, 100, 60, "cluster:cluster_box", Rotation: 20), new("node:b", 170, 30, 90, 70, "cluster:cluster_box"), new("node:z", 450, 30, 60, 40)],
+            Enumerable.Range(0, 4).Select(i => new CanvasEdge("edge:" + i, i == 2 ? "node:b" : "node:a", i < 2 ? "node:b" : i == 2 ? "node:z" : "node:a",
+                [new(120, 60 + i), new(145, 60 + i), new(145, 95 + i), new(170, 95 + i)], "polyline", true, false, new(1, 0.5), new(0, 0.5), new(i + 1, -7))).ToArray());
+        dotCopy.SetCanvasLayout(dotLayout); string beforeDot = dotCopy.Source;
+        Check(dotCopy.DuplicateDotObjects([OpenCanvasDotNode(dotCopy, "a"), OpenCanvasDotNode(dotCopy, "b")]), "DOT duplicate preserves canvas alongside semantic expansion");
+        var dotCopied = ReadLayout(dotCopy);
+        Check(Node(dotCopied, "node:aCopy") == Node(dotLayout, "node:a") with { Id = "node:aCopy", X = 52, Y = 62 } && dotCopied.Edges.Count == 7, "DOT duplicate retains cluster membership and internal self/parallel routes");
+        var renderedEdges = RenderCanvasDot(dotCopy).Descendants().Where(element => (string?)element.Attribute("data-dot-kind") == "edge").ToArray();
+        Check(dotCopied.Edges.All(edge => renderedEdges.Any(element => (string?)element.Attribute("data-dot-id") == edge.Id &&
+            "node:" + (string?)element.Attribute("data-dot-from-id") == edge.Source && "node:" + (string?)element.Attribute("data-dot-to-id") == edge.Target)), "DOT original and copied metadata IDs match actual reindexed native edges");
+        Check(Edge(dotCopied, "edge:2").LabelOffset == new CanvasPoint(2, -7) && Edge(dotCopied, "edge:4").Source == "node:b" &&
+            Edge(dotCopied, "edge:4").Waypoints!.SequenceEqual(Edge(dotLayout, "edge:2").Waypoints!), "inserting DOT edges retains unrelated original routes after index shifts");
+        Check(Edge(dotCopied, "edge:3").LabelOffset == new CanvasPoint(2, -7) && Edge(dotCopied, "edge:3").Waypoints![0] == new CanvasPoint(152, 93), "parallel DOT edges retain their individual geometry and relative label offsets");
+        Check(dotCopy.Undo() && dotCopy.Source == beforeDot, "DOT source and reindexed geometry undo atomically");
+        string dotFragment = dotCopy.CopyDotSelection([OpenCanvasDotNode(dotCopy, "a"), OpenCanvasDotNode(dotCopy, "b")])!;
+        Check(dotFragment.StartsWith(StudioDocument.CanvasSelectionMarker, StringComparison.Ordinal) && dotCopy.PasteDotSelection(dotFragment), "DOT clipboard carries and restores geometry");
+        var dotPasted = ReadLayout(dotCopy);
+        Check(Node(dotPasted, "node:a2").Parent == null && Node(dotPasted, "node:a2").X == 52 && Edge(dotPasted, "edge:0").Source == "node:a2" &&
+            Edge(dotPasted, "edge:3").Source == "node:a" && Edge(dotPasted, "edge:3").LabelOffset == new CanvasPoint(1, -7), "DOT paste flattens copied membership and preserves both imported and shifted original edge indices");
+        Check(dotCopy.Undo() && dotCopy.Source == beforeDot, "DOT paste restores exact original source and metadata in one undo");
+        Check(dotCopy.PasteDotSelection("@startdot\ndigraph { c -> d; }\n@enddot") && Edge(ReadLayout(dotCopy), "edge:1").Waypoints!.SequenceEqual(Edge(dotLayout, "edge:0").Waypoints!),
+            "plain DOT source paste also reindexes existing saved routes");
+        Check(dotCopy.Undo() && dotCopy.Source == beforeDot, "plain DOT paste and metadata reindex share one undo interval");
+        var wrongDotEdge = new CanvasLayoutState([new("node:a", 0, 0, 20, 20), new("node:b", 40, 0, 20, 20)], [new("edge:0", "node:a", "node:a")]);
+        Check(!dotCopy.PasteDotSelection(StudioDocument.CanvasSelectionMarker + CanvasLayoutJson.Serialize(wrongDotEdge) + "\n@startdot\ndigraph { a -> b; }\n@enddot") && dotCopy.Source == beforeDot,
+            "DOT clipboard route identities must agree with their actual logical edge endpoints");
+
+        var partialDot = new StudioDocument("@startdot\ndigraph { a -> b; a -> b; }\n@enddot");
+        partialDot.SetCanvasLayout(new([new("node:a", 0, 0, 20, 20), new("node:b", 40, 0, 20, 20)], [new("edge:1", "node:a", "node:b", LabelOffset: new(9, 10))]));
+        Check(partialDot.DuplicateDotObjects([OpenCanvasDotNode(partialDot, "a"), OpenCanvasDotNode(partialDot, "b")]) && Edge(ReadLayout(partialDot), "edge:3").LabelOffset == new CanvasPoint(9, 10),
+            "partial DOT snapshots retain the correct parallel-edge occurrence when copied");
+
+        var quotedDot = new StudioDocument("@startdot\ndigraph { \"a:b\" -> \"a\\\"q\"; }\n@enddot");
+        quotedDot.SetCanvasLayout(new([new("node:a:b", 1, 2, 30, 40), new("node:a\"q", 90, 2, 30, 40)],
+            [new("edge:0", "node:a:b", "node:a\"q", [new(31, 22), new(90, 22)], "straight", true)]));
+        Check(quotedDot.DuplicateDotObjects([OpenCanvasDotNode(quotedDot, "a:b"), OpenCanvasDotNode(quotedDot, "a\"q")]) &&
+            Node(ReadLayout(quotedDot), "node:a:bCopy").X == 33 && Edge(ReadLayout(quotedDot), "edge:1").Target == "node:a\"qCopy",
+            "DOT geometry uses exact decoded identifiers including colons and escaped quotes");
         return checks;
+    }
+
+    private static CanvasLayoutState ReadLayout(StudioDocument document) => document.TryGetCanvasLayout(out var layout, out var error) ? layout! : throw new Exception(error ?? "Missing canvas layout");
+    private static XDocument RenderCanvasDot(StudioDocument document) => PlantUmlRenderer.TryRender(document.Page.Source, out var rendered) ? XDocument.Parse(rendered.Svg) : throw new Exception("Canvas DOT fixture rejected");
+    private static DotObjectEdit OpenCanvasDotNode(StudioDocument document, string name)
+    {
+        var element = RenderCanvasDot(document).Descendants().Single(element => (string?)element.Attribute("data-dot-kind") == "node" && (string?)element.Attribute("data-qualified-name") == name);
+        int Number(string field, int fallback = -1) => (int?)element.Attribute("data-dot-" + field) ?? fallback;
+        return document.OpenDotObject(new DotSourceLocation
+        {
+            Id = (string)element.Attribute("data-dot-id")!, Kind = "node", Name = name, Text = (string?)element.Attribute("data-dot-label-text") ?? name,
+            NameStart = Number("name-start"), NameLength = Number("name-length"), Start = Number("start"), Length = Number("length"),
+            LabelStart = Number("label-start"), LabelLength = Number("label-length", 0), LabelInsert = Number("label-insert"),
+            LabelKind = (string?)element.Attribute("data-dot-label-kind") ?? "", Explicit = (string?)element.Attribute("data-dot-explicit") == "true", Directed = true
+        }) ?? throw new Exception("Missing native DOT canvas location");
     }
 }

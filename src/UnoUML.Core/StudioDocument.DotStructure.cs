@@ -123,7 +123,8 @@ public sealed partial class StudioDocument
         }
         var changes = inserts.Select(pair => new DotChange(pair.Key, pair.Key, DotNewLine + "  " + pair.Value + DotNewLine + "  ")).ToArray();
         return CommitDotChanges(syntax, changes, next => next.Nodes.Count == syntax.Nodes.Count + nodes.Length &&
-            next.Edges.Count == syntax.Edges.Count + edgeCount && names.Values.All(next.Nodes.ContainsKey));
+            next.Edges.Count == syntax.Edges.Count + edgeCount && names.Values.All(next.Nodes.ContainsKey),
+            (layout, next) => CopyDotCanvas(layout, layout, syntax, syntax, next, names, true));
     }
 
     public bool DuplicateDotObject(DotObjectEdit item) => DuplicateDotObjects([item]);
@@ -173,16 +174,20 @@ public sealed partial class StudioDocument
             if (names.Contains(edge.From.Node.Name) && names.Contains(edge.To.Node.Name))
                 text.Append("  ").Append(DotEndpoint(edge.From.Node.Name, edge.From)).Append(syntax.Directed ? " -> " : " -- ")
                     .Append(DotEndpoint(edge.To.Node.Name, edge.To)).Append(DotAttributes(syntax, edge.Attributes, false)).Append(';').Append(DotNewLine);
-        return text.Append('}').Append(DotNewLine).Append("@enddot").ToString();
+        string source = text.Append('}').Append(DotNewLine).Append("@enddot").ToString();
+        if (DotSyntax.Parse(source) is not { } fragment) return null;
+        var mapped = names.ToDictionary(name => name, name => name, StringComparer.Ordinal);
+        return WithCanvasSelection(source, CanvasDotNodes(mapped), layout => CanvasDotEdges(syntax, fragment, mapped, layout));
     }
 
     public bool PasteDotSelection(string source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        if (DotStructure is not { } target || DotSyntax.Parse(source) is not { } fragment || fragment.Nodes.Count == 0 || fragment.Directed != target.Directed) return false;
+        if (!ReadCanvasSelection(source, out string body, out var layout) || DotStructure is not { } target || DotSyntax.Parse(body) is not { } fragment || fragment.Nodes.Count == 0 || fragment.Directed != target.Directed) return false;
         var occupied = target.Nodes.Keys.ToHashSet(StringComparer.Ordinal);
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var node in fragment.Nodes.Values) names[node.Name] = FreshDotName(node.Name, occupied);
+        if (!CanvasClipboardMatches(layout, CanvasDotNodes(names), CanvasDotEdges(fragment, fragment, saved: layout))) return false;
         var text = new StringBuilder(DotNewLine);
         foreach (var node in fragment.Nodes.Values)
             text.Append("  ").Append(DotName(names[node.Name])).Append(DotAttributes(fragment, node.Attributes)).Append(';').Append(DotNewLine);
@@ -192,7 +197,8 @@ public sealed partial class StudioDocument
         // At the start of the root, pasted objects receive the same built-in defaults as their self-contained source.
         int at = target.Root.Occurrences[0].Open;
         return CommitDotChanges(target, [new(at, at, text.ToString())], next => next.Nodes.Count == target.Nodes.Count + fragment.Nodes.Count &&
-            next.Edges.Count == target.Edges.Count + fragment.Edges.Count);
+            next.Edges.Count == target.Edges.Count + fragment.Edges.Count,
+            (current, next) => CopyDotCanvas(current, layout, fragment, target, next, names, false));
     }
 
     private static DotSyntax.Scope? DotGroupScope(DotSyntax syntax, DotSyntax.Node[] nodes)
@@ -273,7 +279,8 @@ public sealed partial class StudioDocument
                 RemoveDotTokens(syntax, changes, value.Start, value.End, "\"\"");
     }
 
-    private bool CommitDotChanges(DotSyntax syntax, IReadOnlyList<DotChange> changes, Func<DotSyntax, bool> validate)
+    private bool CommitDotChanges(DotSyntax syntax, IReadOnlyList<DotChange> changes, Func<DotSyntax, bool> validate,
+        Func<CanvasLayoutState?, DotSyntax, CanvasLayoutState?>? canvas = null)
     {
         if (changes.Count == 0) return false;
         var ordered = changes.OrderBy(change => change.Start).ThenBy(change => change.End).ToArray();
@@ -292,6 +299,7 @@ public sealed partial class StudioDocument
         int start = 0, oldEnd = syntax.Source.Length, newEnd = source.Length;
         while (start < oldEnd && start < newEnd && syntax.Source[start] == source[start]) start++;
         while (oldEnd > start && newEnd > start && syntax.Source[oldEnd - 1] == source[newEnd - 1]) { oldEnd--; newEnd--; }
-        return PatchDot(start, oldEnd - start, source[start..newEnd]);
+        string replacement = source[start..newEnd];
+        return CommitCanvasSourceEdit(document => document.PatchDot(start, oldEnd - start, replacement), canvas == null ? null : layout => canvas(layout, next));
     }
 }

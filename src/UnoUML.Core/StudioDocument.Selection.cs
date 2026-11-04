@@ -46,13 +46,13 @@ public sealed partial class StudioDocument
         return names;
     }
 
-    private string Qualified(DiagramObject item)
+    private string Qualified(DiagramObject item, IReadOnlyDictionary<string, string>? aliases = null)
     {
         var path = new Stack<string>();
-        path.Push(item.Alias);
+        path.Push(aliases?.GetValueOrDefault(item.Alias, item.Alias) ?? item.Alias);
         while (item.ParentLine >= 0 && Objects.FirstOrDefault(o => o.Line == item.ParentLine) is { } parent)
         {
-            if (parent.Alias.Length != 0) path.Push(parent.Alias);
+            if (parent.Alias.Length != 0) path.Push(aliases?.GetValueOrDefault(parent.Alias, parent.Alias) ?? parent.Alias);
             item = parent;
         }
         return string.Join(".", path);
@@ -99,7 +99,10 @@ public sealed partial class StudioDocument
         var roots = SelectionRoots(selection);
         if (roots == null) return null;
         var items = WithConnections(roots, incident: false);
-        return SequenceProtectedSelection(items) ? null : Fragment(items);
+        if (SequenceProtectedSelection(items)) return null;
+        string fragment = Fragment(items);
+        if (!AliasCanvasFamily || !RemapFragment(fragment, out string portable, out var remap, items, renameCollisions: false)) return fragment;
+        return WithCanvasSelection(portable, CanvasFragmentNodes(items, remap, false));
     }
 
     public bool CutSelection(IReadOnlyList<DiagramObject> selection, out string fragment)
@@ -135,17 +138,25 @@ public sealed partial class StudioDocument
         var items = WithConnections(roots, incident: false);
         if (SequenceProtectedSelection(items)) return false;
         if (items.Any(o => o.ParentLine != roots[0].ParentLine)) return false;
-        if (!RemapFragment(Fragment(items), out string copy)) return false;
+        if (!RemapFragment(Fragment(items), out string copy, out var remap, items)) return false;
         var last = items[^1];
-        return Patch(last.End, last.End, Index.NewLine + copy);
+        string insertion = Index.NewLine + copy;
+        return CommitAliasCanvasCopy(document => document.Patch(last.End, last.End, insertion), CanvasFragmentNodes(items, remap, true));
     }
 
-    public bool PasteSelection(string fragment) =>
-        RemapFragment(fragment, out string copy) && Insert(copy);
+    public bool PasteSelection(string fragment)
+    {
+        ArgumentNullException.ThrowIfNull(fragment);
+        if (!ReadCanvasSelection(fragment, out string body, out var layout) || !RemapFragment(body, out string copy, out var remap) ||
+            !CanvasClipboardMatches(layout, remap.Nodes, layout == null ? null : CanvasAliasEdges(layout, remap.Nodes)) || layout != null && !AliasCanvasFamily) return false;
+        return layout == null ? Insert(copy) : CommitAliasCanvasCopy(document => document.Insert(copy), remap.Nodes, layout, false);
+    }
 
-    private bool RemapFragment(string fragment, out string copy)
+    private bool RemapFragment(string fragment, out string copy, out CanvasFragmentMap remap,
+        List<DiagramObject>? originalItems = null, bool renameCollisions = true)
     {
         copy = "";
+        remap = new(new(StringComparer.Ordinal), new(StringComparer.Ordinal));
         if (string.IsNullOrWhiteSpace(fragment)) return false;
         string body = LocalNewLines(fragment.TrimEnd('\r', '\n'));
         string dialect = Page.Family == "Chen" ? "chen" : "uml";
@@ -162,7 +173,7 @@ public sealed partial class StudioDocument
         foreach (var item in parsed.Objects)
         {
             if (item.Ambiguous || item.Unclosed) return false;
-            if (!item.IsConnectable || !ContainsIdentifier(Page.Source, item.Alias)) continue;
+            if (!renameCollisions || !item.IsConnectable || !ContainsIdentifier(Page.Source, item.Alias)) continue;
             if (item.Alias.StartsWith('"')) return false;
             string stem = item.Alias + "Copy", alias = stem;
             for (int n = 2; ContainsIdentifier(Page.Source, alias) || !reserved.Add(alias); n++) alias = stem + n;
@@ -174,10 +185,20 @@ public sealed partial class StudioDocument
         foreach (var declaration in parsed.Objects.Where(o => o.IsConnectable))
         {
             string path = parsed.Qualified(declaration);
-            string[] ids = path.Split('.');
-            for (int i = 0; i < ids.Length; i++) ids[i] = replacements.GetValueOrDefault(ids[i], ids[i]);
-            paths[path] = string.Join(".", ids);
+            // Alias tokens may themselves contain dots; remap the parsed
+            // ancestry instead of splitting its rendered qualified string.
+            paths[path] = parsed.Qualified(declaration, replacements);
+            if (declaration.Alias.StartsWith('"')) continue;
+            string identity = FlatCanvasAliases ? declaration.Alias : path;
+            remap.Aliases[declaration.Alias] = identity;
+            remap.Nodes[identity] = FlatCanvasAliases ? replacements.GetValueOrDefault(declaration.Alias, declaration.Alias) : paths[path];
         }
+        // A selection lifted out of its original parent has shorter qualified
+        // paths. Rebind only endpoints proven to name copied declarations;
+        // external qualified references retain their original spelling.
+        if (originalItems != null)
+            foreach (var (original, fragmentId) in CanvasFragmentNodes(originalItems, remap, false))
+                paths[original] = remap.Nodes[fragmentId];
         foreach (var item in parsed.Objects)
         {
             if (item.Kind is not ("Relationship" or "Layout")) continue;

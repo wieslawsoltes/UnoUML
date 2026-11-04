@@ -386,12 +386,15 @@ public sealed partial class StudioDocument
         // A nested alias can be referenced by arbitrary preprocessing. Require a manual edit for a subtree copy.
         if (Objects.Any(o => o.Line > item.Line && o.Line <= item.EndLine && o.Alias.Length != 0)) return false;
         string copy = item.Statement;
+        var canvas = new Dictionary<string, string>(StringComparer.Ordinal);
         if (item.IsConnectable)
         {
             string alias = NewAlias(item.Alias + "Copy");
             copy = string.Concat(copy.AsSpan(0, item.AliasAt), alias, copy.AsSpan(item.AliasAt + item.AliasLength));
+            if (AliasCanvasFamily && !item.Alias.StartsWith('"')) canvas[CanvasObjectId(item)] = CanvasParentPrefix(item.ParentLine) + alias;
         }
-        return Patch(item.End, item.End, Index.NewLine + copy);
+        string insertion = Index.NewLine + copy;
+        return CommitAliasCanvasCopy(document => document.Patch(item.End, item.End, insertion), canvas, copyEdges: false);
     }
 
     public bool CanPlaceRelative(DiagramObject item, DiagramObject anchor) =>
