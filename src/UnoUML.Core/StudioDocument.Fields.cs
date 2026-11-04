@@ -54,6 +54,7 @@ public sealed partial class StudioDocument
         if (!ReferenceEquals(edit.Document, Source) || edit.Page != ActivePage || text == edit.Text || text.Length > 65536 ||
             text.Any(c => char.IsControl(c) && c is not ('\t' or '\r' or '\n'))) return false;
         if (edit.Kind == "salt-text") return ApplySaltTextField(edit, text);
+        if (Page.Family is "Chart" or "Packet") return ApplyStructuredSourceField(edit, text);
         string? replacement = edit.Kind switch
         {
             "activity-label" => EncodeActivityLabel(edit, text),

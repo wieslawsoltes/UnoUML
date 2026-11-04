@@ -1,80 +1,62 @@
 using System.Globalization;
+using UnoUML.Syntax;
 
 namespace UnoUML.PlantUml;
 
 internal static class PacketRenderer
 {
-    private readonly record struct Field(int First, int Last, string Name, int Line, int Start);
-
     internal static string? TryRender(string source)
     {
-        var fields = new List<Field>();
-        int columns = 32, stage = 0, line = -1, offset = 0;
-        bool configured = false;
-        foreach (var raw in source.AsSpan().EnumerateLines())
+        var packet = PacketSource.Parse(source);
+        if (packet == null || packet.Fields.Count == 0) return null;
+        var fields = packet.Fields;
+        int columns = packet.Columns, cell = 23;
+        int[] heights = Enumerable.Repeat(packet.NodeHeight, fields[^1].Last / columns + 1).ToArray();
+        foreach (var field in fields)
         {
-            line++;
-            int sourceStart = offset + raw.Length - raw.TrimStart().Length;
-            offset += raw.Length;
-            if (offset < source.Length && source[offset] == '\r') offset++;
-            if (offset < source.Length && source[offset] == '\n') offset++;
-            var s = raw.Trim();
-            if (s.IsEmpty || s.StartsWith("'")) continue;
-            if (stage == 0 && s.SequenceEqual("@startpacketdiag")) { stage = 1; continue; }
-            if (stage == 1 && s.SequenceEqual("{")) { stage = 2; continue; }
-            if (stage == 2 && s.SequenceEqual("}")) { stage = 3; continue; }
-            if (stage == 3 && s.SequenceEqual("@endpacketdiag")) { stage = 4; continue; }
-            if (stage != 2) return null;
-            if (s.StartsWith("colwidth"))
-            {
-                var setting = s[8..].TrimStart();
-                if (configured || fields.Count != 0 || setting.Length == 0 || setting[0] != '=' ||
-                    !Number(setting[1..], out columns) || columns is < 1 or > 128) return null;
-                configured = true;
-                continue;
-            }
-            int colon = s.IndexOf(':');
-            if (colon <= 0 || fields.Count >= 2048) return null;
-            var range = s[..colon].Trim();
-            int dash = range.IndexOf('-');
-            if (!Number(dash >= 0 ? range[..dash] : range, out int first)) return null;
-            int last = first;
-            if (dash >= 0 && !Number(range[(dash+1)..], out last)) return null;
-            if (last < first || last >= columns * 360 || fields.Count > 0 && first <= fields[^1].Last) return null;
-            string label = s[(colon+1)..].Trim().ToString();
-            if (label.Length is 0 or > 256 || !SvgText.IsPlain(label) || label.Contains('[')) return null;
-            int labelStart = sourceStart + s.Length - s[(colon + 1)..].TrimStart().Length;
-            fields.Add(new(first, last, label, line, labelStart));
+            int visible = Math.Min(field.Width, columns - field.First % columns);
+            string[] labels = field.Label.Split("\\n", StringSplitOptions.None);
+            if (labels.Any(label => !SvgText.IsPlain(label))) return null;
+            int labelWidth = labels.Max(label => SvgText.Measure(label)), labelHeight = labels.Length * 18;
+            bool rotated = field.Rotation is 90 or 270;
+            cell = Math.Max(cell, ((rotated ? labelHeight : labelWidth) + 12 + visible - 1) / visible);
+            int required = Math.Max(packet.NodeHeight * field.Height, (rotated ? labelWidth : labelHeight) + 12);
+            for (int row = field.First / columns; row <= field.Last / columns; row++) heights[row] = Math.Max(heights[row], required);
         }
-        if (stage != 4 || fields.Count == 0) return null;
-        int cell = 23;
-        // Every field label is legible even when it spans a single bit.
-        foreach (var f in fields)
+        if (packet.SameHeight) Array.Fill(heights, heights.Max());
+        int[] tops = new int[heights.Length + 1]; tops[0] = 26;
+        for (int row = 0; row < heights.Length; row++) tops[row + 1] = tops[row] + heights[row];
+        int width = columns * cell + 32, height = tops[^1] + 12;
+        if (width > 32768 || height > 32768) return null;
+        var svg = TreeDiagram.Canvas(width, height);
+        for (int bit = 0; bit < columns; bit += packet.ScaleInterval)
         {
-            int visible = Math.Min(f.Last - f.First + 1, columns - f.First % columns);
-            cell = Math.Max(cell, (SvgText.Measure(f.Name) + 12 + visible - 1) / visible);
+            int column = packet.RightToLeft ? columns - bit - 1 : bit;
+            svg.Append(CultureInfo.InvariantCulture, $"<text x=\"{16 + column * cell + cell / 2}\" y=\"19\" text-anchor=\"middle\" font-size=\"11\">{bit}</text>");
         }
-        int width = columns * cell + 32;
-        if (width > 32768) return null;
-        var svg = TreeDiagram.Canvas(width, (fields[^1].Last / columns + 1) * 48 + 38);
-        for (int bit = 0; bit < columns; bit++)
-            svg.Append(CultureInfo.InvariantCulture, $"<text x=\"{16+bit*cell+cell/2}\" y=\"19\" text-anchor=\"middle\" font-size=\"11\">{bit}</text>");
-        foreach (var f in fields)
+        for (int index = 0; index < fields.Count; index++)
         {
-            svg.Append(CultureInfo.InvariantCulture, $"<g data-source-line=\"{f.Line}\" data-edit-start=\"{f.Start}\" data-edit-length=\"{f.Name.Length}\" data-edit-kind=\"packet-label\" data-edit-role=\"label\"><title>{SvgText.Escape(f.Name)}</title>");
-            for (int start = f.First; start <= f.Last;)
+            var field = fields[index];
+            svg.Append(CultureInfo.InvariantCulture, $"<g class=\"packet-field\" data-packet-field-index=\"{index}\" data-packet-first=\"{field.First}\" data-packet-last=\"{field.Last}\" data-source-line=\"{field.Row.Index}\" data-edit-start=\"{field.LabelToken.Start}\" data-edit-length=\"{field.LabelToken.Length}\" data-edit-kind=\"packet-label\" data-edit-role=\"label\"><title>{SvgText.Escape(field.Label)}</title>");
+            for (int start = field.First; start <= field.Last;)
             {
-                int row = start / columns, stop = Math.Min(f.Last + 1, (row + 1) * columns);
-                int x = 16 + start % columns * cell, y = 26 + row * 48, w = (stop - start) * cell;
-                svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"48\" fill=\"#f5f5fa\" stroke=\"#68687d\"/>");
-                if (start == f.First) svg.Append(CultureInfo.InvariantCulture, $"<text x=\"{x+w/2}\" y=\"{y+29}\" text-anchor=\"middle\">{SvgText.Escape(f.Name)}</text>");
+                int row = start / columns, stop = Math.Min(field.Last + 1, (row + 1) * columns), span = stop - start;
+                int column = packet.RightToLeft ? columns - start % columns - span : start % columns;
+                int x = 16 + column * cell, y = tops[row], w = span * cell, h = heights[row];
+                svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"#f5f5fa\" stroke=\"#68687d\"/>");
+                if (start == field.First)
+                {
+                    int cx = x + w / 2, cy = y + h / 2;
+                    if (field.Rotation != 0) svg.Append(CultureInfo.InvariantCulture, $"<g transform=\"rotate({field.Rotation} {cx} {cy})\">");
+                    string[] labels = field.Label.Split("\\n", StringSplitOptions.None);
+                    for (int line = 0; line < labels.Length; line++)
+                        svg.Append(CultureInfo.InvariantCulture, $"<text x=\"{cx}\" y=\"{cy + 5 + (line * 2 - labels.Length + 1) * 9}\" text-anchor=\"middle\">{SvgText.Escape(labels[line])}</text>");
+                    if (field.Rotation != 0) svg.Append("</g>");
+                }
                 start = stop;
             }
             svg.Append("</g>");
         }
         return svg.Append("</svg>").ToString();
     }
-
-    private static bool Number(ReadOnlySpan<char> text, out int n) =>
-        int.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out n);
 }

@@ -41,7 +41,7 @@ internal static class ChartCases
         Require((double?)first.Attribute("x") + (double?)first.Attribute("width") == (double?)second.Attribute("x"), "group adjacency");
         Require(Elements(mixed, "circle").Count(e => e.Attribute("data-point-index") != null && e.Attribute("data-chart-marker") != null) == 2 && Elements(mixed, "polyline").Count() == 1 && Elements(mixed, "polygon").Count() == 1, "mixed series");
         Require(Elements(mixed, "circle").Count(e => (string?)e.Attribute("fill") == "transparent" && e.Attribute("data-edit-start") != null) == 4, "line and area point editing targets");
-        foreach (string directive in new[] { "v2-axis 0 --> 20", "orientation horizontal", "bar \"x\" [NaN,2]", "line \"x\" [2,3,4]", "stack bar \"x\" [1,2]", "legend nowhere" })
+        foreach (string directive in new[] { "v2-axis [low,high]", "orientation horizontal", "bar \"x\" [NaN,2]", "line \"x\" [2,3,4]", "stack bar \"x\" [1,2]", "legend nowhere" })
             Require(!PlantUmlRenderer.TryRender("@startchart\nh-axis [a,b]\nv-axis 0 --> 10\nbar [2,4]\n" + directive + "\n@endchart", out _), "compatibility path: " + directive);
         Require(!PlantUmlRenderer.TryRender("@startchart\nh-axis [a]\nv-axis 0 --> 1 spacing 0.000001\nbar [0]\n@endchart", out _), "bounded tick count");
         const string fields = "\ufeff@startchart\r\n  title Results\r\n  h-axis \"Week\" [A, A]\r\n  v-axis \"Count\" 0 --> 100\r\n  bar \"Closed\" [20, 20] #112233\r\n  legend right\r\n@endchart";

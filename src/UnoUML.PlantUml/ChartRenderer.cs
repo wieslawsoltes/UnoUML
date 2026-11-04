@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using UnoUML.Syntax;
 
 namespace UnoUML.PlantUml;
 
@@ -32,6 +33,13 @@ internal static partial class ChartRenderer
     private static partial Regex SeriesDeclaration();
 
     internal static string? TryRender(string source)
+    {
+        var chart = ChartSource.Parse(source);
+        if (chart == null || chart.Series.Count == 0) return null;
+        return TryRenderLegacy(source) ?? RenderStructured(chart);
+    }
+
+    private static string? TryRenderLegacy(string source)
     {
         var chart = new Chart();
         bool opened = false, closed = false;
@@ -96,7 +104,6 @@ internal static partial class ChartRenderer
                 series.Groups[4].Success ? series.Groups[4].Value : null, data, index, QuotedToken(series.Groups[2], start), ListTokens(series.Groups[3], start)));
         }
         if (!closed || chart.Categories == null || chart.Vertical is not {} vertical || chart.Series.Count == 0) return null;
-        // Explicit coordinate pairs, secondary axes, stacked series and noncategorical charts use the upstream engine.
         if (chart.Series.Any(series => series.Values.Length != chart.Categories.Length || series.Values.Any(v => v < vertical.Min || v > vertical.Max))) return null;
         return Render(chart, vertical, chart.Categories);
     }
@@ -180,7 +187,7 @@ internal static partial class ChartRenderer
         foreach (var series in chart.Series)
         {
             string color = series.Color ?? (series.Kind is "line" or "scatter" ? "#181818" : "#F1F1F1");
-            Open(s, "series " + series.Kind, series.Line);
+            s.Append(CultureInfo.InvariantCulture, $"<g class=\"series {series.Kind}\" data-source-line=\"{series.Line}\" data-chart-series-index=\"{chart.Series.IndexOf(series)}\">");
             if (series.Kind == "bar")
             {
                 for (int i = 0; i < categories.Length; i++)
