@@ -94,7 +94,7 @@ export class CanvasScene {
       source=ids.resolve(source,!dot&&elementFirst);target=ids.resolve(target,!dot&&elementFirst);
       if(!this.nodes.has(source) || !this.nodes.has(target)) continue;
       const id=ids.edgeId(source,target,edgeName(el));
-      const geometry=[...el.querySelectorAll('path,polyline,line')].map(shape=>{
+      const geometry=[...el.querySelectorAll('path,polyline,line')].filter(shape=>!shape.closest('[data-canvas-label-role]')).map(shape=>{
         try { return {el:shape,length:shape.getTotalLength()}; } catch {return {el:shape,length:0};}
       }).filter(r=>r.length>0 && !/[zZ]\s*$/.test(r.el.getAttribute('d') || '')).sort((a,b)=>b.length-a.length);
       if(!geometry.length) continue;
@@ -118,11 +118,11 @@ export class CanvasScene {
         if(routeSet.has(child) || ['title','desc','defs'].includes(child.localName)) continue;
         let cb; try { cb=this.box(child); } catch {continue;}
         const c=center(cb),near=Math.min(distance(c,initial[0]),distance(c,initial.at(-1)));
-        const isLabel=child.localName==='text' || child.localName==='rect' || child.querySelector('text');
+        const role=child.getAttribute('data-canvas-label-role');
+        const isLabel=['source','target','center'].includes(role) || child.localName==='text' || child.localName==='rect' || child.querySelector('text');
         const end=distance(c,initial[0])<=distance(c,initial.at(-1)) ? 0 : 1;
         const explicit=child.hasAttribute('data-canvas-fraction')?Number(child.getAttribute('data-canvas-fraction')):NaN;
         const fraction=Number.isFinite(explicit)&&explicit>=0&&explicit<=1 ? explicit : isLabel ? (near<30 && distance(c,pointOnRoute(initial))>near*1.8 ? end : .5) : end;
-        const role=child.getAttribute('data-canvas-label-role');
         const terminalLabel=isLabel&&(role==='source'||role==='target'||
           !child.hasAttribute('data-canvas-fraction')&&(fraction===0||fraction===1));
         decorations.push({el:child,matrix:this.matrix(child),box:cb,fraction,terminalLabel,arrow:!isLabel});
