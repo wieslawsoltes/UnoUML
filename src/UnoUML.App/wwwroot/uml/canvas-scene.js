@@ -1,4 +1,4 @@
-import {bounds, center, clone, pointOnRoute, routePath, visibleOwner} from './canvas-geometry.js';
+import {bounds, center, clone, endpointLabelTranslation, endpointTangent, pointOnRoute, routePath, visibleOwner} from './canvas-geometry.js';
 
 const ns='http://www.w3.org/2000/svg';
 const matrixText=m=>`matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`;
@@ -122,7 +122,10 @@ export class CanvasScene {
         const end=distance(c,initial[0])<=distance(c,initial.at(-1)) ? 0 : 1;
         const explicit=child.hasAttribute('data-canvas-fraction')?Number(child.getAttribute('data-canvas-fraction')):NaN;
         const fraction=Number.isFinite(explicit)&&explicit>=0&&explicit<=1 ? explicit : isLabel ? (near<30 && distance(c,pointOnRoute(initial))>near*1.8 ? end : .5) : end;
-        decorations.push({el:child,matrix:this.matrix(child),fraction,arrow:!isLabel});
+        const role=child.getAttribute('data-canvas-label-role');
+        const terminalLabel=isLabel&&(role==='source'||role==='target'||
+          !child.hasAttribute('data-canvas-fraction')&&(fraction===0||fraction===1));
+        decorations.push({el:child,matrix:this.matrix(child),box:cb,fraction,terminalLabel,arrow:!isLabel});
       }
       const base={id,source,target,waypoints:initial,routing:'orthogonal',manual:false,locked:false};
       this.base.edges.push(base); this.edges.set(id,{el,base,paths,decorations,reversed,display:el.style.display});
@@ -196,6 +199,9 @@ export class CanvasScene {
       list.sort((a,b)=>a.n.zIndex-b.n.zIndex || this.base.nodes.indexOf(a.r.base)-this.base.nodes.indexOf(b.r.base));
       for(const {r} of list) parent.insertBefore(r.el,anchor);anchor.remove();
     }
+    const containers=new Set(state.nodes.map(n=>n.parent).filter(Boolean));
+    const labelObstacles=state.nodes.filter(n=>changes.has(n.id)&&(!containers.has(n.id)||n.collapsed))
+      .map(n=>({id:n.id,...bounds([n])}));
     for(const edge of state.edges) {
       const r=this.edges.get(edge.id);if(!r)continue;
       const source=byId.get(edge.source),target=byId.get(edge.target);
@@ -211,12 +217,16 @@ export class CanvasScene {
       }
       for(const d of r.decorations) {
         const old=pointOnRoute(r.base.waypoints,d.fraction),next=pointOnRoute(points,d.fraction);
+        if(d.terminalLabel) {
+          const delta=endpointLabelTranslation(d.box,r.base.waypoints,points,d.fraction,d.fraction===0?a:b,edge.routing,labelObstacles);
+          const change=new DOMMatrix().translate(delta.x,delta.y);
+          d.el.setAttribute('transform',matrixText(this.matrix(d.el.parentElement).inverse().multiply(change).multiply(d.matrix)));
+          continue;
+        }
         let rotation=0;
         if(d.arrow && points.length>1) {
-          const index=d.fraction===0?0:points.length-1,adj=d.fraction===0?1:points.length-2;
-          const oi=d.fraction===0?0:r.base.waypoints.length-1,oj=d.fraction===0?1:r.base.waypoints.length-2;
-          rotation=(Math.atan2(points[adj].y-points[index].y,points[adj].x-points[index].x)-
-            Math.atan2(r.base.waypoints[oj].y-r.base.waypoints[oi].y,r.base.waypoints[oj].x-r.base.waypoints[oi].x))*180/Math.PI;
+          const before=endpointTangent(r.base.waypoints,d.fraction),after=endpointTangent(points,d.fraction,edge.routing)||before;
+          if(before&&after)rotation=(Math.atan2(after.y,after.x)-Math.atan2(before.y,before.x))*180/Math.PI;
         }
         const offset=d.arrow?{x:0,y:0}:edge.labelOffset||{x:0,y:0};
         const change=new DOMMatrix().translate(next.x+offset.x,next.y+offset.y).rotate(rotation).translate(-old.x,-old.y);

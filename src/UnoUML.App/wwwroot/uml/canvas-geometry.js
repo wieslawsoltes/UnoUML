@@ -107,6 +107,64 @@ export function pointOnRoute(points, fraction = .5) {
   }
   return {...points.at(-1)};
 }
+export function endpointTangent(points, end, routing) {
+  if(!points?.length)return null;
+  const origin=end===0?points[0]:points.at(-1),step=end===0?1:-1;
+  // The two-point rounded path uses a horizontal cubic control at each end.
+  if(routing==='curved'&&points.length===2&&Math.abs(points[1].x-points[0].x)>1e-7)
+    return {x:Math.sign(points[1].x-points[0].x)*(end===0?1:-1),y:0};
+  for(let i=end===0?1:points.length-2;i>=0&&i<points.length;i+=step) {
+    const dx=points[i].x-origin.x,dy=points[i].y-origin.y,length=Math.hypot(dx,dy);
+    if(length>1e-7)return {x:dx/length,y:dy/length};
+  }
+  return null;
+}
+// An endpoint caption stays upright while its attachment frame turns. Preserve
+// the gap to the route/terminal using the upright text's projected half-extents,
+// not the old center distance (which can hide a wide label inside its node).
+export function endpointLabelTranslation(label, before, after, end, terminal, routing, obstacles=[]) {
+  const old=end===0?before[0]:before.at(-1),next=end===0?after[0]:after.at(-1);
+  const a=endpointTangent(before,end),b=endpointTangent(after,end,routing)||a;
+  if(!a||!b)return {x:next.x-old.x,y:next.y-old.y};
+  // Keep the renderer's original placement and exact same-direction moves.
+  if(Math.abs(a.x-b.x)<1e-7&&Math.abs(a.y-b.y)<1e-7)return {x:next.x-old.x,y:next.y-old.y};
+  const c=center(label),normal=v=>({x:-v.y,y:v.x}),dot=(p,q)=>p.x*q.x+p.y*q.y;
+  const support=v=>(Math.abs(v.x)*label.width+Math.abs(v.y)*label.height)/2;
+  const n0=normal(a),n1=normal(b),delta={x:c.x-old.x,y:c.y-old.y};
+  const along=dot(delta,a),side=dot(delta,n0);
+  let u=support(b)+Math.max(2,along-support(a));
+  const v=Math.sign(side||1)*(support(n1)+Math.max(2,Math.abs(side)-support(n0)));
+  if(terminal) {
+    const angle=(terminal.rotation||0)*Math.PI/180,cos=Math.cos(angle),sin=Math.sin(angle),node=center(terminal);
+    const extent=(Math.abs(b.x*cos+b.y*sin)*terminal.width+Math.abs(-b.x*sin+b.y*cos)*terminal.height)/2;
+    u=Math.max(u,dot({x:node.x-next.x,y:node.y-next.y},b)+extent+support(b)+2);
+  }
+  const target={x:next.x+b.x*u+n1.x*v,y:next.y+b.y*u+n1.y*v};
+  // Keep the attachment distance fixed and slide only across the route if an
+  // adjacent shape occupies the caption. Each obstacle contributes one forbidden
+  // interval; their union gives the nearest clear position without an iteration
+  // loop or a general-purpose label-layout pass.
+  const intervals=[];
+  for(const obstacle of obstacles) {
+    if(obstacle.id===terminal?.id)continue;
+    let low=-Infinity,high=Infinity;
+    for(const [axis,size] of [['x','width'],['y','height']]) {
+      const from=obstacle[axis]-label[size]/2-2-target[axis],to=obstacle[axis]+obstacle[size]+label[size]/2+2-target[axis];
+      if(Math.abs(n1[axis])<1e-7) {if(from>=0||to<=0){low=1;high=0;break;}}
+      else {const x=from/n1[axis],y=to/n1[axis];low=Math.max(low,Math.min(x,y));high=Math.min(high,Math.max(x,y));}
+    }
+    if(low<high)intervals.push([low,high]);
+  }
+  intervals.sort((a,b)=>a[0]-b[0]);
+  const merged=[];
+  for(const interval of intervals) {
+    const last=merged.at(-1);
+    if(last&&interval[0]<=last[1])last[1]=Math.max(last[1],interval[1]);else merged.push(interval);
+  }
+  const blocked=merged.find(([low,high])=>low<0&&high>0);
+  const shift=blocked?(Math.abs(blocked[0])<=Math.abs(blocked[1])?blocked[0]-.001:blocked[1]+.001):0;
+  return {x:target.x+n1.x*shift-c.x,y:target.y+n1.y*shift-c.y};
+}
 export function projectToRoute(point, points) {
   let distance=Infinity, best={index:0,point:points?.[0] || point};
   for(let i=0;i+1<points.length;i++) {

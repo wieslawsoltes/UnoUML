@@ -42,6 +42,8 @@ Existing source-backed connect and reattach tools still create or retarget seman
 
 Moving both endpoints by the same vector translates an entire manual route. Moving or resizing one terminal reattaches that end while retaining interior bends. Manual edges are not silently replaced by an automatic layout. Routing respects locked edges, normalized ports, rotated terminal bounds, self-loops, and parallel relationships.
 
+UML multiplicities and DOT head/tail captions carry explicit source/target ownership. When a route turns, their complete label groups remain upright and retain clearance from the terminal. A bounded search across the route clears adjacent visible node boxes; expanded container backgrounds are excluded. Moving the central connector label does not move these endpoint captions. This local placement does not solve collisions between every label in the diagram.
+
 Dragging a bend on an orthogonal route keeps its segments orthogonal: neighboring corners slide, or an elbow is inserted beside a fixed attachment. Polyline routes keep unrestricted point movement. Docking controls sit separately from the semantic source/target retarget controls. Locked children and incident locked connections also prevent deletion of a containing selection through canvas commands or inspector delete actions.
 
 Explicit free movement can overlap shapes. If overlapping geometry blocks every route, the gesture uses a temporary docked segment and retains the chosen routing style; separating the shapes retries normal routing. Automatic layout still requires feasible obstacle-free placement. Work-budget and cancellation failures do not use this fallback.

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import {CanvasIds} from '../src/UnoUML.App/wwwroot/uml/canvas-scene.js';
 import assert from 'node:assert/strict';
-import {bounds,center,descendants,moveWaypoint,pointOnRoute,projectToRoute,resize,rotate,routePath,snapMove,visibleOwner} from '../src/UnoUML.App/wwwroot/uml/canvas-geometry.js';
+import {bounds,center,descendants,endpointLabelTranslation,endpointTangent,moveWaypoint,pointOnRoute,projectToRoute,resize,rotate,routePath,snapMove,visibleOwner} from '../src/UnoUML.App/wwwroot/uml/canvas-geometry.js';
 
 const near=(a,b)=>assert.ok(Math.abs(a-b)<.002,`${a} != ${b}`);
 test('smart guides choose the closest edge or center before grid snapping',()=>{
@@ -44,6 +44,60 @@ test('degenerate segments remain finite and geometry does not mutate source snap
   const node={x:1,y:2,width:40,height:50};resize(node,'nw',{x:100,y:100},{free:true});assert.deepEqual(node,{x:1,y:2,width:40,height:50});
   assert.deepEqual(pointOnRoute([{x:4,y:5},{x:4,y:5}]),{x:4,y:5});
   assert.equal(routePath([],'orthogonal'),'');
+});
+test('endpoint tangents skip coincident points and follow the actual two-point cubic',()=>{
+  const route=[{x:0,y:0},{x:0,y:0},{x:0,y:50},{x:40,y:50},{x:40,y:50}];
+  assert.deepEqual(endpointTangent(route,0),{x:0,y:1});
+  assert.deepEqual(endpointTangent(route,1),{x:-1,y:0});
+  assert.deepEqual(endpointTangent([{x:0,y:0},{x:40,y:50}],0,'curved'),{x:1,y:0});
+  assert.deepEqual(endpointTangent([{x:0,y:0},{x:40,y:50}],1,'curved'),{x:-1,y:0});
+  assert.equal(endpointTangent([{x:0,y:0},{x:0,y:0}],0),null);
+});
+test('wide source and target captions keep upright extent clearance after a quarter turn',()=>{
+  const before=[{x:0,y:0},{x:0,y:100}],after=[{x:100,y:50},{x:200,y:50}];
+  assert.deepEqual(endpointLabelTranslation({x:8,y:12,width:60,height:14},before,after,0,
+    {x:80,y:0,width:20,height:100}),{x:104,y:16});
+  assert.deepEqual(endpointLabelTranslation({x:8,y:70,width:60,height:14},before,after,1,
+    {x:200,y:0,width:80,height:100}),{x:116,y:-42});
+});
+test('endpoint reversal puts the caption outside the new terminal without rotating its bounds',()=>{
+  const before=[{x:0,y:0},{x:0,y:100}],after=[{x:100,y:100},{x:100,y:0}];
+  const label={x:8,y:12,width:10,height:12},delta=endpointLabelTranslation(label,before,after,0,
+    {x:60,y:100,width:80,height:50});
+  assert.deepEqual(delta,{x:74,y:64});
+  assert.ok(label.y+delta.y+label.height<100);
+  assert.deepEqual(label,{x:8,y:12,width:10,height:12});
+});
+test('a rotated terminal has a separating plane from its endpoint caption',()=>{
+  const label={x:8,y:12,width:60,height:14},before=[{x:0,y:0},{x:0,y:100}],after=[{x:100,y:100},{x:150,y:150}];
+  const delta=endpointLabelTranslation(label,before,after,0,{x:20,y:20,width:160,height:160,rotation:45});
+  const c=center(label),u=Math.SQRT1_2,nearest=(c.x+delta.x-100)*u+(c.y+delta.y-100)*u-(label.width+label.height)*u/2;
+  assert.ok(nearest>=82-1e-7,'The label clears the rotated terminal support plane by two units');
+});
+test('unchanged endpoint direction preserves exact caption placement and repeated projection is stable',()=>{
+  const label={x:8,y:12,width:60,height:14},before=[{x:0,y:0},{x:0,y:100}],after=[{x:20,y:30},{x:20,y:130}];
+  assert.deepEqual(endpointLabelTranslation(label,before,before,0),{x:0,y:0});
+  assert.deepEqual(endpointLabelTranslation(label,before,after,0),{x:20,y:30});
+  const turn=[{x:100,y:100},{x:150,y:150}];
+  const first=endpointLabelTranslation(label,before,turn,0,null,'curved');
+  assert.deepEqual(endpointLabelTranslation(label,before,turn,0,null,'curved'),first);
+  assert.deepEqual(first,{x:104,y:66},'A diagonal cubic uses its horizontal terminal tangent');
+});
+test('an endpoint caption slides past adjacent nodes while retaining its terminal clearance',()=>{
+  const label={x:8,y:70,width:60,height:14},before=[{x:0,y:0},{x:0,y:100}],after=[{x:100,y:50},{x:200,y:50}];
+  const terminal={id:'target',x:200,y:0,width:80,height:100};
+  const obstacle={id:'neighbor',x:110,y:10,width:70,height:40};
+  const delta=endpointLabelTranslation(label,before,after,1,terminal,'orthogonal',[terminal,obstacle]);
+  near(delta.x,116);assert.ok(label.y+delta.y>=obstacle.y+obstacle.height+2);
+  assert.ok(label.x+delta.x+label.width<terminal.x-2);
+});
+test('overlapping forbidden label intervals are combined before choosing the nearest clearance',()=>{
+  const label={x:8,y:70,width:60,height:14},before=[{x:0,y:0},{x:0,y:100}],after=[{x:100,y:50},{x:200,y:50}];
+  const terminal={id:'target',x:200,y:0,width:80,height:100};
+  const obstacles=[{id:'a',x:110,y:10,width:70,height:40},{id:'b',x:110,y:45,width:70,height:30}];
+  const delta=endpointLabelTranslation(label,before,after,1,terminal,'orthogonal',obstacles);
+  assert.ok(label.y+delta.y+label.height<=8,'The merged downward obstruction makes the upper clear interval nearer');
+  near(delta.x,116);
 });
 test('orthogonal corner movement preserves terminals and perpendicular neighboring segments',()=>{
   const path=[{x:0,y:0},{x:0,y:40},{x:60,y:40},{x:60,y:100},{x:120,y:100}],before=structuredClone(path);

@@ -134,6 +134,38 @@ export async function verifyCanvasEditing(page,source) {
   const file=await downloaded,svg=await readFile(await file.path(),'utf8');
   assert.match(svg,/data-qualified-name="B"/);assert.match(svg,/transform="matrix\(/);assert.doesNotMatch(svg,/data-uml-hit|data-canvas-(?:node|edge)|canvas-handle|multi-mark/,'SVG export contains geometry, not editing controls');
 
+  // The live Order-domain diagram exposed endpoint captions hidden under nodes
+  // after Grid turns a vertical association into an orthogonal cross-row route.
+  const cardinalities='@startuml\nclass Order {\n+id : UUID\n+total() : Money\n}\nclass LineItem {\n+quantity : int\n}\nOrder "1" *-- "many" LineItem : contains\nstruct Struct\nclass Class\nabstract class Abstractclass\n@enduml';
+  await source.fill(cardinalities);await shape('Order').waitFor();
+  const sourceCaption=paper.locator('[data-canvas-label-role="source"]'),targetCaption=paper.locator('[data-canvas-label-role="target"]');
+  await sourceCaption.waitFor();await targetCaption.waitFor();
+  await menu('Automatic layout…');dialog=page.getByRole('dialog',{name:'Automatic layout',exact:true});
+  await dialog.getByRole('combobox',{name:'Layout algorithm',exact:true}).click();
+  await page.getByRole('listbox',{name:'Layout algorithm',exact:true}).getByRole('option',{name:'Grid',exact:true}).click();
+  await dialog.getByRole('button',{name:'Apply',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  await waitMetadata({settings:{algorithm:'grid'}});
+  const routedCaptions=await source.inputValue();
+  assert.equal(routedCaptions.slice(routedCaptions.indexOf('\n')+1),cardinalities);
+  const intersects=(a,b)=>a.x<b.x+b.width-.1&&a.x+a.width>b.x+.1&&a.y<b.y+b.height-.1&&a.y+a.height>b.y+.1;
+  const captionBefore=[await measure(sourceCaption),await measure(targetCaption)];
+  for(const caption of captionBefore)for(const id of ['Order','LineItem','Struct','Class','Abstractclass'])
+    assert.equal(intersects(caption,await measure(shape(id))),false,`Endpoint caption must remain outside ${id}`);
+  for(const caption of [sourceCaption,targetCaption]) {
+    const matrix=await caption.evaluate(node=>{const m=node.transform.baseVal.consolidate().matrix;return [m.a,m.b,m.c,m.d];});
+    assert.ok(matrix.every((value,i)=>Math.abs(value-[1,0,0,1][i])<1e-6),'Endpoint text remains upright when its attachment turns');
+  }
+  await paper.locator('[data-canvas-label-role="center"] text').filter({hasText:/^contains$/}).click();
+  const moveLabel=page.getByRole('button',{name:'Move connector label',exact:true});await moveLabel.waitFor();
+  await drag(moveLabel,28,-18,['Alt']);
+  for(const [i,caption] of [sourceCaption,targetCaption].entries()) {
+    const actual=await measure(caption);
+    for(const key of ['x','y','width','height'])assert.ok(Math.abs(actual[key]-captionBefore[i][key])<.25,'Moving the central label must not move endpoint multiplicities');
+  }
+  await surface.press('Control+z');await waitSource(routedCaptions);
+  await surface.press('Control+z');await waitSource(cardinalities);
+  console.log('Verified endpoint caption ownership, upright route turns, node clearance, independent central-label movement and exact undo.');
+
   // Nested DOM ordering and collapse projection must not corrupt child geometry or manual paths.
   const grouped='@startuml\npackage ZGroup {\n class AChild\n class BChild\n AChild --> BChild : inner\n}\nclass Outside\nAChild --> Outside : outer\n@enduml';
   await source.fill(grouped);await shape('ZGroup').waitFor();await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
