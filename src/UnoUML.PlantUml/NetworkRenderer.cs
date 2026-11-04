@@ -205,11 +205,11 @@ internal static partial class NetworkRenderer
                 // retain the original visible spine, while geometry edits can route them separately.
                 int from = bus + (p.Network == host.First ? 3 : -3), to = p.Network == host.First ? y : y + 36;
                 s.Append(CultureInfo.InvariantCulture, $"<g class=\"link\" data-style-name=\"arrow\" data-style-metrics=\"fontsize\" data-canvas-id=\"{edgeId}\" data-entity-1=\"{network.CanvasId}\" data-entity-2=\"{host.CanvasId}\"><path d=\"M{x} {from}V{to}\" fill=\"none\" stroke=\"#586177\"/>");
-                s.Append(CultureInfo.InvariantCulture, $"<g class=\"interface\" data-source-line=\"{p.Line}\"><title>{SvgText.Escape(host.Id)}</title><circle cx=\"{x}\" cy=\"{bus}\" r=\"3\" fill=\"#535f78\"/>");
+                s.Append(CultureInfo.InvariantCulture, $"<g class=\"interface\" data-canvas-fraction=\"0\" data-source-line=\"{p.Line}\"><title>{SvgText.Escape(host.Id)}</title><circle cx=\"{x}\" cy=\"{bus}\" r=\"3\" fill=\"#535f78\"/>");
                 s.Append("</g>");
                 if (p.Address.Length > 0)
                 {
-                    s.Append(CultureInfo.InvariantCulture, $"<g class=\"interface-address\" data-source-line=\"{p.Line}\">");
+                    s.Append(CultureInfo.InvariantCulture, $"<g class=\"interface-address\" data-canvas-fraction=\"0\" data-source-line=\"{p.Line}\">");
                     Text(x, bus + (p.Network == host.First ? 22 : -9), p.Address, 12, "middle"); s.Append("</g>");
                 }
                 s.Append("</g>");

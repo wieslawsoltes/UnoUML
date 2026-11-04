@@ -172,6 +172,9 @@ internal static class CanvasMetadataCases
                 (endpoint.Y == (int)shape.Attribute("y")! || endpoint.Y == (int)shape.Attribute("y")! + (int)shape.Attribute("height")!), "network interface ends at the shared host boundary");
             Check(route.Count(c => c == 'M') == 1 && edge.Descendants().Count(n => (string?)n.Attribute("class") == "interface") == 1 &&
                 edge.Descendants().Any(n => (string?)n.Attribute("class") == "interface-address" && n.Attribute("data-source-line") != null), "interface route, port and address remain individually source mapped");
+            var attachments = edge.Elements().Where(n => (string?)n.Attribute("class") is "interface" or "interface-address").ToArray();
+            Check(attachments.Length == 2 && attachments.All(n => (string?)n.Attribute("data-canvas-fraction") == "0"),
+                "network ports and interface addresses explicitly stay at the bus/source attachment for short and long routes");
         }
         var busCaption = network.Descendants().Single(n => (string?)n.Attribute("data-canvas-decoration-for") == Id(NetworkNode(network, "network", "shared")));
         Check(Text(busCaption) == "shared192.0.2.0/24" && (int?)busCaption.Attribute("data-source-line") == 2 &&
