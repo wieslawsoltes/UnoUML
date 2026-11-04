@@ -150,6 +150,8 @@ try {
       await mkdir(process.env.SCREENSHOT_DIR, { recursive: true });
       await page.screenshot({ path: resolve(process.env.SCREENSHOT_DIR, 'unouml-failure.png') });
       await writeFile(resolve(process.env.SCREENSHOT_DIR, 'unouml-failure.html'), await page.content());
+      const source = page.getByRole('textbox', {name:'PlantUML source',exact:true});
+      if (await source.count()) await writeFile(resolve(process.env.SCREENSHOT_DIR, 'unouml-failure.puml'), await source.inputValue());
     } catch (captureError) { console.error('Could not capture workspace failure:', captureError); }
   }
   throw error;
