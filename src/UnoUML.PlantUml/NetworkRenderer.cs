@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
+using UnoUML.Syntax;
 
 namespace UnoUML.PlantUml;
 
@@ -14,6 +14,8 @@ internal static partial class NetworkRenderer
         public int Line { get; } = line;
         public string Caption = id, Address = "", Color = "#aab6ce";
         public int AddressLine = line;
+        public SourceToken CaptionToken, AddressToken;
+        public string CaptionKind = "text", AddressKind = "quoted";
         public HashSet<string> Hosts { get; } = new(StringComparer.Ordinal);
     }
 
@@ -25,124 +27,61 @@ internal static partial class NetworkRenderer
         public int Line { get; } = line;
         public int Last = first, Slot, Center, Width;
         public string Caption = id, Color = "#ebedf5", Shape = "rectangle";
-        public List<(int Network, string Address, int Line)> Interfaces { get; } = [];
+        public SourceToken CaptionToken;
+        public string CaptionKind = "text";
+        public List<(int Network, string Address, int Line, SourceToken Token, string Kind)> Interfaces { get; } = [];
     }
-
-    private const string Id = @"[\p{L}\p{N}_][\p{L}\p{N}_.-]*";
-    [GeneratedRegex("^network\\s+(" + Id + @")\s*\{$", RegexOptions.CultureInvariant)]
-    private static partial Regex NetworkHeader();
-    [GeneratedRegex("^(" + Id + @")(?:\s*\[([^\]]*)\])?$", RegexOptions.CultureInvariant)]
-    private static partial Regex HostHeader();
-    [GeneratedRegex("""\G\s*(address|description|shape|color)\s*=\s*(?:"([^"\\]*)"|([\w#.-]+))\s*(,|$)""", RegexOptions.CultureInvariant)]
-    private static partial Regex Attribute();
 
     internal static string? TryRender(string source)
     {
-        if (source.Length > 512000) return null;
+        if (NetworkSource.Parse(source) is not { } syntax || !Plain(syntax.Title)) return null;
         var networks = new List<Network>();
-        var names = new HashSet<string>(StringComparer.Ordinal);
         var hosts = new Dictionary<string, Host>(StringComparer.Ordinal);
-        Network? current = null;
-        int stage = 0, line = -1, ports = 0;
-        string title = "";
-        foreach (var row in source.AsSpan().EnumerateLines())
+        foreach (var bus in syntax.Networks)
         {
-            line++;
-            var span = row.Trim();
-            if (span.IsEmpty || span[0] == '\'' || span.StartsWith("//", StringComparison.Ordinal)) continue;
-            if (span.Length > 2500) return null;
-            if (stage == 0)
+            var current = new Network(bus.Alias, bus.Line)
             {
-                if (!span.SequenceEqual("@startnwdiag")) return null;
-                stage = 1; continue;
-            }
-            if (stage == 1)
+                Caption = bus.Property("description") ?? bus.Alias,
+                Address = bus.Property("address") ?? "",
+                Color = bus.Property("color") is { } color ? ManagedSkin.Color(color) ?? "" : "#aab6ce",
+                CaptionToken = bus.Properties.LastOrDefault(a => a.Name == "description")?.ValueToken ?? bus.AliasToken,
+                AddressToken = bus.Properties.LastOrDefault(a => a.Name == "address")?.ValueToken ?? default
+            };
+            if (!Plain(current.Caption) || !Plain(current.Address) || current.Color.Length == 0) return null;
+            current.CaptionKind = Kind(current.CaptionToken); current.AddressKind = Kind(current.AddressToken);
+            var addressProperty = bus.Properties.LastOrDefault(a => a.Name == "address");
+            if (addressProperty != null) current.AddressLine = syntax.Rows.Last(r => r.Start <= addressProperty.ValueToken.Start).Index;
+            networks.Add(current);
+            foreach (var connection in bus.Interfaces)
             {
-                if (span.StartsWith("title ", StringComparison.Ordinal) && title.Length == 0)
+                string alias = connection.Host.Alias;
+                if (!hosts.TryGetValue(alias, out var host))
                 {
-                    title = span[6..].ToString(); if (!Plain(title)) return null; continue;
-                }
-                if (!span.SequenceEqual("nwdiag {")) return null;
-                stage = 2; continue;
-            }
-            if (stage == 3 && span.SequenceEqual("@endnwdiag")) { stage = 4; continue; }
-            if (stage != 2) return null;
-            if (span.EndsWith(";")) span = span[..^1].TrimEnd();
-            if (span.SequenceEqual("}"))
-            {
-                if (current == null) stage = 3; else current = null;
-                continue;
-            }
-            string text = span.ToString();
-            if (current == null)
-            {
-                var start = NetworkHeader().Match(text);
-                if (!start.Success || networks.Count >= 220 || !names.Add(start.Groups[1].Value)) return null;
-                current = new Network(start.Groups[1].Value, line); networks.Add(current);
-                continue;
-            }
-            var hostMatch = HostHeader().Match(text);
-            if (!hostMatch.Success)
-            {
-                var props = Attributes(text);
-                if (props is not { Count: 1 }) return null;
-                var (key, val) = props.Single();
-                switch (key)
-                {
-                    case "address": current.Address = val; current.AddressLine = line; break;
-                    case "description": current.Caption = val; break;
-                    case "color" when IsColor(val): current.Color = val; break;
-                    default: return null;
-                }
-                continue;
-            }
-            string id = hostMatch.Groups[1].Value;
-            if (!current.Hosts.Add(id) || ++ports > 4096 || id is "network" or "group") return null;
-            if (!hosts.TryGetValue(id, out var host))
-            {
-                if (hosts.Count >= 1024) return null;
-                hosts[id] = host = new Host(id, networks.Count - 1, line);
-            }
-            string address = "";
-            if (hostMatch.Groups[2].Success)
-            {
-                var props = Attributes(hostMatch.Groups[2].Value);
-                if (props == null) return null;
-                foreach (var (key, val) in props)
-                    switch (key)
+                    var definition = connection.Host;
+                    host = new Host(alias, networks.Count - 1, connection.Line)
                     {
-                        case "address": address = val; break;
-                        case "description": host.Caption = val; break;
-                        case "color" when IsColor(val): host.Color = val; break;
-                        case "shape" when val is "rectangle" or "node" or "database" or "folder" or "artifact": host.Shape = val; break;
-                        default: return null;
-                    }
+                        Caption = definition.Property("description") ?? alias,
+                        Color = definition.Property("color") is { } paint ? ManagedSkin.Color(paint) ?? "" : "#ebedf5",
+                        Shape = definition.Property("shape") ?? "rectangle",
+                        CaptionToken = definition.Interfaces.SelectMany(i => i.Attributes).LastOrDefault(a => a.Name == "description")?.ValueToken ?? connection.AliasToken
+                    };
+                    host.CaptionKind = Kind(host.CaptionToken);
+                    if (!Plain(host.Caption) || host.Color.Length == 0 || host.Shape is not ("rectangle" or "node" or "database" or "folder" or "artifact")) return null;
+                    hosts.Add(alias, host);
+                }
+                string address = connection.Address ?? "";
+                if (!Plain(address)) return null;
+                var token = connection.Attributes.FirstOrDefault(a => a.Name == "address")?.ValueToken ?? default;
+                current.Hosts.Add(alias); host.Last = networks.Count - 1;
+                host.Interfaces.Add((host.Last, address, connection.Line, token, Kind(token)));
             }
-            host.Last = networks.Count - 1;
-            host.Interfaces.Add((host.Last, address, line));
         }
-        if (stage != 4 || networks.Count == 0) return null;
-        return Draw(title, networks, hosts.Values.ToList());
-    }
-
-    private static Dictionary<string, string>? Attributes(string source)
-    {
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
-        int pos = 0;
-        while (pos < source.Length)
-        {
-            var match = Attribute().Match(source, pos);
-            if (!match.Success || match.Index != pos) return null;
-            string value = match.Groups[2].Success ? match.Groups[2].Value : match.Groups[3].Value;
-            if (!Plain(value) || !result.TryAdd(match.Groups[1].Value, value)) return null;
-            pos += match.Length;
-            if (match.Groups[4].Value == "," && pos >= source.Length) return null;
-        }
-        return result;
+        if (networks.Count == 0) return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"240\" height=\"64\" viewBox=\"0 0 240 64\"/>";
+        return Draw(syntax.Title, networks, hosts.Values.ToList());
+        string Kind(SourceToken token) => token.Length > 0 && source[token.Start] == '"' ? "quoted" : "text";
     }
 
     private static bool Plain(string text) => text.Length <= 450 && SvgText.IsPlain(text) && !text.Any(char.IsControl);
-    private static bool IsColor(string color) => color.Length is 4 or 7 && color[0] == '#' && color.AsSpan(1).IndexOfAnyExcept("0123456789abcdefABCDEF") < 0;
 
     private static string? Draw(string title, List<Network> networks, List<Host> hosts)
     {
@@ -177,8 +116,12 @@ internal static partial class NetworkRenderer
         if (w > 32768 || height > 32768) return null;
         var s = new StringBuilder(hosts.Count * 350 + networks.Count * 220);
         s.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{height}\" viewBox=\"0 0 {w} {height}\" font-family=\"Arial, sans-serif\">");
-        void Text(int x, int y, string label, int size, string anchor = "start", bool bold = false) =>
+        void Text(int x, int y, string label, int size, string anchor = "start", bool bold = false, SourceToken token = default, string kind = "text")
+        {
+            if (token.Length > 0) s.Append(CultureInfo.InvariantCulture, $"<g data-edit-start=\"{token.Start}\" data-edit-length=\"{token.Length}\" data-edit-kind=\"{kind}\" data-edit-role=\"label\">");
             s.Append(CultureInfo.InvariantCulture, $"<text x=\"{x}\" y=\"{y}\" font-size=\"{size}\" fill=\"#282c3c\" text-anchor=\"{anchor}\"{(bold ? " font-weight=\"bold\"" : "")}>{SvgText.Escape(label)}</text>");
+            if (token.Length > 0) s.Append("</g>");
+        }
         if (title.Length > 0) Text(w / 2, 28, title, 19, "middle", true);
         for (int i = 0; i < networks.Count; i++)
         {
@@ -186,10 +129,10 @@ internal static partial class NetworkRenderer
             s.Append(CultureInfo.InvariantCulture, $"<g class=\"network\" data-canvas-id=\"{n.CanvasId}\" data-qualified-name=\"{SvgText.Escape(n.Id)}\" data-source-line=\"{n.Line}\"><title>{SvgText.Escape(n.Caption)}</title><rect x=\"{railStart}\" y=\"{y - 3}\" width=\"{railEnd - railStart}\" height=\"6\" rx=\"3\" fill=\"{n.Color}\" stroke=\"#4b5363\"/></g>");
             // The caption travels with its bus without enlarging the rail's docking boundary.
             s.Append(CultureInfo.InvariantCulture, $"<g class=\"network-caption\" data-canvas-decoration-for=\"{n.CanvasId}\" data-source-line=\"{n.Line}\">");
-            Text(margin, y + 2, n.Caption, 14, bold: true);
+            Text(margin, y + 2, n.Caption, 14, bold: true, token: n.CaptionToken, kind: n.CaptionKind);
             if (n.Address.Length > 0)
             {
-                s.Append(CultureInfo.InvariantCulture, $"<g data-source-line=\"{n.AddressLine}\">"); Text(margin, y + 19, n.Address, 12); s.Append("</g>");
+                s.Append(CultureInfo.InvariantCulture, $"<g data-source-line=\"{n.AddressLine}\">"); Text(margin, y + 19, n.Address, 12, token: n.AddressToken, kind: n.AddressKind); s.Append("</g>");
             }
             s.Append("</g>");
         }
@@ -210,7 +153,7 @@ internal static partial class NetworkRenderer
                 if (p.Address.Length > 0)
                 {
                     s.Append(CultureInfo.InvariantCulture, $"<g class=\"interface-address\" data-canvas-fraction=\"0\" data-source-line=\"{p.Line}\">");
-                    Text(x, bus + (p.Network == host.First ? 22 : -9), p.Address, 12, "middle"); s.Append("</g>");
+                    Text(x, bus + (p.Network == host.First ? 22 : -9), p.Address, 12, "middle", token: p.Token, kind: p.Kind); s.Append("</g>");
                 }
                 s.Append("</g>");
             }
@@ -226,7 +169,7 @@ internal static partial class NetworkRenderer
             };
             if (shape != null) s.Append(CultureInfo.InvariantCulture, $"<path d=\"{shape}\" fill=\"{host.Color}\" stroke=\"#414857\"/>");
             else s.Append(CultureInfo.InvariantCulture, $"<rect x=\"{left}\" y=\"{y}\" width=\"{host.Width}\" height=\"{h}\" rx=\"2\" fill=\"{host.Color}\" stroke=\"#414857\"/>");
-            Text(x, y + 23, host.Caption, 14, "middle"); s.Append("</g>");
+            Text(x, y + 23, host.Caption, 14, "middle", token: host.CaptionToken, kind: host.CaptionKind); s.Append("</g>");
         }
         return s.Append("</svg>").ToString();
     }
