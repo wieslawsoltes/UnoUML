@@ -42,16 +42,13 @@ public sealed partial class StudioDocument
     private static CanvasLayoutState? ReindexDotCanvas(CanvasLayoutState? layout, DotSyntax before, DotSyntax after)
     {
         if (layout == null) return null;
-        var indices = CanvasDotEdges(before, after);
+        // Validate against the original semantic edge before assigning its new
+        // ordinal. Stale records can otherwise collide with shifted survivors.
+        var indices = CanvasDotEdges(before, after, saved: layout);
         return layout with
         {
-            Edges = layout.Edges.Select(edge =>
-            {
-                if (!edge.Id.StartsWith("edge:", StringComparison.Ordinal) || !indices.TryGetValue(edge.Id, out string? id) ||
-                    !int.TryParse(edge.Id.AsSpan(5), NumberStyles.None, CultureInfo.InvariantCulture, out int index) || index >= before.Edges.Count) return edge;
-                var semantic = before.Edges[index];
-                return edge.Source == "node:" + semantic.From.Node.Name && edge.Target == "node:" + semantic.To.Node.Name ? edge with { Id = id } : edge;
-            }).ToArray()
+            Edges = layout.Edges.Where(edge => !edge.Id.StartsWith("edge:", StringComparison.Ordinal) || indices.ContainsKey(edge.Id))
+                .Select(edge => indices.TryGetValue(edge.Id, out string? id) ? edge with { Id = id } : edge).ToArray()
         };
     }
 

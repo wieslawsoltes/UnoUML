@@ -126,6 +126,39 @@ internal static class DotCanvasIntegrityCases
             Undo(doc, before, "port rename");
         }
         {
+            var doc = Doc("digraph { a->b; c->d; }"); var layout = Seed(doc);
+            Check(doc.SetCanvasLayout(layout with { Edges = [.. layout.Edges, layout.Edges[1] with { Id = "edge:2", LabelOffset = new(999, 999) }] }),
+                "install stale ordinal that would collide with a shifted survivor");
+            string before = doc.Source;
+            Check(doc.DuplicateDotObjects([Node(doc, "a"), Node(doc, "b")]), "stale ordinal does not reject a valid duplicate");
+            double offset = layout.Settings.GridSize * 2;
+            var expected = layout with
+            {
+                Nodes = layout.Nodes.Concat(layout.Nodes.Where(node => node.Id is "node:a" or "node:b")
+                    .Select(node => node with { Id = node.Id + "Copy", X = node.X + offset, Y = node.Y + offset }))
+                    .OrderBy(node => node.Id, StringComparer.Ordinal).ToArray(),
+                Edges = [layout.Edges[0], layout.Edges[0] with
+                {
+                    Id = "edge:1", Source = "node:aCopy", Target = "node:bCopy",
+                    Waypoints = layout.Edges[0].Waypoints!.Select(point => new CanvasPoint(point.X + offset, point.Y + offset)).ToArray()
+                }, layout.Edges[1] with { Id = "edge:2" }]
+            };
+            Routes(doc, expected, [0, 1, 2], "duplicate filters stale metadata before reindexing original and copied routes");
+            Undo(doc, before, "duplicate with stale metadata");
+        }
+        {
+            var doc = Doc("digraph { a->b; a->b; }"); var layout = Seed(doc);
+            Check(doc.SetCanvasLayout(layout with { Edges = [layout.Edges[0],
+                layout.Edges[1] with { Source = "node:b", Target = "node:a" },
+                layout.Edges[0] with { Id = "edge:2" }, layout.Edges[0] with { Id = "edge:01" },
+                layout.Edges[0] with { Id = "edge:-1" }, layout.Edges[0] with { Id = "edge:invalid" }] }),
+                "install stale, noncanonical and endpoint-mismatched DOT routes");
+            string before = doc.Source;
+            Check(doc.PasteDotSelection("@startdot\ndigraph { a->b; }\n@enddot"), "plain paste accepts valid source despite stale saved ordinals");
+            Routes(doc, layout, [null, 0, null], "plain paste retains only the validated original route and gives new edges no stale geometry");
+            Undo(doc, before, "plain paste with stale metadata");
+        }
+        {
             var doc = new StudioDocument(StudioDocument.CanvasLayoutMarker + "broken\n@startdot\ndigraph { a->b; a->b; }\n@enddot");
             string before = doc.Source; long history = doc.HistoryState;
             Check(!doc.RemoveDotEdge(Edge(doc, 0)) && doc.Source == before && doc.HistoryState == history,
