@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {CanvasIds} from '../src/UnoUML.App/wwwroot/uml/canvas-scene.js';
 import assert from 'node:assert/strict';
 import {bounds,center,descendants,pointOnRoute,projectToRoute,resize,rotate,routePath,snapMove,visibleOwner} from '../src/UnoUML.App/wwwroot/uml/canvas-geometry.js';
 
@@ -43,4 +44,44 @@ test('degenerate segments remain finite and geometry does not mutate source snap
   const node={x:1,y:2,width:40,height:50};resize(node,'nw',{x:100,y:100},{free:true});assert.deepEqual(node,{x:1,y:2,width:40,height:50});
   assert.deepEqual(pointOnRoute([{x:4,y:5},{x:4,y:5}]),{x:4,y:5});
   assert.equal(routePath([],'orthogonal'),'');
+});
+
+test('compatibility SVG element IDs resolve to semantic canvas nodes',()=>{
+  const ids=new CanvasIds();ids.addNode('A','ent0001',['A']);ids.addNode('B','ent0002',['B']);
+  assert.equal(ids.resolve('ent0001',true),'A');assert.equal(ids.resolve('ent0002',true),'B');
+  assert.equal(ids.resolve('A'),'A');assert.equal(ids.resolve('B'),'B');
+  assert.equal(ids.resolve('missing',true),null);
+});
+test('renderer IDs cannot shadow same-named user nodes across identifier spaces',()=>{
+  const ids=new CanvasIds();ids.addNode('A','ent0001',['A']);ids.addNode('ent0001','ent0002',['ent0001']);
+  assert.equal(ids.resolve('ent0001',true),'A','Compatibility endpoints identify the SVG element');
+  assert.equal(ids.resolve('ent0001'),'ent0001','Managed endpoints identify the semantic node');
+  assert.equal(ids.resolve('ent0002',true),'ent0001');
+});
+test('namespaced, C4, DOT and escaped identifiers resolve exactly without suffix guessing',()=>{
+  const ids=new CanvasIds();
+  ids.addNode('One.Item','ent0001',['One.Item','Item']);ids.addNode('Two.Item','ent0002',['Two.Item','Item']);
+  ids.addNode('service','ent0003',['boundary.service']);ids.addNode('node:α::A -> B','node1',['α::A -> B']);
+  assert.equal(ids.resolve('One.Item'),'One.Item');assert.equal(ids.resolve('Two.Item'),'Two.Item');
+  assert.equal(ids.resolve('Item'),null,'An ambiguous short alias is not rebound to the last node');
+  assert.equal(ids.resolve('boundary.service'),'service');assert.equal(ids.resolve('node1',true),'node:α::A -> B');
+  assert.equal(ids.resolve('node:α::A -> B'),'node:α::A -> B');assert.equal(ids.resolve('α::A -> B'),'node:α::A -> B');
+});
+test('duplicate SVG IDs remain unresolved instead of binding a connector to the wrong node',()=>{
+  const ids=new CanvasIds();ids.addNode('A','duplicate',['shared']);ids.addNode('B','duplicate',['shared']);
+  ids.addNode('duplicate','other',['duplicate']);
+  assert.equal(ids.resolve('duplicate',true),null);assert.equal(ids.resolve('shared'),null);
+  assert.equal(ids.resolve('duplicate'),'duplicate');
+});
+test('parallel, reversed and self links receive distinct deterministic IDs',()=>{
+  const capture=()=>{const ids=new CanvasIds();return [['A','B'],['A','B'],['B','A'],['A','A'],['A','A']].map(pair=>ids.edgeId(...pair));};
+  assert.deepEqual(capture(),['A->B:0','A->B:1','B->A:0','A->A:0','A->A:1']);
+  assert.deepEqual(capture(),capture());
+});
+test('explicit and fallback edge IDs cannot overwrite each other or alias delimiter-containing pairs',()=>{
+  const ids=new CanvasIds(['A->B:0','edge:0']);
+  const edges=[ids.edgeId('A','B'),ids.edgeId('C','D','A->B:0'),ids.edgeId('C','D','A->B:0'),
+    ids.edgeId('A','B','edge:0'),ids.edgeId('A','B','edge:0'),ids.edgeId('A->B','C'),ids.edgeId('A','B->C')];
+  assert.equal(edges[0],'A->B:1');assert.equal(edges[1],'A->B:0');assert.equal(edges[3],'edge:0');
+  assert.equal(new Set(edges).size,edges.length);
 });

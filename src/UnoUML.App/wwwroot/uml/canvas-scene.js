@@ -7,6 +7,34 @@ const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const defaults={algorithm:'layered',direction:'down',nodeSpacing:32,layerSpacing:64,routingPadding:12,
   gridColumns:0,iterations:200,seed:1,gridSize:16,snapToGrid:true,snapToObjects:true,automatic:false};
 
+// Compatibility edges refer to SVG element IDs; native edges refer to semantic
+// names. Keep their lookup spaces separate: a user may also name a node ent0001.
+export class CanvasIds {
+  constructor(reservedEdges=[]) {
+    this.names=new Map();this.elements=new Map();this.counts=new Map();
+    this.edges=new Set();this.reserved=new Set(reservedEdges.filter(Boolean));
+  }
+  addNode(id,elementId,aliases=[]) {
+    const add=(map,key)=>{
+      if(key)map.set(key,map.has(key)&&map.get(key)!==id?null:id);
+    };
+    add(this.names,id);for(const alias of aliases)add(this.names,alias);add(this.elements,elementId);
+  }
+  resolve(reference,elementFirst=false) {
+    for(const map of elementFirst?[this.elements,this.names]:[this.names,this.elements])
+      if(map.has(reference))return map.get(reference); // Ambiguous names never fall through to a different node.
+    return null;
+  }
+  edgeId(source,target,preferred='') {
+    const key=JSON.stringify([source,target]);let ordinal=this.counts.get(key)||0;
+    this.counts.set(key,ordinal+1);
+    if(preferred&&!this.edges.has(preferred)){this.edges.add(preferred);return preferred;}
+    let id;
+    do{id=source+'->'+target+':'+ordinal++;}while(this.edges.has(id)||this.reserved.has(id));
+    this.counts.set(key,ordinal);this.edges.add(id);return id;
+  }
+}
+
 // The renderer owns semantic SVG. This adapter projects an independent geometry
 // snapshot onto it, retaining its shapes, markers, hyperlinks, labels and hit data.
 export class CanvasScene {
@@ -26,7 +54,9 @@ export class CanvasScene {
   capture() {
     const candidates=[...this.svg.querySelectorAll('g.entity,g.cluster,g[data-canvas-id]')]
       .filter(el=>!el.matches('.link,.message,[data-dot-kind="edge"]') && !el.closest('.participant-head,.participant-tail'));
-    const byElement=new Map(),aliases=new Map();
+    const edgeElements=[...this.svg.querySelectorAll('g.link,g[data-dot-kind="edge"]')];
+    const edgeName=el=>el.getAttribute('data-dot-id') || el.getAttribute('data-canvas-id') || '';
+    const byElement=new Map(),ids=new CanvasIds(edgeElements.map(edgeName));
     for(const el of candidates) {
       const id=el.getAttribute('data-canvas-id') || el.getAttribute('data-dot-id') ||
         el.getAttribute('data-c4-alias') || el.getAttribute('data-qualified-name');
@@ -38,26 +68,25 @@ export class CanvasScene {
         .map(text=>({el:text,transform:text.getAttribute('transform') || '',x:Number.parseFloat(text.getAttribute('x')) || 0,y:Number.parseFloat(text.getAttribute('y')) || 0}));
       this.nodes.set(id,{el,base,matrix:this.matrix(el),texts,display:el.style.display});
       byElement.set(el,id); this.base.nodes.push(base); el.dataset.canvasNode=id;
-      aliases.set(el.getAttribute('data-qualified-name')||id,id);
+      ids.addNode(id,el.getAttribute('id'),['data-qualified-name','data-c4-alias','data-dot-id','data-entity'].map(name=>el.getAttribute(name)));
       // Keep strokes stable while resizing. Text receives an inverse scale below.
       for(const shape of el.querySelectorAll('path,rect,circle,ellipse,polygon,polyline,line')) shape.setAttribute('vector-effect','non-scaling-stroke');
     }
     for(const record of this.nodes.values()) {
       const explicit=record.el.getAttribute('data-canvas-parent'),parentElement=record.el.parentElement?.closest('[data-canvas-node]');
       const qualified=record.el.getAttribute('data-qualified-name')||'',split=qualified.lastIndexOf('.');
-      const c4Parent=record.el.hasAttribute('data-c4-alias')&&split>0?aliases.get(qualified.slice(0,split)):null;
+      const c4Parent=record.el.hasAttribute('data-c4-alias')&&split>0?ids.resolve(qualified.slice(0,split)):null;
       const parent=explicit || byElement.get(parentElement) || c4Parent;
       if(parent && parent!==record.base.id && this.nodes.has(parent)) record.base.parent=parent;
     }
-    const counts=new Map();
-    for(const el of this.svg.querySelectorAll('g.link,g[data-dot-kind="edge"]')) {
+    const elementFirst=this.view.pristine?.backend!=='managed';
+    for(const el of edgeElements) {
       const dot=el.hasAttribute('data-dot-from-id');
       let source=dot ? 'node:'+el.getAttribute('data-dot-from-id') : el.getAttribute('data-entity-1');
       let target=dot ? 'node:'+el.getAttribute('data-dot-to-id') : el.getAttribute('data-entity-2');
-      source=aliases.get(source)||source;target=aliases.get(target)||target;
+      source=ids.resolve(source,!dot&&elementFirst);target=ids.resolve(target,!dot&&elementFirst);
       if(!this.nodes.has(source) || !this.nodes.has(target)) continue;
-      const key=source+'->'+target,n=counts.get(key)||0; counts.set(key,n+1);
-      const id=el.getAttribute('data-dot-id') || el.getAttribute('data-canvas-id') || key+':'+n;
+      const id=ids.edgeId(source,target,edgeName(el));
       const geometry=[...el.querySelectorAll('path,polyline,line')].map(shape=>{
         try { return {el:shape,length:shape.getTotalLength()}; } catch {return {el:shape,length:0};}
       }).filter(r=>r.length>0 && !/[zZ]\s*$/.test(r.el.getAttribute('d') || '')).sort((a,b)=>b.length-a.length);

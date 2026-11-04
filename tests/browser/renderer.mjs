@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { verifyCanvasEvents } from './direct-editing.mjs';
+import { verifyCanvasSceneIdentity } from './canvas-scene.mjs';
 import { verifyServerRendering } from './server-cases.mjs';
 import { verifyResourceLoading } from './resources.mjs';
 import { verifyArchiveFiles } from './archive.mjs';
@@ -155,6 +156,7 @@ try {
     }
     console.log('Verified ' + local.length + ' local catalog fixtures.');
   }
+  await verifyCanvasSceneIdentity(page, render);
   await verifyCanvasEvents(page, render);
   await verifyServerRendering(page);
   assert.deepEqual(errors,[]);
