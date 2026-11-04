@@ -9,7 +9,7 @@ export async function verifyStructuredEditing(page, source) {
   await source.fill(packet);
   await paper.locator('.packet-field[data-packet-first="0"][data-packet-last="7"]').waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
-  await paper.locator('.packet-field[data-packet-field-index="0"] rect').click();
+  await paper.locator('.packet-field[data-packet-field-index="0"]').click();
   await page.getByText('Resize packet field…',{exact:true}).last().click();
   let dialog = page.getByRole('dialog',{name:'Resize packet field',exact:true});
   await dialog.getByRole('textbox',{name:'Bit count',exact:true}).fill('12');
@@ -21,7 +21,7 @@ export async function verifyStructuredEditing(page, source) {
   await paper.locator('.packet-field[data-packet-first="8"][data-packet-last="15"]').waitFor();
   assert.equal(await source.inputValue(),packet,'One undo restores both resized and shifted ranges');
 
-  await paper.locator('.packet-field[data-packet-field-index="0"] rect').click();
+  await paper.locator('.packet-field[data-packet-field-index="0"]').click();
   await page.getByText('Split packet field…',{exact:true}).last().click();
   dialog = page.getByRole('dialog',{name:'Split packet field',exact:true});
   await dialog.getByRole('textbox',{name:'First part bit count',exact:true}).fill('3');
@@ -36,7 +36,7 @@ export async function verifyStructuredEditing(page, source) {
   await paper.locator('.packet-field[data-packet-first="0"][data-packet-last="7"]').waitFor();
   assert.equal(await source.inputValue(),packet);
 
-  await paper.locator('.packet-field[data-packet-field-index="0"] rect').click();
+  await paper.locator('.packet-field[data-packet-field-index="0"]').click();
   await page.getByText('Insert packet field…',{exact:true}).last().click();
   dialog = page.getByRole('dialog',{name:'Insert packet field',exact:true});
   await dialog.getByRole('textbox',{name:'Field label',exact:true}).fill('Type');
