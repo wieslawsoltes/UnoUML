@@ -117,6 +117,24 @@ export function projectToRoute(point, points) {
   }
   return best;
 }
+export function moveWaypoint(points,index,position,orthogonal=false) {
+  if(index<=0 || index>=points.length-1) return {points:clone(points),index};
+  const result=clone(points),axis=(a,b)=>Math.abs(a.y-b.y)<.001?'h':Math.abs(a.x-b.x)<.001?'v':null;
+  if(!orthogonal || points.some((p,i)=>i>0&&!axis(points[i-1],p))) {
+    result[index]={...position};return {points:result,index};
+  }
+  const incoming=axis(points[index-1],points[index]),outgoing=axis(points[index],points[index+1]);
+  const left=result.slice(0,index),right=result.slice(index+1),a=left.at(-1),b=right[0];
+  // Sliding adjacent bends preserves their outer segments. At a fixed terminal
+  // or a collinear inserted point, add an elbow instead of moving the terminal.
+  if(index>1 && axis(points[index-2],points[index-1])!==incoming) a[incoming==='h'?'y':'x']=position[incoming==='h'?'y':'x'];
+  else left.push(incoming==='h'?{x:position.x,y:a.y}:{x:a.x,y:position.y});
+  if(index+2<points.length && axis(points[index+1],points[index+2])!==outgoing) b[outgoing==='h'?'y':'x']=position[outgoing==='h'?'y':'x'];
+  else right.unshift(outgoing==='h'?{x:b.x,y:position.y}:{x:position.x,y:b.y});
+  const combined=[],append=p=>{if(!combined.length||Math.hypot(p.x-combined.at(-1).x,p.y-combined.at(-1).y)>.0001)combined.push(p);};
+  left.forEach(append);append({...position});const selected=combined.length-1;right.forEach(append);
+  return {points:combined,index:selected};
+}
 export function routePath(points, routing) {
   if(!points?.length) return '';
   let path=`M${round(points[0].x)} ${round(points[0].y)}`;

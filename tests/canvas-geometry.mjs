@@ -1,7 +1,7 @@
 import test from 'node:test';
 import {CanvasIds} from '../src/UnoUML.App/wwwroot/uml/canvas-scene.js';
 import assert from 'node:assert/strict';
-import {bounds,center,descendants,pointOnRoute,projectToRoute,resize,rotate,routePath,snapMove,visibleOwner} from '../src/UnoUML.App/wwwroot/uml/canvas-geometry.js';
+import {bounds,center,descendants,moveWaypoint,pointOnRoute,projectToRoute,resize,rotate,routePath,snapMove,visibleOwner} from '../src/UnoUML.App/wwwroot/uml/canvas-geometry.js';
 
 const near=(a,b)=>assert.ok(Math.abs(a-b)<.002,`${a} != ${b}`);
 test('smart guides choose the closest edge or center before grid snapping',()=>{
@@ -44,6 +44,23 @@ test('degenerate segments remain finite and geometry does not mutate source snap
   const node={x:1,y:2,width:40,height:50};resize(node,'nw',{x:100,y:100},{free:true});assert.deepEqual(node,{x:1,y:2,width:40,height:50});
   assert.deepEqual(pointOnRoute([{x:4,y:5},{x:4,y:5}]),{x:4,y:5});
   assert.equal(routePath([],'orthogonal'),'');
+});
+test('orthogonal corner movement preserves terminals and perpendicular neighboring segments',()=>{
+  const path=[{x:0,y:0},{x:0,y:40},{x:60,y:40},{x:60,y:100},{x:120,y:100}],before=structuredClone(path);
+  const moved=moveWaypoint(path,2,{x:80,y:55},true);
+  assert.deepEqual(path,before);assert.equal(moved.points.length,path.length);
+  assert.deepEqual(moved.points[0],path[0]);assert.deepEqual(moved.points.at(-1),path.at(-1));
+  assert.deepEqual(moved.points[moved.index],{x:80,y:55});
+  assert.ok(moved.points.every((p,i)=>i===0||p.x===moved.points[i-1].x||p.y===moved.points[i-1].y));
+});
+test('moving an inserted bend retains orthogonality without shifting attached endpoints',()=>{
+  const path=[{x:0,y:0},{x:40,y:0},{x:100,y:0}];
+  const moved=moveWaypoint(path,1,{x:45,y:35},true);
+  assert.deepEqual(moved.points[0],path[0]);assert.deepEqual(moved.points.at(-1),path.at(-1));
+  assert.deepEqual(moved.points[moved.index],{x:45,y:35});
+  assert.ok(moved.points.every((p,i)=>i===0||p.x===moved.points[i-1].x||p.y===moved.points[i-1].y));
+  const freely=moveWaypoint(path,1,{x:45,y:35},false);
+  assert.equal(freely.points.length,3);assert.deepEqual(freely.points[1],{x:45,y:35});
 });
 
 test('compatibility SVG element IDs resolve to semantic canvas nodes',()=>{

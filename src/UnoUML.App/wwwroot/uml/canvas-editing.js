@@ -1,5 +1,5 @@
 import {CanvasScene} from './canvas-scene.js';
-import {bounds,center,clone,descendants,pointOnRoute,projectToRoute,resize,rotate,round,snapMove,visibleOwner} from './canvas-geometry.js';
+import {bounds,center,clone,descendants,moveWaypoint,pointOnRoute,projectToRoute,resize,rotate,round,snapMove,visibleOwner} from './canvas-geometry.js';
 
 // Pointer changes are previews. Only finish()/commit() crosses the source-history
 // boundary, so a complete drag or a held arrow key is exactly one undo operation.
@@ -13,7 +13,7 @@ export class CanvasEditing {
     view.surface.addEventListener('blur',()=>this.finishNudge());
     view.surface.addEventListener('dblclick',e=>{
       if(e.target.closest('[data-canvas-handle]')){e.preventDefault();e.stopImmediatePropagation();return;}
-      if(e.altKey && this.scene?.edgeFor(e.target)) {this.insertWaypoint(e);e.preventDefault();e.stopImmediatePropagation();}
+      if(this.calculate && e.altKey && this.scene?.edgeFor(e.target)) {this.insertWaypoint(e);e.preventDefault();e.stopImmediatePropagation();}
     },true);
   }
   attach() {this.cancel();this.scene=new CanvasScene(this.view);this.layoutApplied=false;this.position();}
@@ -138,7 +138,7 @@ export class CanvasEditing {
     }catch(error){this.announce(error.message,true);}
   }
   pointerDown(e,el,tool) {
-    if(!this.scene || e.button!==0 || tool!=='select' || this.view.linkStart)return false;
+    if(!this.calculate || !this.scene || e.button!==0 || tool!=='select' || this.view.linkStart)return false;
     const handle=e.target.closest('[data-canvas-handle]')?.dataset.canvasHandle;
     const node=this.scene.nodeFor(el),edge=this.scene.edgeFor(el);
     if(!handle && (!node || e.ctrlKey || e.metaKey))return false;
@@ -176,7 +176,8 @@ export class CanvasEditing {
       const edge=state.edges.find(n=>n.id===g.edgeId);if(!edge||edge.locked)return true;
       if(g.handle.startsWith('point:')) {
         const index=Number(g.handle.split(':')[1]),grid=state.settings.snapToGrid&&!e.altKey?state.settings.gridSize:0;
-        edge.waypoints[index]={x:round(grid?Math.round(p.x/grid)*grid:p.x),y:round(grid?Math.round(p.y/grid)*grid:p.y)};edge.manual=true;
+        const moved=moveWaypoint(edge.waypoints,index,{x:round(grid?Math.round(p.x/grid)*grid:p.x),y:round(grid?Math.round(p.y/grid)*grid:p.y)},['orthogonal','curved'].includes(edge.routing));
+        edge.waypoints=moved.points;this.waypointSelection=moved.index;edge.manual=true;
       }else if(g.handle==='label') {
         const old=g.before.edges.find(n=>n.id===edge.id).labelOffset||{x:0,y:0};edge.labelOffset={x:round(old.x+p.x-g.start.x),y:round(old.y+p.y-g.start.y)};
       }else if(g.handle.startsWith('dock:')) {
@@ -227,6 +228,7 @@ export class CanvasEditing {
     Object.assign(node,next);
   }
   keyDown(e) {
+    if(!this.calculate)return;
     if(e.target.closest('input,textarea,[contenteditable]'))return;
     if(e.key==='Escape'&&(this.gesture||this.nudge)){this.cancel();e.preventDefault();e.stopImmediatePropagation();this.view.position();return;}
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='a'&&this.scene?.state.nodes.length){this.action('selectAll');e.preventDefault();e.stopImmediatePropagation();return;}
@@ -256,7 +258,7 @@ export class CanvasEditing {
       el.className=guide.axis==='x'?'canvas-guide vertical':'canvas-guide horizontal';el.style[guide.axis==='x'?'left':'top']=(guide.axis==='x'?p.x:p.y)+'px';this.guides.append(el);}
   }
   position() {
-    this.overlay.replaceChildren();if(!this.scene)return;
+    this.overlay.replaceChildren();if(!this.calculate||!this.scene)return;
     const ids=this.selectedNodes(),edgeIds=this.selectedEdges();
     const button=(name,p,label)=>{
       const b=document.createElement('button');b.type='button';b.className='canvas-handle '+name.split(':')[0];b.dataset.canvasHandle=name;
