@@ -12,6 +12,7 @@ internal static class DotCases
         Defaults();
         Clusters();
         Ranks();
+        OutputDimensions();
         LabelsAndPorts();
         Attributes();
         Images();
@@ -87,6 +88,61 @@ internal static class DotCases
         var shortSvg = Render("digraph {a->b[minlen=1]}");
         var longSvg = Render("digraph {a->b[minlen=4]}");
         Require(Center(Node(longSvg, "b")).Y - Center(Node(longSvg, "a")).Y > Center(Node(shortSvg, "b")).Y - Center(Node(shortSvg, "a")).Y + 50, "minimum edge rank length");
+    }
+
+    private static void OutputDimensions()
+    {
+        const string objects = "node[shape=box,width=1,height=.5,fixedsize=true]; a[label=Alpha];";
+        XElement With(string attributes) => Render("digraph { " + (attributes.Length == 0 ? "" : attributes + "; ") + objects + " }");
+        static double Width(XElement svg) => (double)svg.Attribute("width")!;
+        static double Height(XElement svg) => (double)svg.Attribute("height")!;
+        static double[] ViewBox(XElement svg) => ((string)svg.Attribute("viewBox")!).Split(' ').Select(value => double.Parse(value, CultureInfo.InvariantCulture)).ToArray();
+        static bool Close(double first, double second) => Math.Abs(first - second) < .001;
+        var original = With("");
+        var bare = With("pad=0");
+        var padded = With("pad=\".5,1\"; bgcolor=lightblue");
+        var box = ViewBox(bare); var paddedBox = ViewBox(padded);
+        Require(Close(paddedBox[0], box[0] - 36) && Close(paddedBox[1], box[1] - 72) &&
+            Close(paddedBox[2], box[2] + 72) && Close(paddedBox[3], box[3] + 144), "independent horizontal and vertical padding in inches");
+        Require(Bounds(Node(bare, "a")) == Bounds(Node(padded, "a")), "padding does not change node layout or shape geometry");
+        var background = padded.Elements().First(element => element.Name.LocalName == "rect");
+        Require((double)background.Attribute("x")! == paddedBox[0] && (double)background.Attribute("y")! == paddedBox[1] &&
+            (double)background.Attribute("width")! == paddedBox[2] && (double)background.Attribute("height")! == paddedBox[3], "background fills the full padded drawing");
+        Require(ViewBox(With("pad=.25")).SequenceEqual(ViewBox(With("pad=\".25,.25\""))), "scalar padding applies to both axes");
+        Require(ViewBox(With("pad=\"0,1\"")).SequenceEqual(new[] { box[0], box[1] - 72, box[2], box[3] + 144 }), "zero padding on one axis remains independent");
+        var small = With("size=\".5,.2\"");
+        double shrink = Math.Min(36 / Width(original), 14.4 / Height(original));
+        Require(Close(Width(small), Width(original) * shrink) && Close(Height(small), Height(original) * shrink), "size uniformly fits the smaller bounding dimension");
+        Require(ViewBox(small).SequenceEqual(ViewBox(original)) && Bounds(Node(small, "a")) == Bounds(Node(original, "a")), "size preserves viewBox coordinates and native hit geometry");
+        var large = With("size=\"6,3\"");
+        Require(Width(large) == Width(original) && Height(large) == Height(original), "maximum size does not enlarge a smaller graph");
+        var enlarged = With("size=\"6,3!\"");
+        double grow = Math.Min(432 / Width(original), 216 / Height(original));
+        Require(Close(Width(enlarged), Width(original) * grow) && Close(Height(enlarged), Height(original) * grow), "exclamation size enlarges uniformly until one requested dimension is reached");
+        var narrow = With("size=\"6,.25!\"");
+        double narrowScale = Math.Min(432 / Width(original), 18 / Height(original));
+        Require(Close(Width(narrow), Width(original) * narrowScale) && Close(Height(narrow), Height(original) * narrowScale), "exclamation size still shrinks an oversized dimension");
+        Require(Width(With("size=.5")) == Width(With("size=\".5,.5\"")) && Height(With("size=.5")) == Height(With("size=\".5,.5\"")), "scalar size constrains both axes");
+        foreach (string size in new[] { "0", "0,1", "1,0", "0,0!" })
+        {
+            var disabled = With("size=\"" + size + "\"");
+            Require(Width(disabled) == Width(original) && Height(disabled) == Height(original), "zero dimension leaves size fitting disabled: " + size);
+        }
+        var paddedFit = With("size=1; pad=\".5,1\"");
+        double fitPadding = Math.Min(72 / Width(padded), 72 / Height(padded));
+        Require(Close(Width(paddedFit), Width(padded) * fitPadding) && Close(Height(paddedFit), Height(padded) * fitPadding), "size fits the drawing including its independent padding");
+        var resolution = With("size=\"6,3!\"; dpi=192");
+        Require(Close(Width(resolution), Width(original) * grow * 2) && Close(Height(resolution), Height(original) * grow * 2) &&
+            ViewBox(resolution).SequenceEqual(ViewBox(original)), "resolution applies after uniform size fitting without changing source geometry");
+        var culture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("pl-PL");
+            Require(With("size=\".5,.2\"").ToString(SaveOptions.DisableFormatting) == small.ToString(SaveOptions.DisableFormatting), "size and padding use culture-independent numeric parsing and formatting");
+        }
+        finally { CultureInfo.CurrentCulture = culture; }
+        foreach (string attributes in new[] { "size=\"!\"", "size=\"1,\"", "size=\"1,2,3\"", "size=\"-1,2\"", "size=\"NaN,2\"", "size=\"Infinity,2\"", "size=\"1e-99\"", "pad=\"1,\"", "pad=\"-1,0\"", "pad=\"1,2,3\"", "size=1; ratio=fill" })
+            Require(!PlantUmlRenderer.TryRender("@startdot\ndigraph { " + attributes + "; " + objects + " }\n@enddot", out _), "bounded output-size fallback " + attributes);
     }
 
     private static void LabelsAndPorts()

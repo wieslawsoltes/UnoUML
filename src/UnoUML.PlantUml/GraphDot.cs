@@ -89,8 +89,9 @@ internal static partial class GraphRenderer
         internal readonly Graph Graph = new();
         internal readonly Dictionary<Edge, DotEdge> EdgeMap = new(ReferenceEqualityComparer.Instance);
         internal string RankDirection = "TB", Splines = "spline";
-        internal double Scale = 1;
-        internal int Padding = 4;
+        internal double Scale = 1, SizeWidth, SizeHeight;
+        internal bool Enlarge;
+        internal int PaddingX = 4, PaddingY = 4;
     }
 
     internal static string? TryRenderDot(string source)

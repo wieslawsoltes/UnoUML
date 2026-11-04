@@ -117,3 +117,25 @@ the native layout rather than the node's first declaration.
 and `AddDotFieldStructureActions(literal)`. Clicking a rendered record field or
 HTML-table text selects the corresponding field/cell in the inspector, including
 the innermost containing table.
+
+
+## Native output size and padding
+
+The native DOT renderer accepts scalar or two-axis graph padding, such as
+`pad=.25` or `pad=".5,1"`, measured in inches. Padding extends the painted
+background around the drawing and leaves object coordinates unchanged, following
+Graphviz's [pad contract](https://graphviz.org/docs/attrs/pad/).
+
+Graph `size` accepts a scalar or a width/height pair, such as `size=4` or
+`size="6,3"`. The finished drawing, including padding, is uniformly reduced to
+fit those bounds when necessary. A trailing `!`, as in `size="6,3!"`, also permits
+enlargement until one requested dimension is reached. A zero dimension disables
+size fitting. These are output bounds; they do not change node ranks or stretch
+node shapes. The SVG viewBox and source-selection geometry remain unchanged.
+See Graphviz's [size contract](https://graphviz.org/docs/attrs/size/).
+
+Both attributes accept finite values from 0 through 200 inches. Malformed values
+and sizes below the renderer's output precision use the compatibility renderer.
+`ratio`, page tiling, viewport cropping, rotation, and non-`dot` engines still
+require the reference engine. Native output sizing does not imply Graphviz
+placement equivalence.

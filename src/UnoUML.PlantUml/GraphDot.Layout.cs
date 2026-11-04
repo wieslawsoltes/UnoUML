@@ -34,7 +34,7 @@ internal static partial class GraphRenderer
         if (dot.RankDirection is not ("TB" or "BT" or "LR" or "RL")) throw InvalidDot();
         dot.Splines = attributes.Get("splines", "spline");
         if (dot.Splines is not ("spline" or "splines" or "true" or "polyline" or "ortho" or "line" or "false" or "curved" or "none" or "")) throw InvalidDot();
-        if (attributes.Get("layout", "dot") != "dot" || attributes.Get("ratio").Length != 0 || attributes.Get("size").Length != 0 ||
+        if (attributes.Get("layout", "dot") != "dot" || attributes.Get("ratio").Length != 0 ||
             attributes.Get("page").Length != 0 || attributes.Get("viewport").Length != 0 || attributes.Get("rotate", "0") != "0" ||
             DotBool(attributes.Get("landscape")) || DotBool(attributes.Get("concentrate"))) throw InvalidDot();
         graph.Horizontal = dot.RankDirection is "LR" or "RL";
@@ -44,7 +44,18 @@ internal static partial class GraphRenderer
         if (ranksep.EndsWith(" equally", StringComparison.Ordinal)) { graph.EqualRanks = true; ranksep = ranksep[..^8].TrimEnd(); }
         graph.RankGap = Math.Max(2, (int)Math.Ceiling(DotNumber(ranksep, .5, .02, 100) * 72));
         dot.Scale = DotNumber(attributes.Get("dpi", attributes.Get("resolution")), 96, 1, 600) / 96;
-        dot.Padding = DotInches(attributes, "pad", 4.0 / 72);
+        var padding = DotDimensions(attributes.Get("pad"), 4.0 / 72);
+        dot.PaddingX = (int)Math.Ceiling(padding.Width * 72);
+        dot.PaddingY = (int)Math.Ceiling(padding.Height * 72);
+        string size = attributes.Get("size").Trim();
+        if (size.Length != 0)
+        {
+            dot.Enlarge = size.EndsWith('!');
+            if (dot.Enlarge) size = size[..^1].TrimEnd();
+            if (size.Length == 0) throw InvalidDot();
+            var dimensions = DotDimensions(size, 0);
+            dot.SizeWidth = dimensions.Width * 72; dot.SizeHeight = dimensions.Height * 72;
+        }
         dot.Root.Visual = DotAppearance(attributes, DotToken.Literal(""), dot.Root.Id, "", true);
         dot.Root.Visual.Label = DotMakeLabel(attributes.Token("label"), dot.Root.Visual.Font, dot.Root.Id);
         var nodeLabelOwners = dot.Nodes.Values.Where(node => node.LabelToken != null).GroupBy(node => node.LabelToken!.Value.Start).ToDictionary(group => group.Key, group => group.Count());
@@ -327,6 +338,14 @@ internal static partial class GraphRenderer
         return number;
     }
     private static int DotInches(DotAttributes attributes, string name, double fallback) => (int)Math.Ceiling(DotNumber(attributes.Get(name), fallback, 0, 200) * 72);
+
+    private static (double Width, double Height) DotDimensions(string value, double fallback)
+    {
+        if (value.Length == 0) return (fallback, fallback);
+        string[] values = value.Split(',', StringSplitOptions.TrimEntries);
+        if (values.Length is < 1 or > 2 || values.Any(part => part.Length == 0)) throw InvalidDot();
+        return (DotNumber(values[0], fallback, 0, 200), DotNumber(values[^1], fallback, 0, 200));
+    }
 
     private static string DotFill(string value, string scheme = "")
     {

@@ -82,12 +82,21 @@ internal static partial class GraphRenderer
             DotGroupStart(body, "graph", "graph:" + dot.Root.Id, dot.Root.Id, dot.Root.Span, dot.Root.Insert, dot.Root.LabelToken, rootVisual, true);
             heading.Draw(body); body.Append("</g>"); bounds.Add(heading);
         }
-        int pad = dot.Padding;
-        bounds.Add(bounds.Left - pad, bounds.Top - pad, bounds.Right - bounds.Left + pad * 2, bounds.Bottom - bounds.Top + pad * 2);
+        bounds.Add(bounds.Left - dot.PaddingX, bounds.Top - dot.PaddingY,
+            bounds.Right - bounds.Left + dot.PaddingX * 2, bounds.Bottom - bounds.Top + dot.PaddingY * 2);
         int width = bounds.Right - bounds.Left, height = bounds.Bottom - bounds.Top;
         if (width > 32768 || height > 32768) return null;
+        double scale = dot.Scale;
+        // Size constrains the completed drawing, including padding. Keeping the
+        // viewBox and object coordinates unchanged preserves ports and hit maps.
+        if (dot.SizeWidth > 0 && dot.SizeHeight > 0)
+        {
+            double fit = Math.Min(dot.SizeWidth / width, dot.SizeHeight / height);
+            if (fit < 1 || dot.Enlarge) scale *= fit;
+        }
+        if (width * scale < .001 || height * scale < .001) return null;
         var svg = new StringBuilder(body.Length + 300);
-        svg.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width * dot.Scale:0.###}\" height=\"{height * dot.Scale:0.###}\" viewBox=\"{bounds.Left} {bounds.Top} {width} {height}\" data-dot-directed=\"{(dot.Directed ? "true" : "false")}\">");
+        svg.Append(CultureInfo.InvariantCulture, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width * scale:0.###}\" height=\"{height * scale:0.###}\" viewBox=\"{bounds.Left} {bounds.Top} {width} {height}\" data-dot-directed=\"{(dot.Directed ? "true" : "false")}\">");
         string background = DotFill(dot.Root.Attributes.Get("bgcolor", "white"), dot.Root.Attributes.Get("colorscheme"));
         background = DotPaint(svg, background, rootVisual.GradientAngle, rootVisual.Style.Contains("radial", StringComparison.Ordinal), ref paintId);
         if (background != "none") svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{bounds.Left}\" y=\"{bounds.Top}\" width=\"{width}\" height=\"{height}\" fill=\"{background}\"/>");
