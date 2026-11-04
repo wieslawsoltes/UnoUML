@@ -42,6 +42,8 @@ Existing source-backed connect and reattach tools still create or retarget seman
 
 Moving both endpoints by the same vector translates an entire manual route. Moving or resizing one terminal reattaches that end while retaining interior bends. Manual edges are not silently replaced by an automatic layout. Routing respects locked edges, normalized ports, rotated terminal bounds, self-loops, and parallel relationships.
 
+Dragging a bend on an orthogonal route keeps its segments orthogonal: neighboring corners slide, or an elbow is inserted beside a fixed attachment. Polyline routes keep unrestricted point movement. Docking controls sit separately from the semantic source/target retarget controls. Locked children and incident locked connections also prevent deletion of a containing selection through canvas commands or inspector delete actions.
+
 Explicit free movement can overlap shapes. If overlapping geometry blocks every route, the gesture uses a temporary docked segment and retains the chosen routing style; separating the shapes retries normal routing. Automatic layout still requires feasible obstacle-free placement. Work-budget and cancellation failures do not use this fallback.
 
 ## Automatic layout
@@ -79,6 +81,10 @@ The actual writer also serializes settings, ports, routes, rotation, stacking, c
 The metadata editor retains BOMs and the page's line-ending convention. Unsupported versions, duplicate or unknown JSON keys, duplicate IDs, cyclic parent references, missing endpoints, invalid numbers and excessive inputs are rejected. Ambiguous or malformed existing metadata is not overwritten silently.
 
 Each pointer gesture, keyboard nudge sequence, arrangement command and structural editor operation is atomic. Undo/redo restores the exact source text. Draft persistence and `.puml` save therefore retain visual geometry without a separate companion file.
+
+Duplicate and copy/paste preserve authored geometry for alias-based UML graph families and DOT. The source parser's actual alias and containment maps drive the copy: dimensions, rotation, locks/pins, stacking, collapse, internal manual routes, attachment ports and label offsets follow the copied declarations. External connections are excluded. A copy starts two grid cells diagonally from its original; repeated pastes advance that offset when an earlier copy occupies it. Unselected objects stay fixed, and the source insertion and copied geometry share one undo entry. DOT insertion also reindexes existing logical-edge identities so parallel and self-loop routes remain attached to their original edges.
+
+Clipboard text includes an optional versioned `' @unouml:canvas-selection` comment only when there is safely mapped geometry. The paste API validates and removes that transport comment before inserting source, and writes active geometry beside the destination diagram. Ordinary source-only fragments keep their existing behavior. Metadata capacity failures leave source and history unchanged. Content-derived activity/tree/file identities, opaque renderer identities and quoted UML aliases without an exact parsed mapping use source-only copies; quoted DOT IDs have an explicit mapping and retain geometry.
 
 SVG, PNG and print export use the currently projected canvas. Export omits selection controls. The viewBox grows to include moved and rotated geometry, including negative coordinates, while compensating the viewport translation so committing a drag does not move the camera unexpectedly. **Restore renderer layout** removes the current page's metadata through the normal undo history.
 
