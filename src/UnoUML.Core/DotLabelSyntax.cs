@@ -44,12 +44,14 @@ internal sealed class DotLabelSyntax
         internal string Value(string name) => Find(name)?.Value ?? "";
     }
     internal sealed record Cell(Element Element, int Row, int Column, int RowSpan, int ColumnSpan);
+    internal sealed record Rule(Element Element, Element Before, Element After);
     internal sealed class Table(Element element, int index)
     {
         internal readonly Element Element = element;
         internal readonly int Index = index;
         internal readonly List<Element> Rows = [];
         internal readonly List<Cell> Cells = [];
+        internal readonly List<Rule> RowRules = [], CellRules = [];
         internal int Columns;
         internal bool Rectangular;
     }
@@ -233,11 +235,55 @@ internal sealed class DotLabelSyntax
                 Offset(cell.Element.End) - Offset(cell.Element.Start))).ToArray())).ToArray();
     }
 
+    // Separators are independent source elements, never synthetic rows/cells.
+    // Keep their neighbors so edits can remove orphaned separators without
+    // touching comments, whitespace, or the surviving literal tag spelling.
+    private IEnumerable<Element> Sequence(Element parent, string itemName, string ruleName, List<Rule> rules)
+    {
+        if (parent.SelfClosing || parent.Children.Count == 0) throw new InvalidLabel();
+        Element? previous = null, pending = null;
+        int at = parent.OpenEnd;
+        foreach (var child in parent.Children)
+        {
+            if (!Trivia(at, child.Start)) throw new InvalidLabel();
+            at = child.End;
+            if (child.Name == ruleName)
+            {
+                if (previous == null || pending != null || child.Attributes.Count != 0 || child.Children.Count != 0 ||
+                    !Trivia(child.OpenEnd, child.CloseStart)) throw new InvalidLabel();
+                pending = child;
+            }
+            else if (child.Name == itemName && !child.SelfClosing)
+            {
+                if (pending != null) { rules.Add(new(pending, previous!, child)); pending = null; }
+                yield return child;
+                previous = child;
+            }
+            else throw new InvalidLabel();
+        }
+        if (previous == null || pending != null || !Trivia(at, parent.CloseStart)) throw new InvalidLabel();
+    }
+
+    private bool Trivia(int start, int end)
+    {
+        for (int at = start; at < end;)
+        {
+            if (char.IsWhiteSpace(Value[at])) { at++; continue; }
+            if (!Value.AsSpan(at).StartsWith("<!--")) return false;
+            int close = Value.IndexOf("-->", at + 4, StringComparison.Ordinal);
+            if (close < 0 || close + 3 > end) return false;
+            at = close + 3;
+        }
+        return true;
+    }
+
     private void BuildTable(Table table)
     {
         var occupied = new HashSet<(int Row, int Column)>();
-        table.Rows.AddRange(table.Element.Children);
-        if (table.Rows.Count == 0 || table.Rows.Count > 128 || table.Rows.Any(row => row.Name != "TR" || row.SelfClosing || row.Children.Count == 0)) throw new InvalidLabel();
+        foreach (string attribute in new[] { "ROWS", "COLUMNS" })
+            if (table.Element.Find(attribute) is { Value: not "*" }) throw new InvalidLabel();
+        table.Rows.AddRange(Sequence(table.Element, "TR", "HR", table.RowRules));
+        if (table.Rows.Count == 0 || table.Rows.Count > 128) throw new InvalidLabel();
         int Span(Element element, string name)
         {
             var attr = element.Find(name);
@@ -247,9 +293,8 @@ internal sealed class DotLabelSyntax
         for (int row = 0; row < table.Rows.Count; row++)
         {
             int column = 0;
-            foreach (var element in table.Rows[row].Children)
+            foreach (var element in Sequence(table.Rows[row], "TD", "VR", table.CellRules))
             {
-                if (element.Name != "TD" || element.SelfClosing) throw new InvalidLabel();
                 while (occupied.Contains((row, column))) column++;
                 int rows = Span(element, "ROWSPAN"), columns = Span(element, "COLSPAN");
                 if (row + rows > table.Rows.Count || column + columns > 128 || table.Cells.Count >= 1024) throw new InvalidLabel();

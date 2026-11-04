@@ -46,11 +46,16 @@ public sealed partial class StudioDocument
             var local = new List<DotChange>(); DotHtmlSpan(local, cell.Element, "ROWSPAN", cell.RowSpan - 1);
             string? moved = DotLabelRange(label.Syntax.Value, cell.Element.Start, cell.Element.End, local);
             if (moved == null) return false;
+            // A vertical separator belongs to the cell on its left. Its rule
+            // continues beside a surviving row span when that cell moves up.
+            var rule = grid.CellRules.FirstOrDefault(rule => rule.Before == cell.Element);
+            if (rule != null) moved += label.Syntax.Value[cell.Element.End..rule.After.Start];
             var before = grid.Cells.FirstOrDefault(next => next.Row == index + 1 && next.Column > cell.Column);
             int at = before?.Element.Start ?? grid.Rows[index + 1].CloseStart;
             changes.Add(new(at, at, moved));
         }
         changes.Add(new(grid.Rows[index].Start, grid.Rows[index].End, ""));
+        DotHtmlPruneRules(label, changes, grid.Rows, grid.RowRules, [grid.Rows[index]]);
         return ApplyDotLabelChanges(label, changes);
     }
 
@@ -74,9 +79,12 @@ public sealed partial class StudioDocument
     {
         if (DotLabelTable(label, table) is not { Rectangular: true } grid || grid.Columns <= 1 || index < 0 || index >= grid.Columns) return false;
         var changes = new List<DotChange>();
+        var removed = new HashSet<DotLabelSyntax.Element>();
         foreach (var cell in grid.Cells.Where(cell => cell.Column <= index && cell.Column + cell.ColumnSpan > index))
             if (cell.ColumnSpan > 1) DotHtmlSpan(changes, cell.Element, "COLSPAN", cell.ColumnSpan - 1);
-            else changes.Add(new(cell.Element.Start, cell.Element.End, ""));
+            else { changes.Add(new(cell.Element.Start, cell.Element.End, "")); removed.Add(cell.Element); }
+        foreach (var row in grid.Rows)
+            DotHtmlPruneRules(label, changes, row.Children.Where(child => child.Name == "TD").ToArray(), grid.CellRules, removed);
         return ApplyDotLabelChanges(label, changes);
     }
 
@@ -84,16 +92,19 @@ public sealed partial class StudioDocument
     public bool InsertDotTableCell(DotLabelEdit label, int table, int row, int index, string text = "Cell", string port = "")
     {
         if (!ValidDotLabelText(text) || !DotLabelSyntax.ValidPort(port) || DotLabelTable(label, table) is not { } grid ||
-            row < 0 || row >= grid.Rows.Count || index < 0 || index > grid.Rows[row].Children.Count) return false;
-        var cells = grid.Rows[row].Children;
-        int at = index < cells.Count ? cells[index].Start : grid.Rows[row].CloseStart;
+            row < 0 || row >= grid.Rows.Count || index < 0) return false;
+        var cells = grid.Rows[row].Children.Where(child => child.Name == "TD").ToArray();
+        if (index > cells.Length) return false;
+        int at = index < cells.Length ? cells[index].Start : grid.Rows[row].CloseStart;
         return ApplyDotLabelChanges(label, [new(at, at, "<TD" + (port.Length == 0 ? "" : " PORT=\"" + WebUtility.HtmlEncode(port) + "\"") + ">" + DotHtmlText(text) + "</TD>")]);
     }
 
     public bool RemoveDotTableCell(DotLabelEdit label, int table, int row, int column)
     {
-        if (DotLabelCell(label, table, row, column) is not { } cell) return false;
-        return ApplyDotLabelChanges(label, [new(cell.Element.Start, cell.Element.End, "")]);
+        if (DotLabelTable(label, table) is not { } grid || DotLabelCell(label, table, row, column) is not { } cell) return false;
+        var changes = new List<DotChange> { new(cell.Element.Start, cell.Element.End, "") };
+        DotHtmlPruneRules(label, changes, grid.Rows[row].Children.Where(child => child.Name == "TD").ToArray(), grid.CellRules, [cell.Element]);
+        return ApplyDotLabelChanges(label, changes);
     }
 
     /// <summary>Merges whole cells in a rectangle. The upper-left cell keeps its attributes and port; referenced ports on other cells prevent removal.</summary>
@@ -115,7 +126,11 @@ public sealed partial class StudioDocument
         DotHtmlSpan(changes, first.Element, "COLSPAN", columns);
         string content = string.Join("<BR/>", cells.Select(cell => label.Syntax.Value[cell.Element.OpenEnd..cell.Element.CloseStart]));
         changes.Add(new(first.Element.OpenEnd, first.Element.CloseStart, content));
-        foreach (var cell in cells.Skip(1)) changes.Add(new(cell.Element.Start, cell.Element.End, ""));
+        var removed = cells.Skip(1).Select(cell => cell.Element).ToHashSet();
+        var merged = cells.Select(cell => cell.Element).ToHashSet();
+        foreach (var cell in removed) changes.Add(new(cell.Start, cell.End, ""));
+        foreach (var currentRow in grid.Rows)
+            DotHtmlPruneRules(label, changes, currentRow.Children.Where(child => child.Name == "TD").ToArray(), grid.CellRules, removed, merged);
         return ApplyDotLabelChanges(label, changes);
     }
 
@@ -134,6 +149,28 @@ public sealed partial class StudioDocument
             changes.Add(new(at, at, string.Concat(Enumerable.Repeat("<TD>Cell</TD>", cell.ColumnSpan))));
         }
         return ApplyDotLabelChanges(label, changes);
+    }
+
+    // Deletion coalesces the gaps between surviving siblings. Keep the first
+    // explicit rule in each surviving gap; remove rules at the outside edges
+    // or inside a merged cell. Only the rule markup is removed: trivia and
+    // comments (including comments inside paired rule tags) remain verbatim.
+    private static void DotHtmlPruneRules(DotLabelEdit label, List<DotChange> changes,
+        IReadOnlyList<DotLabelSyntax.Element> items, IEnumerable<DotLabelSyntax.Rule> rules,
+        HashSet<DotLabelSyntax.Element> removed, HashSet<DotLabelSyntax.Element>? merged = null)
+    {
+        var members = items.ToHashSet();
+        var surviving = items.Where(item => !removed.Contains(item)).ToArray();
+        var retained = new HashSet<(DotLabelSyntax.Element Before, DotLabelSyntax.Element After)>();
+        foreach (var rule in rules.Where(rule => members.Contains(rule.Before)))
+        {
+            var before = surviving.LastOrDefault(item => item.End <= rule.Element.Start);
+            var after = surviving.FirstOrDefault(item => item.Start >= rule.Element.End);
+            bool interior = merged != null && merged.Contains(rule.Before) && merged.Contains(rule.After);
+            if (!interior && before != null && after != null && retained.Add((before, after))) continue;
+            changes.Add(new(rule.Element.Start, rule.Element.End,
+                label.Syntax.Value[rule.Element.OpenEnd..rule.Element.CloseStart]));
+        }
     }
 
     private DotLabelSyntax.Table? DotLabelTable(DotLabelEdit label, int table) => CurrentDotLabel(label, "html") && table >= 0 && table < label.Syntax.HtmlTables.Count ? label.Syntax.HtmlTables[table] : null;

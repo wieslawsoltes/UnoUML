@@ -14,6 +14,7 @@ internal static class DotCases
         Ranks();
         OutputDimensions();
         LabelsAndPorts();
+        HtmlRules();
         Attributes();
         Images();
         SourceSpans();
@@ -156,6 +157,76 @@ internal static class DotCases
         var escapes = Render("digraph Name { a[label=\"\\N in \\G\\lsecond\\rrd\\n\"]; a->b[label=\"\\T to \\H (\\E)\"] }");
         Require(escapes.Value.Contains("a in Name") && escapes.Value.Contains("a to b (a->b)"), "Graphviz escString substitutions");
         Render("digraph { a[label=<John's &amp; Mary's <!-- a < b -->label>] }");
+    }
+
+    private static void HtmlRules()
+    {
+        const string rows = "<TR><TD PORT='p' ROWSPAN='2' COLOR='blue'>R&amp;D</TD><VR/><TD>B</TD><VR/><TD>C</TD></TR><HR/>" +
+            "<TR><TD>D</TD><VR/><TD>E</TD></TR><HR/><TR><TD>F</TD><VR/><TD>G</TD><VR/><TD>H</TD></TR>";
+        const string attributes = "BORDER='4' CELLBORDER='0' CELLSPACING='5' COLOR='red' STYLE='ROUNDED' WIDTH='240' HEIGHT='180'";
+        static string Table(string contents, string options = "") => "<TABLE " + options + ">" + contents + "</TABLE>";
+        static string Source(string contents, string options = "") => "@startdot\r\ndigraph { a[shape=plain,label=<" + Table(contents, options) + ">]; b; a:p->b; }\r\n@enddot";
+        static XElement[] Rules(XElement svg, string kind = "") => svg.Descendants().Where(element =>
+            element.Attribute("data-dot-table-rule") is { } attribute && (kind.Length == 0 || attribute.Value == kind)).ToArray();
+        static double Number(XElement element, string name) => double.Parse((string)element.Attribute(name)!, CultureInfo.InvariantCulture);
+        static string RuleSignature(XElement element) => string.Join(";", element.Attributes().Select(attribute => attribute.Name + "=" + attribute.Value));
+
+        string source = Source(rows, attributes);
+        var svg = RenderSource(source);
+        var explicitRules = Rules(svg);
+        Require(Rules(svg, "vertical").Length == 5 && Rules(svg, "horizontal").Length == 5, "HTML rules follow cell spans and row boundaries");
+        Require(explicitRules.All(rule => (string?)rule.Attribute("stroke") == "#ff0000" && (string?)rule.Attribute("stroke-width") == "1"),
+            "rules use the table color and one-point pen independently of table/cell borders");
+        var uniform = RenderSource(Source(rows.Replace("<HR/>", "", StringComparison.Ordinal).Replace("<VR/>", "", StringComparison.Ordinal), attributes + " rows='*' columns='*'"));
+        Require(Rules(uniform).Select(RuleSignature).SequenceEqual(explicitRules.Select(RuleSignature)), "ROWS/COLUMNS stars match explicit separators without changing grid geometry");
+        var combined = RenderSource(Source(rows, attributes + " ROWS='*' COLUMNS='*'"));
+        Require(Rules(combined).Select(RuleSignature).SequenceEqual(explicitRules.Select(RuleSignature)), "explicit plus uniform separators paint once");
+        var frame = Node(svg, "a").Descendants().Single(element => (string?)element.Attribute("rx") == "8" && (string?)element.Attribute("fill") == "none");
+        double left = Number(frame, "x"), top = Number(frame, "y"), right = left + Number(frame, "width"), bottom = top + Number(frame, "height");
+        Require(explicitRules.All(rule => Number(rule, "x1") >= left && Number(rule, "x2") <= right && Number(rule, "y1") >= top && Number(rule, "y2") <= bottom),
+            "rules remain in their expanded table bounds");
+        Require(Rules(svg, "vertical").Any(rule => Number(rule, "y1") == top) && Rules(svg, "vertical").Any(rule => Number(rule, "y2") == bottom),
+            "outer rule ends meet rounded table borders");
+        var horizontal = Rules(svg, "horizontal").GroupBy(rule => Number(rule, "y1")).OrderBy(group => group.Key).ToArray();
+        Require(horizontal.Length == 2 && horizontal[0].Count() == 2 && horizontal[1].Count() == 3 && horizontal[0].Min(rule => Number(rule, "x1")) > left &&
+            horizontal[1].Min(rule => Number(rule, "x1")) == left, "horizontal rules do not cut across a crossing rowspan");
+        Require(svg.Descendants().Any(element => (string?)element.Attribute("data-edit-kind") == "dot-html-text" && Slice(source, element, "data-edit") == "R&amp;D"),
+            "ruled table text retains exact entity and CRLF source spans");
+        var paired = RenderSource(Source(rows.Replace("<HR/>", "<hR><!-- horizontal --></hR>", StringComparison.Ordinal)
+            .Replace("<VR/>", "<vr> <!-- vertical --> </vr>", StringComparison.Ordinal), attributes));
+        Require(Rules(paired).Select(RuleSignature).SequenceEqual(explicitRules.Select(RuleSignature)), "paired, mixed-case rules and comments retain the same geometry");
+        var colspan = RenderSource(Source("<TR><TD PORT='p' COLSPAN='2'>Wide</TD><VR/><TD>Right</TD></TR><HR/>" +
+            "<TR><TD>Left</TD><VR/><TD>Middle</TD><VR/><TD>End</TD></TR>", "BORDER='0' CELLBORDER='0' ROWS='*' COLUMNS='*'"));
+        Require(Rules(colspan, "vertical").Length == 3 && Rules(colspan, "horizontal").Length == 2, "column rules do not divide a colspan");
+        var ragged = RenderSource(Source("<TR><TD PORT='p'>Short</TD></TR><HR/><TR><TD>Left</TD><TD>Long right</TD></TR>", "BORDER='4' CELLBORDER='0' STYLE='ROUNDED'"));
+        var raggedFrame = Node(ragged, "a").Descendants().Single(element => (string?)element.Attribute("rx") == "8" && (string?)element.Attribute("fill") == "none");
+        var raggedRule = Rules(ragged, "horizontal").Single();
+        Require(Number(raggedRule, "x1") == Number(raggedFrame, "x") && Number(raggedRule, "x2") == Number(raggedFrame, "x") + Number(raggedFrame, "width"),
+            "horizontal rules extend to the boundary after an incomplete row");
+        var trailingSpan = RenderSource(Source("<TR><TD PORT='p'>Left</TD><TD ROWSPAN='2'>Right span</TD></TR><HR/><TR><TD>Below</TD></TR>",
+            "BORDER='4' CELLBORDER='0' STYLE='ROUNDED'"));
+        var spanFrame = Node(trailingSpan, "a").Descendants().Single(element => (string?)element.Attribute("rx") == "8" && (string?)element.Attribute("fill") == "none");
+        Require(Number(Rules(trailingSpan, "horizontal").Single(), "x2") < Number(spanFrame, "x") + Number(spanFrame, "width"),
+            "a trailing rowspan is not mistaken for unused space in a short source row");
+        var edge = Render("digraph { a->b[label=<" + Table("<TR><TD>A</TD><VR/><TD>B</TD></TR><HR/><TR><TD>C</TD><TD>D</TD></TR>", "CELLBORDER='0'") + ">]; }");
+        Require(Rules(Edges(edge).Single()).Length == 3, "ruled tables also render as edge labels");
+
+        foreach (string invalid in new[]
+        {
+            Table("<HR/><TR><TD>A</TD></TR>"), Table("<TR><TD>A</TD></TR><HR/>"),
+            Table("<TR><TD>A</TD></TR><HR/><HR/><TR><TD>B</TD></TR>"),
+            Table("<TR><VR/><TD>A</TD></TR>"), Table("<TR><TD>A</TD><VR/></TR>"),
+            Table("<TR><TD>A</TD><VR/><VR/><TD>B</TD></TR>"),
+            Table("<TR><TD>A</TD><HR/><TD>B</TD></TR>"), Table("<TR><TD>A</TD></TR><VR/><TR><TD>B</TD></TR>"),
+            Table("<TR><TD>A</TD><VR COLOR='red'/><TD>B</TD></TR>"), Table("<TR><TD>A</TD><VR>text</VR><TD>B</TD></TR>"),
+            Table("<TR><TD>A</TD><VR><B/></VR><TD>B</TD></TR>"), Table("<TR><TD>A</TD>text<TD>B</TD></TR>"),
+            Table("<TR><TD>A</TD></TR>text<TR><TD>B</TD></TR>"), Table("<TR></TR><TR><TD>A</TD></TR>"),
+            Table("<TR><TD>A</TD></TR>", "ROWS='1'"), Table("<TR><TD>A</TD></TR>", "ROWS=''"),
+            Table("<TR><TD>A</TD></TR>", "COLUMNS='2'"), Table("<TR><TD>A</TD></TR>", "COLUMNS=''"),
+            Table("<TR><TD>A</TD></TR>", "FIXEDSIZE='TRUE' WIDTH='100' HEIGHT='50'")
+        })
+            Require(!PlantUmlRenderer.TryRender("@startdot\ndigraph { a[shape=plain,label=<" + invalid + ">]; }\n@enddot", out _),
+                "exact HTML-rule fallback boundary " + invalid);
     }
 
     private static void Attributes()

@@ -137,7 +137,7 @@ internal static partial class GraphRenderer
         internal int Row, Column, RowSpan = 1, ColumnSpan = 1;
         internal int Border;
         internal string Fill = "none", Stroke = "black", Link = "", Target = "", Tooltip = "", Sides = "LTRB";
-        internal bool Fixed;
+        internal bool Fixed, HorizontalRule, VerticalRule;
         internal override string Plain => Content.Plain;
         internal void Measure(int minimumWidth, int minimumHeight)
         {
@@ -203,12 +203,63 @@ internal static partial class GraphRenderer
         {
             bool link = DotLinkStart(svg, Link, Target, Tooltip);
             if (Fill != "none") svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{X}\" y=\"{Y}\" width=\"{ActualWidth}\" height=\"{ActualHeight}\" rx=\"{(Rounded ? 8 : 0)}\" fill=\"{Fill}\"/>");
+            // Rules use the table's pen, independently of individual cell
+            // borders. Horizontal rules end at cell bottoms, so a ROWSPAN
+            // crossing the boundary is never struck through.
+            foreach (var cell in Cells)
+            {
+                double halfSpace = spacing / 2d;
+                if (cell.VerticalRule && cell.Column + cell.ColumnSpan < columns.Length)
+                {
+                    double x = cell.X + cell.ActualWidth + halfSpace;
+                    double top = cell.Row == 0 ? Y : cell.Y - halfSpace;
+                    double bottom = cell.Row + cell.RowSpan == rows.Length ? Y + ActualHeight : cell.Y + cell.ActualHeight + halfSpace;
+                    Rule(svg, "vertical", x, top, x, bottom);
+                }
+                if (cell.HorizontalRule && cell.Row + cell.RowSpan < rows.Length)
+                {
+                    double y = cell.Y + cell.ActualHeight + halfSpace;
+                    double left = cell.Column == 0 ? X : cell.X - halfSpace;
+                    int boundary = cell.Row + cell.RowSpan;
+                    // A short row may extend to the table edge, but not across
+                    // a trailing cell that originated in an earlier row.
+                    bool last = !Cells.Any(other => other.Column >= cell.Column + cell.ColumnSpan &&
+                        other.Row < boundary && other.Row + other.RowSpan >= boundary);
+                    double right = last ? X + ActualWidth : cell.X + cell.ActualWidth + halfSpace;
+                    Rule(svg, "horizontal", left, y, right, y);
+                }
+            }
             if (border > 0 && Rounded)
                 svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{X}\" y=\"{Y}\" width=\"{ActualWidth}\" height=\"{ActualHeight}\" rx=\"8\" fill=\"none\" stroke=\"{Stroke}\" stroke-width=\"{border}\"/>");
             else if (border > 0) DotBoxSides(svg, X, Y, ActualWidth, ActualHeight, Sides, Stroke, border);
             foreach (var cell in Cells) cell.Draw(svg);
             if (link) svg.Append("</a>");
         }
+        private void Rule(StringBuilder svg, string kind, double x1, double y1, double x2, double y2) =>
+            svg.Append(CultureInfo.InvariantCulture, $"<line data-dot-table-rule=\"{kind}\" x1=\"{x1:0.###}\" y1=\"{y1:0.###}\" x2=\"{x2:0.###}\" y2=\"{y2:0.###}\" stroke=\"{Stroke}\" stroke-width=\"1\"/>");
+    }
+
+    private static List<(XElement Element, bool RuleAfter)> HtmlTableItems(XElement parent, string itemName, string ruleName)
+    {
+        var items = new List<(XElement Element, bool RuleAfter)>();
+        foreach (var node in parent.Nodes())
+        {
+            if (node is XComment || node is XText text && string.IsNullOrWhiteSpace(text.Value)) continue;
+            if (node is not XElement element) throw InvalidDot();
+            if (element.Name.LocalName.Equals(itemName, StringComparison.OrdinalIgnoreCase)) items.Add((element, false));
+            else if (element.Name.LocalName.Equals(ruleName, StringComparison.OrdinalIgnoreCase) && items.Count > 0 && !items[^1].RuleAfter &&
+                !element.HasAttributes && element.Nodes().All(child => child is XComment || child is XText whitespace && string.IsNullOrWhiteSpace(whitespace.Value)))
+                items[^1] = (items[^1].Element, true);
+            else throw InvalidDot();
+        }
+        if (items.Count == 0 || items[^1].RuleAfter) throw InvalidDot();
+        return items;
+    }
+
+    private static bool HtmlTableRules(XElement element, string name)
+    {
+        var attribute = element.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.Equals(name, StringComparison.OrdinalIgnoreCase));
+        return attribute == null ? false : attribute.Value == "*" ? true : throw InvalidDot();
     }
 
     private sealed class DotImageLabel(RichText.Sprite image, string scale = "false") : DotLabel
@@ -474,21 +525,22 @@ internal static partial class GraphRenderer
 
     private static DotLabel HtmlTable(XElement element, DotFont font, int depth, Dictionary<XText, (int Start, int Length)> metadata, int sourceLine)
     {
-        if (DotBool(HtmlValue(element, "FIXEDSIZE")) || HtmlValue(element, "ROWS").Length != 0 || HtmlValue(element, "COLUMNS").Length != 0) throw InvalidDot();
+        if (DotBool(HtmlValue(element, "FIXEDSIZE"))) throw InvalidDot();
+        bool allRows = HtmlTableRules(element, "ROWS"), allColumns = HtmlTableRules(element, "COLUMNS");
+        var tableRows = HtmlTableItems(element, "TR", "HR");
+        var rowRules = Enumerable.Range(1, tableRows.Count - 1).Where(boundary => allRows || tableRows[boundary - 1].RuleAfter).ToHashSet();
         int border = HtmlNumber(element, "BORDER", 1, 0, 64), cellBorder = HtmlNumber(element, "CELLBORDER", border, 0, 64);
         int spacing = HtmlNumber(element, "CELLSPACING", 2, 0, 128), padding = HtmlNumber(element, "CELLPADDING", 2, 0, 128);
         string stroke = DotColor(HtmlValue(element, "COLOR", "black"));
         var cells = new List<DotCellLabel>();
         var occupied = new HashSet<(int Row, int Column)>();
         int row = 0, columnCount = 0, rowCount = 0;
-        foreach (var rowElement in element.Elements())
+        foreach (var (rowElement, _) in tableRows)
         {
-            if (rowElement.Name.LocalName.Equals("HR", StringComparison.OrdinalIgnoreCase)) throw InvalidDot();
-            if (!rowElement.Name.LocalName.Equals("TR", StringComparison.OrdinalIgnoreCase) || row >= 128) throw InvalidDot();
+            if (row >= 128) throw InvalidDot();
             int column = 0;
-            foreach (var cellElement in rowElement.Elements())
+            foreach (var (cellElement, verticalRule) in HtmlTableItems(rowElement, "TD", "VR"))
             {
-                if (!cellElement.Name.LocalName.Equals("TD", StringComparison.OrdinalIgnoreCase)) throw InvalidDot();
                 while (occupied.Contains((row, column))) column++;
                 int columnSpan = HtmlNumber(cellElement, "COLSPAN", 1, 1, 128), rowSpan = HtmlNumber(cellElement, "ROWSPAN", 1, 1, 128);
                 if (column + columnSpan > 128 || row + rowSpan > 128 || cells.Count >= 1024) throw InvalidDot();
@@ -508,7 +560,8 @@ internal static partial class GraphRenderer
                     Stroke = DotColor(HtmlValue(cellElement, "COLOR", stroke)), Fill = DotColor(HtmlValue(cellElement, "BGCOLOR", "none")),
                     Port = HtmlValue(cellElement, "PORT"), Link = HtmlValue(cellElement, "HREF"), Target = HtmlValue(cellElement, "TARGET"),
                     Tooltip = HtmlValue(cellElement, "TOOLTIP", HtmlValue(cellElement, "TITLE")), Sides = HtmlValue(cellElement, "SIDES", "LTRB").ToUpperInvariant(),
-                    Fixed = DotBool(HtmlValue(cellElement, "FIXEDSIZE"))
+                    Fixed = DotBool(HtmlValue(cellElement, "FIXEDSIZE")),
+                    VerticalRule = allColumns || verticalRule, HorizontalRule = rowRules.Contains(row + rowSpan)
                 };
                 cell.Measure(HtmlNumber(cellElement, "WIDTH", 0, 0, 16000), HtmlNumber(cellElement, "HEIGHT", 0, 0, 16000));
                 cells.Add(cell);

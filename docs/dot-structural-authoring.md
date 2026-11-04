@@ -88,6 +88,37 @@ cell's attributes and port and joins text content with line breaks. Table/image
 cells have different HTML grammar productions and cannot be merged with other
 content. Split retains the original contents and port in the upper-left cell.
 
+### Table rules
+
+The native renderer accepts `HR` between table rows and `VR` between cells in a
+row, including their empty paired forms. Tag names remain case-insensitive.
+`ROWS="*"` and `COLUMNS="*"` add the corresponding rules throughout a table;
+`*` is the only supported value. Explicit and uniform rules combine without
+duplicate paint. Rules use the table color and a one-point pen. They follow the
+actual cell grid: a horizontal rule does not cross a cell whose row span extends
+past the boundary, and a vertical rule does not divide a column span. These
+productions and attribute meanings follow the
+[Graphviz HTML-label grammar](https://graphviz.org/doc/info/shapes.html#html).
+
+Rules keep their own source spans and do not count as rows or cells in the
+structured selection. Existing rule markup stays verbatim during insertion and
+text/port edits. Insertion before a row or cell leaves any preceding rule before
+the new item. Deletion coalesces the gaps between surviving siblings, retaining
+the first rule in each surviving gap and removing orphaned leading/trailing
+rules. A merge removes rules internal to the merged cells and retains the
+surviving outside boundary. A split keeps the original outside rule; uniform
+`ROWS`/`COLUMNS` attributes also apply to the newly created boundaries. When a
+surviving row-span cell moves into the next row, its following vertical rule and
+adjacent trivia move with it. Comments outside removed rows/cells, and comments
+inside a removed paired rule, remain unchanged.
+
+Misplaced, repeated, or trailing rules, nonempty rule contents, rule attributes,
+and invalid `ROWS`/`COLUMNS` values are rejected by the native path. Table-level
+`FIXEDSIZE="TRUE"` still requires the compatibility renderer; the native table
+renderer does not claim its fixed-dimension overflow/clipping contract. All
+structural operations keep the same stale-snapshot, port-integrity, and atomic
+undo guards as tables without rules.
+
 The parser bounds labels to 65,536 characters, 32 nested levels, 1,024 record
 fields or table cells, and 128 grid rows/columns. Operations reject an empty table
 row, a span outside the declared rows, overlapping spans, duplicate ports, or an

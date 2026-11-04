@@ -199,6 +199,7 @@ internal static class DotLabelCases
             Check(doc.SetDotRecordFieldText(Label(doc), field.Path, "First"), "empty record field can be authored");
         }
         checks += CanvasMetadata();
+        checks += DotTableRuleCases.Run();
         Console.WriteLine($"{checks} DOT structured-label checks passed.");
         return checks;
     }
