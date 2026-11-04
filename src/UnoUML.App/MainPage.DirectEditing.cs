@@ -50,7 +50,7 @@ public sealed partial class MainPage
                 ToggleSaltState(field);
                 return;
             }
-            bool plain = field.Kind is "number" or "integer" or "date" or "boolean" or "json-scalar" or "chart-category" or "packet-label" or "timing-binary" ||
+            bool plain = field.Kind is "number" or "integer" or "date" or "boolean" or "json-scalar" or "chart-category" or "packet-label" or "timing-binary" or "files-name" or "gantt-label" ||
                 field.Kind.StartsWith("dot-", StringComparison.Ordinal) || doc.Page.Family == "Chart";
             if (viewport.BeginLabelEdit(field.Text, revision, field.Multiline, plain ? "text" : "creole")) editingCanvasLabel = new SourceLabelEdit(field);
             return;
@@ -182,6 +182,7 @@ public sealed partial class MainPage
     private void SelectCanvasRegion(DiagramHit[] hits, bool add)
     {
         if (renderedRevision != revision) return;
+        ClearNetworkCanvasSelection(fromOutline: false);
         if (doc.Page.Family == "DOT") { SelectDotRegion(hits, add); return; }
         selectedGenerated = null; selectedJsonField = null; selectedSourceField = null; selectedDot = null;
         if (add && selected != null) additionalSelection.Add(selected);

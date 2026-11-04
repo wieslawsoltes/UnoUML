@@ -135,6 +135,9 @@ public sealed partial class MainPage
             Properties.Children.Add(Item(literal.Kind == "salt-state" ? "Toggle checked state" : "Edit field…", "edit", () => BeginCanvasEdit(item)));
             AddSaltFieldActions(literal);
             AddStructuredFieldActions(literal);
+            AddNetworkFieldActions(literal);
+            AddFilesFieldActions(literal);
+            AddGanttFieldActions(literal);
             AddDotFieldStructureActions(literal);
         }
         else if (DotSelection is { } dot) ShowDotInspector(dot);
@@ -151,6 +154,9 @@ public sealed partial class MainPage
             Properties.Children.Add(Caption("Select an object on the canvas to edit its properties, or choose it from the outline."));
             if (doc.Drawing is { } drawing) Properties.Children.Add(Item("Edit ASCII drawing…", "edit", () => { selected = drawing; BeginCanvasEdit(drawing); }));
             AddStructuredDiagramActions();
+            AddNetworkDiagramActions();
+            AddFilesDiagramActions();
+            AddGanttDiagramActions();
         }
         else
         {
@@ -190,6 +196,9 @@ public sealed partial class MainPage
             if (!string.IsNullOrWhiteSpace(item.Alias) && item.Kind != "ASCII label") Properties.Children.Add(Caption($"Identifier   {item.Alias}"));
             Properties.Children.Add(Caption($"Source   L{item.Line + 1}" + (item.EndLine > item.Line ? $"–{item.EndLine + 1}" : "")));
             Properties.Children.Add(Item("Edit statement…", "source", () => _ = EditStatementAsync(item)));
+            AddNetworkObjectActions(item);
+            AddFilesObjectActions(item);
+            AddGanttObjectActions(item);
             if (item.IsConnectable) Properties.Children.Add(Item("Connect to…", "connect", () => _ = ConnectAsync(item)));
             var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
             if (item.Kind is not ("ASCII label" or "ASCII drawing" or "Chen attribute"))
@@ -200,7 +209,7 @@ public sealed partial class MainPage
                 actions.Children.Add(Command("Move down", "down", () => Edit(() => doc.Move(item, 1))));
             }
             actions.Children.Add(Command("Delete object", "delete", () => DeleteCanvasObjects(() => doc.Remove(item))));
-            Properties.Children.Add(actions);
+            if (doc.Page.Family is not ("Network" or "Files" or "Gantt")) Properties.Children.Add(actions);
         }
         AddCanvasInspectorActions();
         var visualObjects = doc.Objects.Where(o => o.Kind is not ("Source" or "Style" or "Caption" or "Library")).ToList();

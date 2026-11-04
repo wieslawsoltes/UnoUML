@@ -1,5 +1,6 @@
 import { DirectEditing } from './direct-editing.js';
 import { CanvasEditing } from './canvas-editing.js';
+import { GanttEditing } from './gantt-editing.js';
 import { indexHits, parseSvg } from './svg.js';
 import { download, includeFiles, includeRevision } from './files.js';
 import { beginResourcePass, prepareResources } from './resources.js';
@@ -80,14 +81,16 @@ class Viewport {
     });
     this.direct = new DirectEditing(this);
     this.canvas = new CanvasEditing(this, layoutManaged);
+    this.gantt = new GanttEditing(this);
     this.bindGestures();
     this.resize = new ResizeObserver(() => this.autoFit ? this.fit() : this.position());
     this.resize.observe(host);
   }
-  dispose() { this.direct.finishLabel(false); this.resize.disconnect(); this.version++; this.host.shadowRoot.replaceChildren(); this.cache.clear(); }
+  dispose() { this.direct.finishLabel(false); this.gantt.cancel(); this.resize.disconnect(); this.version++; this.host.shadowRoot.replaceChildren(); this.cache.clear(); }
   async render(source, fileName = '') {
     this.direct.finishLabel(false);
     this.canvas.cancel();
+    this.gantt.configure(false);
     const version = ++this.version;
     this.fetchJob?.abort();
     const endpoint = getServerEndpoint();
@@ -213,6 +216,7 @@ class Viewport {
     this.direct.positionField();
     this.direct.positionEnds();
     this.canvas?.position();
+    this.gantt?.position();
   }
   outline(box, el) {
     box.hidden = !el;
@@ -229,6 +233,7 @@ class Viewport {
       this.marked = (id && this.index?.byId.get(id)) || this.index?.byLine.get(line) || null;
     this.outline(this.selection, this.marked);
     this.canvas?.position();
+    this.gantt?.position();
   }
   setAdditional(values, text, byId = false) {
     this.clipboard = text;
@@ -237,6 +242,7 @@ class Viewport {
       ? this.index?.byId.get(decodeURIComponent(value)) : this.index?.byLine.get(Number(value))).filter(Boolean) : [];
     this.additional.forEach(el => el.classList.add('multi-mark'));
     this.canvas?.position();
+    this.gantt?.position();
   }
   hit(el, kind='select') {
     const value = this.index?.hits.get(el) || empty;
@@ -252,6 +258,7 @@ class Viewport {
     this.emit('hit', { action:kind, ...value });
     if (visual) this.selectVisual(visual);
     this.canvas?.position();
+    this.gantt?.position();
     return value;
   }
   region(hits, add=false, exactVisual=false) {
@@ -281,7 +288,7 @@ class Viewport {
     if (Math.max(Math.abs(dx), Math.abs(dy)) < .05) { dx = drag.x - x; dy = drag.y - y; }
     return Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down');
   }
-  setTool(tool) { this.canvas.cancel(); this.surface.dataset.tool = tool; this.linkStart = null; this.clearGuide(); }
+  setTool(tool) { this.canvas.cancel(); this.gantt.cancel(); this.surface.dataset.tool = tool; this.gantt.position(); this.linkStart = null; this.clearGuide(); }
   clearGuide() { this.guide.setAttribute('hidden',''); this.target.hidden = true; this.direct.box.hidden = true; }
   bindGestures() {
     const s = this.surface, pointers = this.pointers;
@@ -372,8 +379,9 @@ class Viewport {
       const el = port ? this.marked : this.pick(e.target);
       s.focus({preventScroll:true}); s.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-      if (pointers.size === 2) { this.canvas.cancel(); this.drag=null; this.pinch=distance(); this.clearGuide(); return; }
+      if (pointers.size === 2) { this.canvas.cancel(); this.gantt.cancel(); this.drag=null; this.pinch=distance(); this.clearGuide(); return; }
       let tool = this.spacePan ? 'pan' : s.dataset.tool;
+      if (!port && this.gantt.pointerDown(e,el,tool)) { this.drag=null; return; }
       if (!port && this.canvas.pointerDown(e,el,tool)) { this.drag=null; return; }
       if (e.button === 1) tool = 'pan';
       else if (port) tool = port;
@@ -390,7 +398,7 @@ class Viewport {
         if (this.pinch>0 && next>0) this.zoom(next / this.pinch,(a.x+b.x)/2-r.left,(a.y+b.y)/2-r.top);
         this.pinch=next; return;
       }
-      if (this.canvas.pointerMove(e)) return;
+      if (this.gantt.pointerMove(e) || this.canvas.pointerMove(e)) return;
       const drag=this.drag; if (!drag || drag.id!==e.pointerId) return;
       const dx=e.clientX-drag.x, dy=e.clientY-drag.y;
       drag.moved ||= Math.hypot(dx,dy)>4;
@@ -406,7 +414,9 @@ class Viewport {
       }
     });
     const finish = (e, cancelled) => {
+      if (!pointers.has(e.pointerId)) return;
       pointers.delete(e.pointerId);
+      if (this.gantt.pointerUp(e,cancelled)) { this.drag=null; this.clearGuide(); return; }
       if (this.canvas.pointerUp(e,cancelled)) { this.drag=null; this.clearGuide(); return; }
       const d=this.drag; this.drag=null; delete s.dataset.panning; this.clearGuide();
       if (!d || cancelled || d.id!==e.pointerId) return;
@@ -438,6 +448,7 @@ class Viewport {
     };
     s.addEventListener('pointerup',e=>finish(e,false));
     s.addEventListener('pointercancel',e=>finish(e,true));
+    s.addEventListener('lostpointercapture',e=>finish(e,true));
   }
 }
 export function mount(id, emit, renderManaged, layoutManaged) {
@@ -511,6 +522,7 @@ export function setEndpoints(id, from, to) { views.get(id)?.direct.setEndpoints(
 export function selectJsonToken(id, start) { const v = views.get(id), el = v?.index?.byToken.get(start); if (el) { v.marked = el; v.outline(v.selection, el); } }
 
 export function setCanvasState(id, json, revision) { views.get(id)?.canvas.load(json,revision); }
+export function setGanttAuthoring(id, enabled) { views.get(id)?.gantt.configure(enabled); }
 export function getCanvasState(id) { return views.get(id)?.canvas.info() || '{}'; }
 export function canvasAction(id, action, options) { views.get(id)?.canvas.action(action,options?JSON.parse(options):{}); }
 export function canvasCommitResult(id,accepted) { const c=views.get(id)?.canvas;if(c?.pendingCommit)c.pendingCommit.accepted=accepted; }

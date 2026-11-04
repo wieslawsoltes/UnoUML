@@ -81,6 +81,7 @@ public sealed partial class MainPage
         canvasMergeState = source != lastCanvasSemanticSource && doc.HistoryState != lastCanvasRenderHistory ? doc.HistoryState : 0;
         lastCanvasRenderHistory = doc.HistoryState; lastCanvasSemanticSource = source;
         ApplyCanvasLayout();
+        viewport.SetGanttAuthoring(doc.OpenGanttDiagram() != null);
         if (pendingCanvasPlacement is not { } placement) return;
         pendingCanvasPlacement = null;
         if (doc.HistoryState != placement.History) return;

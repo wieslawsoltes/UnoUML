@@ -13,6 +13,7 @@ public sealed partial class DiagramViewport
     public event Action<CanvasToolDrop>? CanvasToolDropped;
     public event Action<string, bool>? CanvasStatus;
     public void CompleteCanvasLayoutCommit(bool accepted) { if (mounted) BrowserBridge.CanvasCommitResult(HostId, accepted); }
+    public void SetGanttAuthoring(bool enabled) { if (mounted) BrowserBridge.SetGanttAuthoring(HostId, enabled); }
 
     public void SetCanvasLayout(CanvasLayoutState? layout, int revision)
     {
@@ -85,4 +86,5 @@ internal static partial class BrowserBridge
     [JSImport("getCanvasState", Module)] internal static partial string GetCanvasState(string id);
     [JSImport("canvasAction", Module)] internal static partial void CanvasAction(string id, string action, string options);
     [JSImport("canvasCommitResult", Module)] internal static partial void CanvasCommitResult(string id, bool accepted);
+    [JSImport("setGanttAuthoring", Module)] internal static partial void SetGanttAuthoring(string id, bool enabled);
 }

@@ -13,6 +13,9 @@ import { verifyDotEditing } from './dot-editing.mjs';
 import { verifyDotStructuralAuthoring } from './dot-structure.mjs';
 import { verifyStructuredEditing } from './structured-editing.mjs';
 import { verifyCanvasEditing } from './canvas-editing.mjs';
+import { verifyFilesEditing } from './files-editing.mjs';
+import { verifyNetworkEditing } from './network-editing.mjs';
+import { verifyGanttEditing } from './gantt-editing.mjs';
 import { verifyImportedPageRouting } from './imported-editing.mjs';
 import { createReadStream } from 'node:fs';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
@@ -44,7 +47,10 @@ async function verifyIndependentAuthoring(browser, url) {
   const scenarios = [
     ['dot-structure', verifyDotStructuralAuthoring],
     ['structured-editing', verifyStructuredEditing],
-    ['canvas-editing', verifyCanvasEditing]
+    ['canvas-editing', verifyCanvasEditing],
+    ['files-editing', verifyFilesEditing],
+    ['network-editing', verifyNetworkEditing],
+    ['gantt-editing', verifyGanttEditing]
   ];
   const results = await Promise.allSettled(scenarios.map(async ([name, verify]) => {
     const check = await browser.newPage({ viewport: { width: 1480, height: 960 }, colorScheme: 'light', acceptDownloads: true });

@@ -33,7 +33,8 @@ public sealed partial class StudioDocument
         if (start < body || start + length > end) return null;
         if (kind.StartsWith("yaml-", StringComparison.Ordinal) && Page.Family != "YAML" || kind.StartsWith("salt-", StringComparison.Ordinal) && Page.Family != "Wireframe" ||
             kind.StartsWith("dot-", StringComparison.Ordinal) && Page.Family != "DOT" || kind == "chart-category" && Page.Family != "Chart" ||
-            kind == "packet-label" && Page.Family != "Packet" || kind == "activity-label" && Page.Family is not ("Activity" or "UML") ||
+            kind == "packet-label" && Page.Family != "Packet" || kind == "files-name" && Page.Family != "Files" ||
+            kind == "gantt-label" && Page.Family != "Gantt" || kind == "activity-label" && Page.Family is not ("Activity" or "UML") ||
             kind is "timing-state" or "timing-binary" && Page.Family is not ("Timing" or "UML")) return null;
         string token = Page.Source.Substring(start, length);
         int lineStart = start;
@@ -54,6 +55,9 @@ public sealed partial class StudioDocument
         if (!ReferenceEquals(edit.Document, Source) || edit.Page != ActivePage || text == edit.Text || text.Length > 65536 ||
             text.Any(c => char.IsControl(c) && c is not ('\t' or '\r' or '\n'))) return false;
         if (edit.Kind == "salt-text") return ApplySaltTextField(edit, text);
+        if (edit.Kind == "files-name") return ApplyFilesNameField(edit, text);
+        if (edit.Kind == "gantt-label") return ApplyGanttLabelField(edit, text);
+        if (Page.Family == "Network") return ApplyNetworkSourceField(edit, text);
         if (Page.Family is "Chart" or "Packet") return ApplyStructuredSourceField(edit, text);
         string? replacement = edit.Kind switch
         {
@@ -129,6 +133,8 @@ public sealed partial class StudioDocument
             case "json-scalar":
                 try { using var json = JsonDocument.Parse(token); return json.RootElement.ValueKind is not (JsonValueKind.Object or JsonValueKind.Array) ? token : null; }
                 catch (JsonException) { return null; }
+            case "files-name":
+            case "gantt-label":
             case "yaml-string":
                 return !token.Contains('\n') && !token.Contains('\r') ? token : null;
             case "dot-html-text": return WebUtility.HtmlDecode(token);

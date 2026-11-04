@@ -310,6 +310,7 @@ public sealed partial class MainPage : Page
             if (request != revision) return;
             renderedRevision = request;
             CanvasRendered(input);
+            GanttSelectionRendered();
             if (fitAfterRender) { viewport.Fit(); fitAfterRender = false; }
             SyncCanvasSelection();
             if (draftSaved) Status((dirty ? "Draft saved in this browser" : "Ready") + " · " + viewport.ActiveRenderer);
@@ -360,6 +361,7 @@ public sealed partial class MainPage : Page
     void OnHit(DiagramHit hit)
     {
         if (renderedRevision != revision) return;
+        CaptureNetworkCanvasSelection(hit);
         if (hit.Generated && Resolve(hit) == null)
         {
             selectedJsonField = null; selectedSourceField = null; selectedDot = null; additionalSelection.Clear(); selected = null;
@@ -423,9 +425,9 @@ public sealed partial class MainPage : Page
             return;
         }
         viewport.SetAdditionalSelection(string.Join(",", additionalSelection.Select(o => o.Line - doc.Page.StartLine)),
-            JsonSelection is { } json ? doc.Source.Substring(json.Offset,json.Length) : FieldSelection is { } field && !(field.Kind == "activity-label" && selected?.Kind == "Activity") ? field.Text :
+            FilesCanvasSelectionSource() ?? (JsonSelection is { } json ? doc.Source.Substring(json.Offset,json.Length) : FieldSelection is { } field && !(field.Kind == "activity-label" && selected?.Kind == "Activity") ? field.Text :
             dot != null ? doc.Page.Source.Substring(dot.Location.Start, dot.Location.Length) :
-            items.Length == 0 ? "" : doc.CopySelection(items) ?? (items.Length == 1 ? items[0].Statement : ""));
+            items.Length == 0 ? "" : doc.CopySelection(items) ?? (items.Length == 1 ? items[0].Statement : "")));
     }
 
     void OnGesture(DiagramGesture gesture)
@@ -452,6 +454,7 @@ public sealed partial class MainPage : Page
 
     void Select(DiagramObject item)
     {
+        ClearNetworkCanvasSelection();
         selectedGenerated = null; selectedJsonField = null; selectedSourceField = null; selectedDot = null; additionalSelection.Clear(); selected = item; ShowInspector(); SyncCanvasSelection();
         if (mode != "Design") SelectSource(item);
     }

@@ -41,7 +41,7 @@ internal static class GanttCases
     private static void Task(XElement svg, string id, int line, params string[] values)
     {
         var task = svg.Descendants().Single(e => (string?)e.Attribute("data-qualified-name") == id);
-        if ((int?)task.Attribute("data-source-line") != line || !task.Elements().Where(e => e.Name.LocalName == "text").Select(e => e.Value).SequenceEqual(values))
+        if ((int?)task.Attribute("data-source-line") != line || !task.Descendants().Where(e => e.Name.LocalName == "text").Select(e => e.Value).SequenceEqual(values))
             throw new InvalidOperationException("Gantt reference mismatch: " + id);
     }
 }

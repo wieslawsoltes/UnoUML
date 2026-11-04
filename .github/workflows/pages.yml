@@ -25,6 +25,7 @@ jobs:
         run: |
           node --test tests/publish-layout.mjs
           node --test tests/canvas-geometry.mjs
+          node --test tests/gantt-geometry.mjs
           node --test tests/scroll-synchronization.mjs
           dotnet run --project tests/UnoUML.Core.Tests -c Release
           dotnet run --project tests/UnoUML.PlantUml.Tests -c Release

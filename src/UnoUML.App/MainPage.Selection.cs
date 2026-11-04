@@ -33,6 +33,7 @@ public sealed partial class MainPage
     {
         if (renderedRevision != revision) return;
         if (action is "delete" or "cut" && !CanDeleteCanvasSelection()) return;
+        if (TryHandleNetworkCanvasCommand(action, text) || TryHandleFilesCanvasCommand(action, text) || TryHandleGanttCanvasCommand(action, text)) return;
         if (doc.Page.Family == "DOT" && action == "paste") { OnDotCanvasCommand(action, text); return; }
         if (JsonSelection != null)
         {

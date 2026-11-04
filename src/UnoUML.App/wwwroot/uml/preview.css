@@ -95,3 +95,8 @@
 .canvas-locked { cursor:not-allowed; }
 .canvas-pinned { --canvas-pinned:1; }
 @media (pointer:coarse) { .canvas-handle { width:18px;height:18px; } .canvas-handle.dock { width:16px;height:16px; } }
+.gantt-controls{position:absolute;inset:0;pointer-events:none;z-index:7}
+.gantt-controls[hidden]{display:none}
+.gantt-handle{position:absolute;width:10px;min-width:10px;padding:0;border:1px solid #6654bd;border-radius:3px;background:white;box-shadow:0 1px 3px #0002;pointer-events:auto;cursor:ew-resize}
+.gantt-handle:focus-visible{outline:2px solid #6654bd;outline-offset:2px}
+.surface[data-tool="select"] .gantt-bar{cursor:ew-resize}
