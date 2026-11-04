@@ -126,6 +126,13 @@ internal static partial class PreprocessorDate
         string identifier = zoneId ?? zone.Id;
         if (!ZoneNames.ContainsKey(identifier) && TimeZoneInfo.TryConvertWindowsIdToIanaId(identifier, out string? iana)) identifier = iana;
         bool daylight = zone.IsDaylightSavingTime(time);
+        // TZDB vanguard represents Irish winter as negative DST, while Java's
+        // display-name table uses GMT at +00 and IST at +01. CLDR prescribes
+        // these offset overrides because the DST flag varies by platform:
+        // https://unicode.org/reports/tr35/tr35-dates.html#Metazone_Names
+        // Keep the host's UTC conversion and historical non-hour offsets.
+        if (identifier is "Europe/Dublin" or "Eire" && (time.Offset == TimeSpan.Zero || time.Offset == TimeSpan.FromHours(1)))
+            daylight = time.Offset == TimeSpan.FromHours(1);
         // Java retains Namibia's one-hour standard offset after permanent
         // summer time, so its display-name selection differs from CLR rules.
         if (identifier == "Africa/Windhoek") daylight = time.Offset == TimeSpan.FromHours(2);

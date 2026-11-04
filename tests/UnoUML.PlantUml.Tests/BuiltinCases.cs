@@ -460,6 +460,7 @@ internal static class BuiltinCases
             })
         };
         CheckDates(options);
+        CheckIrishZoneNames(options);
         foreach (var item in Cases)
             Expect(context + "\nA -> B: " + item.Expression, "A -> B: " + item.Expected, options, item.Name);
 
@@ -488,6 +489,47 @@ internal static class BuiltinCases
             var isolated = options with { ResolveEnvironment = _ => index.ToString(CultureInfo.InvariantCulture) };
             Expect("A -> B: %getenv(\"DEMO\")", "A -> B: " + index, isolated, "Concurrent host isolation");
         });
+    }
+
+    private static void CheckIrishZoneNames(PlantUmlRenderOptions options)
+    {
+        // Frozen OpenJDK 21 SimpleDateFormat results. Dublin's 1968–71 permanent
+        // +01 period also uses IST in Java, although TZDB marks it as standard.
+        var cases = new (string Instant, bool Summer)[]
+        {
+            ("1968-01-15T00:00:00Z", false), ("1968-07-15T00:00:00Z", true),
+            ("1968-12-15T00:00:00Z", true), ("1970-01-15T00:00:00Z", true),
+            ("1971-10-31T01:59:59Z", true), ("1971-10-31T02:00:00Z", false),
+            ("2023-01-15T00:00:00Z", false), ("2023-07-15T00:00:00Z", true),
+            ("2023-03-26T00:59:59Z", false), ("2023-03-26T01:00:00Z", true),
+            ("2023-10-29T00:59:59Z", true), ("2023-10-29T01:00:00Z", false)
+        };
+        foreach (string zone in new[] { "Europe/Dublin", "Eire" })
+        foreach (string locale in new[] { "en-US", "ga-IE" })
+        foreach (var item in cases)
+        {
+            var instant = DateTimeOffset.Parse(item.Instant, CultureInfo.InvariantCulture);
+            string names = locale == "en-US" ? item.Summer ? "IST | Irish Standard Time" : "GMT | Greenwich Mean Time" :
+                item.Summer ? "ACÉ | Am Caighdéanach na hÉireann" : "MAG | Meán-Am Greenwich";
+            string expected = "A -> B: " + names + (item.Summer ? " | +0100" : " | +0000");
+            var configured = options with { Culture = CultureInfo.GetCultureInfo(locale), TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Dublin") };
+            string seconds = instant.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
+            Expect("A -> B: %date(\"z | zzzz | Z\"," + seconds + ",\"" + zone + "\")", expected, configured, "Irish explicit zone " + zone + " " + item.Instant + " " + locale);
+            Expect("A -> B: %date(\"z | zzzz | Z\"," + seconds + ")", expected, configured, "Irish default zone " + zone + " " + item.Instant + " " + locale);
+        }
+        // Exercise both positive and negative DST encodings on every host.
+        // This catches the bug even on CI machines whose zoneinfo uses rearguard rules.
+        var spring = TimeZoneInfo.TransitionTime.CreateFloatingDateRule(new(1, 1, 1, 1, 0, 0), 3, 5, DayOfWeek.Sunday);
+        var autumn = TimeZoneInfo.TransitionTime.CreateFloatingDateRule(new(1, 1, 1, 2, 0, 0), 10, 5, DayOfWeek.Sunday);
+        foreach (bool negative in new[] { false, true })
+        foreach (string identifier in new[] { "Europe/Dublin", "Eire" })
+        {
+            var rule = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(new(2020, 1, 1), new(2030, 12, 31), TimeSpan.FromHours(negative ? -1 : 1), negative ? autumn : spring, negative ? spring : autumn);
+            var zone = TimeZoneInfo.CreateCustomTimeZone(identifier, TimeSpan.FromHours(negative ? 1 : 0), "Ireland", "GMT", "IST", [rule]);
+            foreach (var (seconds, expected) in new[] { (1673740800L, "GMT | Greenwich Mean Time | +0000"), (1689379200L, "IST | Irish Standard Time | +0100") })
+                Expect("A -> B: %date(\"z | zzzz | Z\"," + seconds.ToString(CultureInfo.InvariantCulture) + ")", "A -> B: " + expected,
+                    options with { Culture = CultureInfo.GetCultureInfo("en-US"), TimeZone = zone }, "Irish " + identifier + " " + (negative ? "negative" : "positive") + " DST encoding");
+        }
     }
 
     private static void Expect(string body, string expected, PlantUmlRenderOptions options, string name)
