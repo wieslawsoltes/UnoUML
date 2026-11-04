@@ -113,11 +113,67 @@ adjacent trivia move with it. Comments outside removed rows/cells, and comments
 inside a removed paired rule, remain unchanged.
 
 Misplaced, repeated, or trailing rules, nonempty rule contents, rule attributes,
-and invalid `ROWS`/`COLUMNS` values are rejected by the native path. Table-level
-`FIXEDSIZE="TRUE"` still requires the compatibility renderer; the native table
-renderer does not claim its fixed-dimension overflow/clipping contract. All
-structural operations keep the same stale-snapshot, port-integrity, and atomic
-undo guards as tables without rules.
+and invalid `ROWS`/`COLUMNS` values are rejected by the native path. All structural
+operations keep the same stale-snapshot, port-integrity, and atomic undo guards
+as tables without rules.
+
+### Fixed dimensions and nested tables
+
+The native renderer supports `FIXEDSIZE="TRUE"` on both `TABLE` and `TD`. Widths
+and heights are point dimensions including borders and padding, independent of
+the graph's inch-valued node `width` and `height` attributes.
+
+* A fixed table with positive `WIDTH` and `HEIGHT` retains that frame size even
+  when its rows and cells extend beyond the frame. Text and overflowing cell
+  geometry remain visible; there is no implicit clip or text scaling. The SVG
+  bounds include the rendered overflow.
+* A fixed cell supplies its specified dimensions to the grid. A cell sharing a
+  wider column or taller row can still receive that larger grid slot, following
+  the bundled Graphviz 14.1.1 behavior. Its text never expands the grid merely
+  because the text is too large for its requested fixed dimensions.
+* A fixed request with an omitted or zero dimension uses normal minimum sizing.
+  It does not create an artificial one-point cell. Negative, nonfinite and
+  excessive dimensions are rejected.
+* A table's minimum `WIDTH`/`HEIGHT` can reserve unused space after its natural
+  grid. Only extra allocation from a containing cell expands the grid's rows
+  and columns. A nonfixed nested table fills the cell's available interior.
+* A nested fixed table uses its own `ALIGN` and `VALIGN` to position its declared
+  rectangle. The containing cell's text alignment does not reposition it.
+  Every alignment retains the declared fixed table dimensions.
+* Cell content is inset by both `BORDER` and `CELLPADDING`. Empty cells do not
+  receive a phantom text line; an explicit `BR` still contributes a line.
+  Thick borders are painted inside the allocated rectangle.
+* Table ports use the table's final rectangle. Cell ports use the final cell
+  slot, including any natural grid overflow and nested-table translation.
+  These rules apply to node labels and connector labels alike.
+* `STYLE="INVIS"` suppresses a cell or table's paint and descendants while
+  preserving its grid allocation and ports. Table `ROUNDED` and invisibility
+  styles can be combined with comma or whitespace separators.
+
+For example, this table has an 80-by-40 frame with a 140-by-60 cell extending
+beyond it. The two ports intentionally refer to different rectangles:
+
+```dot
+digraph {
+  a [shape=plain, label=<
+    <TABLE FIXEDSIZE="TRUE" WIDTH="80" HEIGHT="40"
+           BORDER="0" CELLBORDER="0" CELLPADDING="0" CELLSPACING="0"
+           PORT="frame" BGCOLOR="lightblue">
+      <TR><TD WIDTH="140" HEIGHT="60" PORT="content">Overflow</TD></TR>
+    </TABLE>
+  >];
+  a:frame:e -> b;
+  a:content:e -> c;
+}
+```
+
+Node `fixedsize=true` now reserves the shape size during graph placement, while
+`fixedsize=shape` additionally reserves the label's space. Both retain the
+specified shape dimensions and route ordinary edges to the shape boundary.
+The final SVG includes visible overflowing labels in either mode. These
+semantics follow the [Graphviz node sizing contract](https://graphviz.org/docs/attrs/fixedsize/).
+Native font metrics and integer placement remain distinct from Graphviz's
+pixel-level layout.
 
 The parser bounds labels to 65,536 characters, 32 nested levels, 1,024 record
 fields or table cells, and 128 grid rows/columns. Operations reject an empty table

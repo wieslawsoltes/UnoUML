@@ -137,33 +137,51 @@ internal static partial class GraphRenderer
         internal int Row, Column, RowSpan = 1, ColumnSpan = 1;
         internal int Border;
         internal string Fill = "none", Stroke = "black", Link = "", Target = "", Tooltip = "", Sides = "LTRB";
-        internal bool Fixed, HorizontalRule, VerticalRule;
+        internal bool Fixed, Invisible, HorizontalRule, VerticalRule;
         internal override string Plain => Content.Plain;
         internal void Measure(int minimumWidth, int minimumHeight)
         {
-            Width = Math.Max(minimumWidth, Content.Width + 2 * padding);
-            Height = Math.Max(minimumHeight, Content.Height + 2 * padding);
-            if (Fixed) { Width = Math.Max(1, minimumWidth); Height = Math.Max(1, minimumHeight); }
+            int inset = padding + Border;
+            Width = Math.Max(minimumWidth, Content.Width + 2 * inset);
+            Height = Math.Max(minimumHeight, Content.Height + 2 * inset);
+            // Graphviz ignores an incomplete fixed-size request. A fixed cell
+            // contributes these dimensions to the grid's minimum constraints;
+            // other cells spanning its row/column can still enlarge its slot.
+            if (Fixed && minimumWidth > 0 && minimumHeight > 0) { Width = minimumWidth; Height = minimumHeight; }
         }
         internal override void Place(int x, int y, int width, int height)
         {
             base.Place(x, y, width, height);
-            int contentWidth = Math.Min(Content.Width, Math.Max(0, width - padding * 2));
-            int contentHeight = Math.Min(Content.Height, Math.Max(0, height - padding * 2));
+            int inset = padding + Border;
+            int availableWidth = Math.Max(0, width - inset * 2), availableHeight = Math.Max(0, height - inset * 2);
+            if (Content is DotTableLabel)
+            {
+                // A nested table fills the cell's interior unless it has its
+                // own fixed dimensions. Its ALIGN/VALIGN, not the TD's text
+                // alignment, then position that fixed rectangle.
+                Content.Place(x + inset, y + inset, availableWidth, availableHeight);
+                return;
+            }
+            int contentWidth = Math.Min(Content.Width, availableWidth);
+            int contentHeight = Content.Height;
             if (Content is DotImageLabel image)
             {
-                var dimensions = image.Fit(Math.Max(1, width - padding * 2), Math.Max(1, height - padding * 2));
+                var dimensions = image.Fit(availableWidth, availableHeight);
                 contentWidth = align is "LEFT" or "RIGHT" ? Math.Min(Content.Width, dimensions.Width) : dimensions.Width;
                 contentHeight = valign is "TOP" or "BOTTOM" ? Math.Min(Content.Height, dimensions.Height) : dimensions.Height;
             }
-            else if (align == "TEXT" && Content is DotTextLabel) contentWidth = Math.Max(0, width - padding * 2);
-            int left = align == "LEFT" ? padding : align == "RIGHT" ? width - contentWidth - padding : (width - contentWidth) / 2;
-            int top = valign == "TOP" ? padding : valign == "BOTTOM" ? height - contentHeight - padding : (height - contentHeight) / 2;
+            else if (align == "TEXT" && Content is DotTextLabel) contentWidth = availableWidth;
+            int left = align == "LEFT" ? inset : align == "RIGHT" ? width - contentWidth - inset : (width - contentWidth) / 2;
+            // Undersized fixed cells expose text overflow. Keep its first row
+            // at the top of the content area rather than clipping, scaling or
+            // shifting it above that area by half the overflow height.
+            int top = contentHeight > availableHeight || valign == "TOP" ? inset : valign == "BOTTOM" ? height - contentHeight - inset : (height - contentHeight) / 2;
             Content.Place(x + left, y + top, contentWidth, contentHeight);
         }
         internal override void Ports(Dictionary<string, DotRect> ports) { base.Ports(ports); Content.Ports(ports); }
         internal override void Draw(StringBuilder svg)
         {
+            if (Invisible) return;
             bool link = DotLinkStart(svg, Link, Target, Tooltip);
             if (Fill != "none") svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{X}\" y=\"{Y}\" width=\"{ActualWidth}\" height=\"{ActualHeight}\" fill=\"{Fill}\"/>");
             if (Border > 0) DotBoxSides(svg, X, Y, ActualWidth, ActualHeight, Sides, Stroke, Border);
@@ -176,18 +194,29 @@ internal static partial class GraphRenderer
     {
         internal readonly List<DotCellLabel> Cells = cells;
         internal string Fill = "none", Stroke = "black", Link = "", Target = "", Tooltip = "", Sides = "LTRB";
-        internal bool Rounded;
+        internal string Align = "CENTER", VerticalAlign = "MIDDLE";
+        internal bool Rounded, Fixed, Invisible;
         internal override string Plain => string.Join("\n", Cells.GroupBy(cell => cell.Row).Select(row => string.Join(" ", row.Select(cell => cell.Plain))));
         internal void Measure(int minimumWidth, int minimumHeight)
         {
             Width = Math.Max(minimumWidth, columns.Sum() + spacing * (columns.Length + 1) + border * 2);
             Height = Math.Max(minimumHeight, rows.Sum() + spacing * (rows.Length + 1) + border * 2);
+            Fixed &= minimumWidth > 0 && minimumHeight > 0;
+            if (Fixed) { Width = minimumWidth; Height = minimumHeight; }
         }
         internal override void Place(int x, int y, int width, int height)
         {
+            if (Fixed)
+            {
+                x += Align == "LEFT" ? 0 : Align == "RIGHT" ? width - Width : (width - Width) / 2;
+                y += VerticalAlign == "TOP" ? 0 : VerticalAlign == "BOTTOM" ? height - Height : (height - Height) / 2;
+                width = Width; height = Height;
+            }
             base.Place(x, y, width, height);
-            int extraX = Math.Max(0, width - columns.Sum() - spacing * (columns.Length + 1) - 2 * border);
-            int extraY = Math.Max(0, height - rows.Sum() - spacing * (rows.Length + 1) - 2 * border);
+            // WIDTH/HEIGHT minima reserve the table's trailing area. Only extra
+            // space allocated by a containing cell stretches the row/column
+            // grid; a root minimum or fixed table keeps natural cell sizes.
+            int extraX = Math.Max(0, width - Width), extraY = Math.Max(0, height - Height);
             int[] widths = columns.Select((size, i) => size + extraX / columns.Length + (i < extraX % columns.Length ? 1 : 0)).ToArray();
             int[] heights = rows.Select((size, i) => size + extraY / rows.Length + (i < extraY % rows.Length ? 1 : 0)).ToArray();
             var xs = new int[widths.Length + 1]; var ys = new int[heights.Length + 1];
@@ -201,6 +230,7 @@ internal static partial class GraphRenderer
         internal override void Ports(Dictionary<string, DotRect> ports) { base.Ports(ports); foreach (var cell in Cells) cell.Ports(ports); }
         internal override void Draw(StringBuilder svg)
         {
+            if (Invisible) return;
             bool link = DotLinkStart(svg, Link, Target, Tooltip);
             if (Fill != "none") svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{X}\" y=\"{Y}\" width=\"{ActualWidth}\" height=\"{ActualHeight}\" rx=\"{(Rounded ? 8 : 0)}\" fill=\"{Fill}\"/>");
             // Rules use the table's pen, independently of individual cell
@@ -230,7 +260,10 @@ internal static partial class GraphRenderer
                 }
             }
             if (border > 0 && Rounded)
-                svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{X}\" y=\"{Y}\" width=\"{ActualWidth}\" height=\"{ActualHeight}\" rx=\"8\" fill=\"none\" stroke=\"{Stroke}\" stroke-width=\"{border}\"/>");
+            {
+                double inset = border > 1 ? border / 2d : 0;
+                svg.Append(CultureInfo.InvariantCulture, $"<rect x=\"{X + inset:0.###}\" y=\"{Y + inset:0.###}\" width=\"{Math.Max(0, ActualWidth - 2 * inset):0.###}\" height=\"{Math.Max(0, ActualHeight - 2 * inset):0.###}\" rx=\"8\" fill=\"none\" stroke=\"{Stroke}\" stroke-width=\"{border}\"/>");
+            }
             else if (border > 0) DotBoxSides(svg, X, Y, ActualWidth, ActualHeight, Sides, Stroke, border);
             foreach (var cell in Cells) cell.Draw(svg);
             if (link) svg.Append("</a>");
@@ -272,7 +305,7 @@ internal static partial class GraphRenderer
             if (mode == "true")
             {
                 double factor = Math.Min(width / image.Width, height / image.Height);
-                return (Math.Max(1, (int)Math.Round(image.Width * factor)), Math.Max(1, (int)Math.Round(image.Height * factor)));
+                return (Math.Max(0, (int)Math.Round(image.Width * factor)), Math.Max(0, (int)Math.Round(image.Height * factor)));
             }
             return (mode is "width" or "both" ? width : Math.Min(width, Width), mode is "height" or "both" ? height : Math.Min(height, Height));
         }
@@ -497,7 +530,10 @@ internal static partial class GraphRenderer
             }
         }
         Read(nodes, font, depth);
-        if (runs.Count != 0 || rows.Count == 0) rows.Add(new(runs.Count == 0 ? [new("", font)] : runs, defaultAlignment.ToLowerInvariant()));
+        // Empty cells have no implicit text line. Explicit BR elements still
+        // contribute blank lines; whitespace that survived HTML normalization
+        // remains real text and retains its source span.
+        if (runs.Count != 0) rows.Add(new(runs, defaultAlignment.ToLowerInvariant()));
         var label = new DotTextLabel(rows);
         label.Measure();
         return label;
@@ -525,7 +561,8 @@ internal static partial class GraphRenderer
 
     private static DotLabel HtmlTable(XElement element, DotFont font, int depth, Dictionary<XText, (int Start, int Length)> metadata, int sourceLine)
     {
-        if (DotBool(HtmlValue(element, "FIXEDSIZE"))) throw InvalidDot();
+        string alignment = HtmlAlignment(element, "ALIGN", "CENTER"), verticalAlignment = HtmlAlignment(element, "VALIGN", "MIDDLE");
+        var tableStyle = HtmlTableStyle(element, cell: false);
         bool allRows = HtmlTableRules(element, "ROWS"), allColumns = HtmlTableRules(element, "COLUMNS");
         var tableRows = HtmlTableItems(element, "TR", "HR");
         var rowRules = Enumerable.Range(1, tableRows.Count - 1).Where(boundary => allRows || tableRows[boundary - 1].RuleAfter).ToHashSet();
@@ -548,12 +585,13 @@ internal static partial class GraphRenderer
                     for (int c = column; c < column + columnSpan; c++)
                         if (!occupied.Add((r, c))) throw InvalidDot();
                 if (HtmlValue(cellElement, "CELLSPACING").Length != 0) throw InvalidDot();
-                string alignment = HtmlValue(cellElement, "ALIGN", "CENTER").ToUpperInvariant(), verticalAlignment = HtmlValue(cellElement, "VALIGN", "MIDDLE").ToUpperInvariant();
+                string cellAlignment = HtmlValue(cellElement, "ALIGN", "CENTER").ToUpperInvariant(), cellVerticalAlignment = HtmlValue(cellElement, "VALIGN", "MIDDLE").ToUpperInvariant();
                 string lineAlignment = HtmlValue(cellElement, "BALIGN", "CENTER").ToUpperInvariant();
-                if (alignment is not ("LEFT" or "RIGHT" or "CENTER" or "TEXT") || verticalAlignment is not ("TOP" or "BOTTOM" or "MIDDLE") || lineAlignment is not ("LEFT" or "RIGHT" or "CENTER")) throw InvalidDot();
+                if (cellAlignment is not ("LEFT" or "RIGHT" or "CENTER" or "TEXT") || cellVerticalAlignment is not ("TOP" or "BOTTOM" or "MIDDLE") || lineAlignment is not ("LEFT" or "RIGHT" or "CENTER")) throw InvalidDot();
+                var cellStyle = HtmlTableStyle(cellElement, cell: true);
                 var content = HtmlContent(cellElement.Nodes(), font, depth + 1, metadata, sourceLine, lineAlignment);
                 var cell = new DotCellLabel(content, HtmlNumber(cellElement, "CELLPADDING", padding, 0, 128),
-                    alignment, verticalAlignment)
+                    cellAlignment, cellVerticalAlignment)
                 {
                     Row = row, Column = column, RowSpan = rowSpan, ColumnSpan = columnSpan,
                     Border = HtmlNumber(cellElement, "BORDER", cellBorder, 0, 64),
@@ -561,6 +599,7 @@ internal static partial class GraphRenderer
                     Port = HtmlValue(cellElement, "PORT"), Link = HtmlValue(cellElement, "HREF"), Target = HtmlValue(cellElement, "TARGET"),
                     Tooltip = HtmlValue(cellElement, "TOOLTIP", HtmlValue(cellElement, "TITLE")), Sides = HtmlValue(cellElement, "SIDES", "LTRB").ToUpperInvariant(),
                     Fixed = DotBool(HtmlValue(cellElement, "FIXEDSIZE")),
+                    Invisible = cellStyle.Invisible,
                     VerticalRule = allColumns || verticalRule, HorizontalRule = rowRules.Contains(row + rowSpan)
                 };
                 cell.Measure(HtmlNumber(cellElement, "WIDTH", 0, 0, 16000), HtmlNumber(cellElement, "HEIGHT", 0, 0, 16000));
@@ -589,7 +628,9 @@ internal static partial class GraphRenderer
         {
             Stroke = stroke, Fill = DotColor(HtmlValue(element, "BGCOLOR", "none")), Port = HtmlValue(element, "PORT"),
             Link = HtmlValue(element, "HREF"), Target = HtmlValue(element, "TARGET"), Tooltip = HtmlValue(element, "TOOLTIP", HtmlValue(element, "TITLE")),
-            Sides = HtmlValue(element, "SIDES", "LTRB").ToUpperInvariant(), Rounded = HtmlValue(element, "STYLE").Equals("ROUNDED", StringComparison.OrdinalIgnoreCase)
+            Sides = HtmlValue(element, "SIDES", "LTRB").ToUpperInvariant(), Rounded = tableStyle.Rounded,
+            Fixed = DotBool(HtmlValue(element, "FIXEDSIZE")), Invisible = tableStyle.Invisible,
+            Align = alignment, VerticalAlign = verticalAlignment
         };
         table.Measure(HtmlNumber(element, "WIDTH", 0, 0, 16000), HtmlNumber(element, "HEIGHT", 0, 0, 16000));
         return table;
@@ -597,6 +638,25 @@ internal static partial class GraphRenderer
 
     private static string HtmlValue(XElement element, string name, string fallback = "") =>
         element.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.Equals(name, StringComparison.OrdinalIgnoreCase))?.Value ?? fallback;
+
+    private static string HtmlAlignment(XElement element, string name, string fallback)
+    {
+        string value = HtmlValue(element, name, fallback).ToUpperInvariant();
+        if (name == "VALIGN" ? value is not ("MIDDLE" or "TOP" or "BOTTOM") : value is not ("CENTER" or "LEFT" or "RIGHT")) throw InvalidDot();
+        return value;
+    }
+
+    private static (bool Rounded, bool Invisible) HtmlTableStyle(XElement element, bool cell)
+    {
+        bool rounded = false, invisible = false;
+        foreach (string style in HtmlValue(element, "STYLE").Split([',', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (style.Equals("ROUNDED", StringComparison.OrdinalIgnoreCase) && !cell) rounded = true;
+            else if (style.Equals("INVIS", StringComparison.OrdinalIgnoreCase) || style.Equals("INVISIBLE", StringComparison.OrdinalIgnoreCase)) invisible = true;
+            else throw InvalidDot();
+        }
+        return (rounded, invisible);
+    }
 
     private static void DotFieldStart(StringBuilder svg, int start, int length, string kind) =>
         svg.Append(CultureInfo.InvariantCulture, $"<g data-edit-start=\"{start}\" data-edit-length=\"{length}\" data-edit-kind=\"{kind}\" data-edit-role=\"label\">");
@@ -658,11 +718,14 @@ internal static partial class GraphRenderer
 
     private static void DotBoxSides(StringBuilder svg, int x, int y, int width, int height, string sides, string stroke, int thickness)
     {
+        double inset = thickness > 1 ? thickness / 2d : 0;
+        double left = x + inset, top = y + inset;
+        double innerWidth = Math.Max(0, width - 2 * inset), innerHeight = Math.Max(0, height - 2 * inset);
         var path = new StringBuilder();
-        if (sides.Contains('L')) path.Append(CultureInfo.InvariantCulture, $"M{x} {y}v{height}");
-        if (sides.Contains('T')) path.Append(CultureInfo.InvariantCulture, $"M{x} {y}h{width}");
-        if (sides.Contains('R')) path.Append(CultureInfo.InvariantCulture, $"M{x + width} {y}v{height}");
-        if (sides.Contains('B')) path.Append(CultureInfo.InvariantCulture, $"M{x} {y + height}h{width}");
+        if (sides.Contains('L')) path.Append(CultureInfo.InvariantCulture, $"M{left:0.###} {top:0.###}v{innerHeight:0.###}");
+        if (sides.Contains('T')) path.Append(CultureInfo.InvariantCulture, $"M{left:0.###} {top:0.###}h{innerWidth:0.###}");
+        if (sides.Contains('R')) path.Append(CultureInfo.InvariantCulture, $"M{left + innerWidth:0.###} {top:0.###}v{innerHeight:0.###}");
+        if (sides.Contains('B')) path.Append(CultureInfo.InvariantCulture, $"M{left:0.###} {top + innerHeight:0.###}h{innerWidth:0.###}");
         svg.Append(CultureInfo.InvariantCulture, $"<path d=\"{path}\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"{thickness}\"/>");
     }
 }

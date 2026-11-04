@@ -18,7 +18,7 @@ internal static partial class GraphRenderer
         internal string Location = "c", Justify = "c", Class = "", SvgId = "";
         internal int ShapeWidth, ShapeHeight, Peripheries = 1, Sides = 4, MarginX = 8, MarginY = 4;
         internal double PenWidth = 1, Rotation, Skew, Distortion, GradientAngle;
-        internal bool Invisible, Rounded, Diagonals, Fixed;
+        internal bool Invisible, Rounded, Diagonals, Fixed, FixedShapeOnly;
         internal readonly Dictionary<string, DotRect> Ports = new(StringComparer.Ordinal);
     }
 
@@ -99,8 +99,8 @@ internal static partial class GraphRenderer
             var parent = cluster?.Box ?? graph.Root;
             node.Box = new("measured-card", node.Id, visual.Label.Plain, node.Span.Line, parent)
             {
-                Width = Math.Max(visual.ShapeWidth, visual.Label.Width + 2 * visual.MarginX) + (int)Math.Ceiling(visual.PenWidth),
-                Height = Math.Max(visual.ShapeHeight, visual.Label.Height + 2 * visual.MarginY) + (int)Math.Ceiling(visual.PenWidth)
+                Width = (visual.Fixed && !visual.FixedShapeOnly ? visual.ShapeWidth : Math.Max(visual.ShapeWidth, visual.Label.Width + 2 * visual.MarginX)) + (int)Math.Ceiling(visual.PenWidth),
+                Height = (visual.Fixed && !visual.FixedShapeOnly ? visual.ShapeHeight : Math.Max(visual.ShapeHeight, visual.Label.Height + 2 * visual.MarginY)) + (int)Math.Ceiling(visual.PenWidth)
             };
             if (visual.External != null)
             {
@@ -288,6 +288,7 @@ internal static partial class GraphRenderer
         string fixedSize = attributes.Get("fixedsize", "false");
         if (fixedSize is not ("true" or "false" or "1" or "0" or "shape")) throw InvalidDot();
         visual.Fixed = DotBool(fixedSize) || fixedSize == "shape";
+        visual.FixedShapeOnly = fixedSize == "shape";
         int labelWidth = visual.Label.Width + visual.MarginX * 2, labelHeight = visual.Label.Height + visual.MarginY * 2;
         if (visual.Image != null) { labelWidth = Math.Max(labelWidth, visual.Image.Width + visual.MarginX * 2); labelHeight = Math.Max(labelHeight, visual.Image.Height + visual.MarginY * 2); }
         if (!visual.Fixed)

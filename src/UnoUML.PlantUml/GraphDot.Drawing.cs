@@ -15,8 +15,20 @@ internal static partial class GraphRenderer
         internal void Add(DotLabel? label)
         {
             if (label == null) return;
-            if (label.Width != 0 || label.Height != 0)
-                Add(label.X + Math.Min(0, (label.ActualWidth - label.Width) / 2), label.Y + Math.Min(0, (label.ActualHeight - label.Height) / 2), Math.Max(label.Width, label.ActualWidth), Math.Max(label.Height, label.ActualHeight));
+            if (label is DotCellLabel { Invisible: true } || label is DotTableLabel { Invisible: true }) return;
+            if (label is DotTextLabel text)
+            {
+                int y = text.Y + (text.ActualHeight - text.Height) / 2;
+                foreach (var row in text.Rows)
+                {
+                    int x = text.X + (row.Alignment == "left" ? 0 : row.Alignment == "right" ? text.ActualWidth - row.Width : (text.ActualWidth - row.Width) / 2);
+                    if (row.Width > 0) Add(x, y, row.Width, row.Height);
+                    y += row.Height + 2;
+                }
+                return;
+            }
+            if (label.ActualWidth != 0 || label.ActualHeight != 0)
+                Add(label.X, label.Y, label.ActualWidth, label.ActualHeight);
             if (label is DotCellLabel cell) Add(cell.Content);
             else if (label is DotRecordLabel record) foreach (var child in record.Children) Add(child);
             else if (label is DotTableLabel table) foreach (var child in table.Cells) Add(child);

@@ -182,7 +182,8 @@ internal static class DotCases
         var combined = RenderSource(Source(rows, attributes + " ROWS='*' COLUMNS='*'"));
         Require(Rules(combined).Select(RuleSignature).SequenceEqual(explicitRules.Select(RuleSignature)), "explicit plus uniform separators paint once");
         var frame = Node(svg, "a").Descendants().Single(element => (string?)element.Attribute("rx") == "8" && (string?)element.Attribute("fill") == "none");
-        double left = Number(frame, "x"), top = Number(frame, "y"), right = left + Number(frame, "width"), bottom = top + Number(frame, "height");
+        double inset = Number(frame, "stroke-width") / 2;
+        double left = Number(frame, "x") - inset, top = Number(frame, "y") - inset, right = left + Number(frame, "width") + inset * 2, bottom = top + Number(frame, "height") + inset * 2;
         Require(explicitRules.All(rule => Number(rule, "x1") >= left && Number(rule, "x2") <= right && Number(rule, "y1") >= top && Number(rule, "y2") <= bottom),
             "rules remain in their expanded table bounds");
         Require(Rules(svg, "vertical").Any(rule => Number(rule, "y1") == top) && Rules(svg, "vertical").Any(rule => Number(rule, "y2") == bottom),
@@ -201,7 +202,7 @@ internal static class DotCases
         var ragged = RenderSource(Source("<TR><TD PORT='p'>Short</TD></TR><HR/><TR><TD>Left</TD><TD>Long right</TD></TR>", "BORDER='4' CELLBORDER='0' STYLE='ROUNDED'"));
         var raggedFrame = Node(ragged, "a").Descendants().Single(element => (string?)element.Attribute("rx") == "8" && (string?)element.Attribute("fill") == "none");
         var raggedRule = Rules(ragged, "horizontal").Single();
-        Require(Number(raggedRule, "x1") == Number(raggedFrame, "x") && Number(raggedRule, "x2") == Number(raggedFrame, "x") + Number(raggedFrame, "width"),
+        Require(Number(raggedRule, "x1") == Number(raggedFrame, "x") - 2 && Number(raggedRule, "x2") == Number(raggedFrame, "x") + Number(raggedFrame, "width") + 2,
             "horizontal rules extend to the boundary after an incomplete row");
         var trailingSpan = RenderSource(Source("<TR><TD PORT='p'>Left</TD><TD ROWSPAN='2'>Right span</TD></TR><HR/><TR><TD>Below</TD></TR>",
             "BORDER='4' CELLBORDER='0' STYLE='ROUNDED'"));
@@ -223,7 +224,7 @@ internal static class DotCases
             Table("<TR><TD>A</TD></TR>text<TR><TD>B</TD></TR>"), Table("<TR></TR><TR><TD>A</TD></TR>"),
             Table("<TR><TD>A</TD></TR>", "ROWS='1'"), Table("<TR><TD>A</TD></TR>", "ROWS=''"),
             Table("<TR><TD>A</TD></TR>", "COLUMNS='2'"), Table("<TR><TD>A</TD></TR>", "COLUMNS=''"),
-            Table("<TR><TD>A</TD></TR>", "FIXEDSIZE='TRUE' WIDTH='100' HEIGHT='50'")
+            Table("<TR><TD>A</TD></TR>", "FIXEDSIZE='TRUE' WIDTH='-1' HEIGHT='50'")
         })
             Require(!PlantUmlRenderer.TryRender("@startdot\ndigraph { a[shape=plain,label=<" + invalid + ">]; }\n@enddot", out _),
                 "exact HTML-rule fallback boundary " + invalid);
