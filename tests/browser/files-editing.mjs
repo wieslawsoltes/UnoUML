@@ -1,0 +1,102 @@
+import assert from 'node:assert/strict';
+import {mkdir} from 'node:fs/promises';
+import {resolve} from 'node:path';
+
+export async function verifyFilesEditing(page, source) {
+  await page.setViewportSize({width:1480,height:960});
+  const paper=page.locator('.paper').first(),surface=page.locator('.surface').first();
+  const row=path=>paper.locator(`[data-files-path=${JSON.stringify(path)}]`);
+  const waitSource=async expected=>page.waitForFunction(({input,expected})=>input.value===expected,{input:await source.elementHandle(),expected});
+  const split=text=>{
+    const bom=text.startsWith('\uFEFF')?'\uFEFF':'',body=text.slice(bom.length),newline=body.indexOf('\n');
+    if(!body.startsWith("' @unouml:canvas "))return {state:null,body:text};
+    return {state:JSON.parse(body.slice("' @unouml:canvas ".length,newline)),body:bom+body.slice(newline+1)};
+  };
+  const snapshot=async()=>split(await source.inputValue());
+  const id=async path=>row(path).getAttribute('data-canvas-id');
+  const node=async path=>{const identity=await id(path);return (await snapshot()).state.nodes.find(item=>item.id===identity);};
+  const waitApplied=async path=>page.waitForFunction(({surface,path})=>{
+    const row=[...surface.querySelectorAll('[data-files-path]')].find(row=>row.dataset.filesPath===path);
+    return row&&row.dataset.canvasNode===row.dataset.canvasId;
+  },{surface:await surface.elementHandle(),path});
+  const input='\uFEFF@startfiles\n/src/A.cs\n/src/nested/B.cs\n/docs/\n@endfiles';
+  await source.fill(input);await row('/src/A.cs').waitFor();await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
+  assert.equal(await paper.getAttribute('data-renderer'),'managed');
+  assert.equal(await paper.locator('[data-files-path]').count(),5,'Implicit directories have distinct selectable rows');
+  const oldIds=new Map();
+  for(const path of ['/src/','/src/A.cs','/src/nested/','/src/nested/B.cs','/docs/'])oldIds.set(path,await id(path));
+
+  // A real free-canvas gesture creates persisted geometry for every Files row.
+  const box=await row('/src/A.cs').evaluate(element=>{const r=element.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};});
+  const x=box.x+box.width/2,y=box.y+box.height/2;
+  await page.keyboard.down('Alt');await page.mouse.move(x,y);await page.mouse.down();
+  await page.mouse.move(x+85,y+36,{steps:8});await page.mouse.up();await page.keyboard.up('Alt');
+  await page.waitForFunction(input=>input.value.includes("' @unouml:canvas "),await source.elementHandle());
+  const arrangedSource=await source.inputValue(),arranged=(await snapshot()).state;
+  assert.equal((await snapshot()).body,input,'Free placement retains file paths and the BOM');
+  assert.equal(arranged.nodes.length,5);
+
+  // The parent is inferred from two separate declarations. Editing its name
+  // must rename both paths and all four descendant geometry identities at once.
+  await row('/src/').click();await surface.press('F2');
+  const editor=page.getByRole('textbox',{name:'Edit diagram label',exact:true});
+  await editor.waitFor();assert.equal(await editor.inputValue(),'src');
+  await editor.fill('library');await editor.press('Enter');
+  await row('/library/nested/B.cs').waitFor();await waitApplied('/library/A.cs');
+  assert.equal((await snapshot()).body,input.replaceAll('/src/','/library/'));
+  for(const [path,oldId] of oldIds){
+    const current=path.startsWith('/src/')?'/library/'+path.slice(5):path;
+    assert.deepEqual(await node(current),{...arranged.nodes.find(item=>item.id===oldId),id:await id(current)},'Renamed paths keep their exact authored geometry');
+  }
+  await surface.press('Control+z');await waitSource(arrangedSource);await row('/src/A.cs').waitFor();
+  assert.equal(await source.inputValue(),arrangedSource,'One undo restores every path and canvas identity');
+
+  // Inspector move changes semantic parentage while retaining the independent
+  // geometry of the nested folder and leaf. A conflicting destination is atomic.
+  await row('/src/nested/').click();
+  await page.getByText('Move file or folder…',{exact:true}).last().click();
+  let dialog=page.getByRole('dialog',{name:'Move file or folder',exact:true});
+  await dialog.getByRole('textbox',{name:'Destination path',exact:true}).fill('/docs/');
+  await dialog.getByRole('button',{name:'Move',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  assert.equal(await source.inputValue(),arrangedSource,'Existing folders are not silently merged');
+  await row('/src/nested/').click();await page.getByText('Move file or folder…',{exact:true}).last().click();
+  dialog=page.getByRole('dialog',{name:'Move file or folder',exact:true});
+  await dialog.getByRole('textbox',{name:'Destination path',exact:true}).fill('/docs/models/');
+  await dialog.getByRole('button',{name:'Move',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  await row('/docs/models/B.cs').waitFor();
+  assert.equal((await snapshot()).body,input.replace('/src/nested/B.cs','/docs/models/B.cs'));
+  assert.deepEqual(await node('/docs/models/B.cs'),{...arranged.nodes.find(item=>item.id===oldIds.get('/src/nested/B.cs')),id:await id('/docs/models/B.cs')});
+  await surface.press('Control+z');await waitSource(arrangedSource);await row('/src/nested/').waitFor();
+
+  // Exercise OS clipboard events using real keyboard shortcuts. The copy is a
+  // self-contained subtree; pasting into /docs/ remaps every canvas ID.
+  await row('/src/nested/').click();await surface.press('Control+c');
+  await row('/docs/').click();await surface.press('Control+v');
+  await row('/docs/nested/B.cs').waitFor();
+  const pastedSource=await source.inputValue(),pasted=(await snapshot()).state;
+  assert.equal((await snapshot()).body,input.replace('@endfiles','/docs/nested/B.cs\n@endfiles'));
+  for(const [oldPath,newPath] of [['/src/nested/','/docs/nested/'],['/src/nested/B.cs','/docs/nested/B.cs']]){
+    const before=arranged.nodes.find(item=>item.id===oldIds.get(oldPath));
+    const offset=arranged.settings.gridSize*2;
+    assert.deepEqual(await node(newPath),{...before,id:await id(newPath),x:before.x+offset,y:before.y+offset},'Clipboard geometry follows the new path with a two-grid-cell offset');
+  }
+  assert.equal(pasted.nodes.length,7);
+  await surface.press('Control+z');await waitSource(arrangedSource);await row('/docs/nested/B.cs').waitFor({state:'detached'});
+  await surface.press('Control+y');await waitSource(pastedSource);await row('/docs/nested/B.cs').waitFor();
+  await row('/docs/nested/').click();await surface.press('Delete');
+  await row('/docs/nested/B.cs').waitFor({state:'detached'});
+  assert.equal(await source.inputValue(),arrangedSource,'Delete removes the subtree and its geometry');
+  await surface.press('Control+z');await waitSource(pastedSource);await row('/docs/nested/').waitFor();
+
+  await row('/docs/nested/').click();await page.getByText('Insert file…',{exact:true}).last().click();
+  dialog=page.getByRole('dialog',{name:'Insert file',exact:true});
+  await dialog.getByRole('textbox',{name:'Path',exact:true}).fill('/docs/nested/New.cs');
+  await dialog.getByRole('button',{name:'Insert',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  await row('/docs/nested/New.cs').waitFor();
+  assert.ok((await snapshot()).body.includes('/docs/nested/New.cs\n@endfiles'));
+  await surface.press('Control+z');await waitSource(pastedSource);await row('/docs/nested/New.cs').waitFor({state:'detached'});
+
+  await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
+  if(process.env.SCREENSHOT_DIR){await mkdir(process.env.SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:resolve(process.env.SCREENSHOT_DIR,'files-authoring.png')});}
+  console.log('Verified Files inferred-folder direct editing, atomic path and geometry remapping, collision guards, inspector move/insert, keyboard subtree copy/paste/delete, BOM preservation and exact undo/redo.');
+}

@@ -1,10 +1,11 @@
 using System.Globalization;
 using System.Text;
+using UnoUML.Syntax;
 
 namespace UnoUML.PlantUml;
 
 /// <summary>Ordered subtree packing in two iterative passes. Depth and width are independent of the call stack.</summary>
-internal static class TreeDiagram
+internal static partial class TreeDiagram
 {
     private sealed class Node(string label, int parent, int depth, int line)
     {
@@ -21,17 +22,18 @@ internal static class TreeDiagram
         internal bool West, Boxless, Directory;
         internal string? Fill;
         internal string CanvasId = "";
+        internal FilesSourceNode? File;
     }
 
     internal static string? TryRender(string source, DiagramKind kind)
     {
+        if (kind == DiagramKind.Files) return TryRenderFiles(source);
         if (!StyleSheet.TryExtract(source, out source, out var styles)) return null;
         var skin = new ManagedSkin { Sheet = styles, Diagram = kind switch { DiagramKind.MindMap => "mindmapdiagram", DiagramKind.WorkBreakdown => "wbsdiagram", _ => "filesdiagram" } };
         string? skinBlock = null;
         string dialect = kind switch { DiagramKind.MindMap => "mindmap", DiagramKind.WorkBreakdown => "wbs", _ => "files" };
         var nodes = new List<Node>();
         var ancestors = new List<int>();
-        var paths = new Dictionary<(int Parent, string Part), int>();
         bool started = false, ended = false, left = false;
         int line = -1;
         foreach (var raw in source.AsSpan().EnumerateLines())
@@ -48,31 +50,6 @@ internal static class TreeDiagram
             }
             if (s.SequenceEqual("@end" + dialect)) { ended = true; continue; }
             if (nodes.Count >= 4096 || s.Length > 2048) return null;
-            if (kind == DiagramKind.Files)
-            {
-                if (s[0] != '/' || s.StartsWith("//") || s.Contains("//", StringComparison.Ordinal)) return null;
-                bool directory = s[^1] == '/';
-                int current = -1, depth = 0;
-                var path = s.Trim('/');
-                if (path.IsEmpty) return null;
-                foreach (var part in path.Split('/'))
-                {
-                    string name = path[part].ToString();
-                    if (++depth > 128 || !SvgText.IsPlain(name) || name is "." or "..") return null;
-                    bool last = part.End.Value == path.Length;
-                    if (!paths.TryGetValue((current, name), out int index))
-                    {
-                        if (nodes.Count >= 4096) return null;
-                        index = nodes.Count;
-                        paths.Add((current, name), index);
-                        nodes.Add(new(name, current, depth, last ? line : -1) { Directory = !last || directory });
-                    }
-                    else if (nodes[index].Directory != (!last || directory) || last && nodes[index].Line >= 0) return null;
-                    else if (last) nodes[index].Line = line;
-                    current = index;
-                }
-                continue;
-            }
             if (kind == DiagramKind.MindMap && (s.SequenceEqual("left side") || s.SequenceEqual("right side")))
             {
                 if (nodes.Count == 0) return null;
@@ -116,27 +93,16 @@ internal static class TreeDiagram
             nodes.Add(new(label, parent, depthIndex - 1, line) { West = west, Fill = color, Boxless = boxless, Stereotype = stereotype });
         }
         if (!ended || skinBlock != null || nodes.Count == 0) return null;
-        if (kind != DiagramKind.Files)
+        var occurrences = new Dictionary<(int Parent, string Label), int>();
+        foreach (var node in nodes)
         {
-            var occurrences = new Dictionary<(int Parent, string Label), int>();
-            foreach (var node in nodes)
-            {
-                var key = (node.Parent, node.Label);
-                int occurrence = occurrences.GetValueOrDefault(key);
-                occurrences[key] = occurrence + 1;
-                node.CanvasId = CanvasIdentity.Create(dialect, node.Parent < 0 ? "" : nodes[node.Parent].CanvasId,
-                    node.Label, occurrence.ToString(CultureInfo.InvariantCulture));
-            }
+            var key = (node.Parent, node.Label);
+            int occurrence = occurrences.GetValueOrDefault(key);
+            occurrences[key] = occurrence + 1;
+            node.CanvasId = CanvasIdentity.Create(dialect, node.Parent < 0 ? "" : nodes[node.Parent].CanvasId,
+                node.Label, occurrence.ToString(CultureInfo.InvariantCulture));
         }
-        else if (nodes.Count <= 2048)
-        {
-            // Match the canvas node limit without restricting the native listing renderer.
-            // A path is semantic identity; explicit/implicit directory declarations are equivalent.
-            foreach (var node in nodes)
-                node.CanvasId = CanvasIdentity.Create("files", node.Parent < 0 ? "" : nodes[node.Parent].CanvasId,
-                    node.Label, node.Directory ? "directory" : "file");
-        }
-        MeasureStyles(nodes, skin, kind == DiagramKind.Files);
+        MeasureStyles(nodes, skin, false);
         if (kind == DiagramKind.WorkBreakdown)
             foreach (var siblings in nodes.Where(n => n.Parent >= 0).GroupBy(n => n.Parent))
                 if (nodes[siblings.Key].Paint.GetValueOrDefault("width").Text == "auto")
@@ -144,7 +110,7 @@ internal static class TreeDiagram
                     int width = siblings.Max(n => n.Width);
                     foreach (var child in siblings) child.Width = width;
                 }
-        return kind == DiagramKind.Files ? DrawFiles(nodes, skin) : DrawOutline(nodes, kind == DiagramKind.WorkBreakdown, skin);
+        return DrawOutline(nodes, kind == DiagramKind.WorkBreakdown, skin);
     }
 
     private static void MeasureStyles(List<Node> nodes, ManagedSkin skin, bool files)
@@ -305,7 +271,10 @@ internal static class TreeDiagram
             var n = nodes[index];
             int x = n.Level * 18 - 17 + n.Padding.Left + n.Margin.Left, y = 6 + n.Padding.Top + row + n.Margin.Top;
             row += n.OuterHeight;
-            svg.Append(CultureInfo.InvariantCulture, $"<g data-style-name=\"{n.Category}\" data-style-id=\"{index}\"{(n.CanvasId.Length == 0 ? "" : " data-canvas-id=\"" + n.CanvasId + "\"")}{(n.Line < 0 ? "" : " data-source-line=\"" + n.Line.ToString(CultureInfo.InvariantCulture) + "\"")}>");
+            svg.Append(CultureInfo.InvariantCulture, $"<g data-style-name=\"{n.Category}\" data-style-id=\"{index}\"{(n.CanvasId.Length == 0 ? "" : " data-canvas-id=\"" + n.CanvasId + "\"")}{(n.Line < 0 ? "" : " data-source-line=\"" + n.Line.ToString(CultureInfo.InvariantCulture) + "\"")}");
+            if (n.File is { } file)
+                svg.Append(CultureInfo.InvariantCulture, $" data-files-path=\"{SvgText.Escape(file.Path)}\" data-files-directory=\"{(file.Directory ? "true" : "false")}\" data-edit-start=\"{file.NameToken.Start}\" data-edit-length=\"{file.NameToken.Length}\" data-edit-kind=\"files-name\" data-edit-role=\"label\"");
+            svg.Append('>');
             string path = n.Directory ? "M0 4h6l2 2h8v10H0z" : "M3 1h7l4 4v12H3z";
             svg.Append(CultureInfo.InvariantCulture, $"<path transform=\"translate({x} {y})\" d=\"{path}\" stroke=\"#73738b\" fill=\"{(n.Directory ? "#efdb9e" : "#eeeefa")}\"/>");
             int textTop = y + n.FontSize + 1 - SvgText.Ascent("M", n.FontSize);
