@@ -41,6 +41,7 @@ GraphCases.Run();
 DotCases.Run();
 StateCases.Run();
 ActivityCases.Run();
+Console.WriteLine($"PASS {CanvasMetadataCases.Run()} canvas graph metadata assertions.");
 ChartCases.Run();
 Console.WriteLine($"PASS {StructuredRendererCases.Run()} structured renderer assertions.");
 GanttCases.Run();
