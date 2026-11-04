@@ -77,7 +77,7 @@ export class CanvasEditing {
   replaySelection() {
     const hits=[...new Set([this.view.marked,...this.view.additional||[]])].map(el=>this.view.index?.hits.get(el)).filter(Boolean);
     if(hits.length===1)this.view.emit('hit',{action:'select',...hits[0]});
-    else if(hits.length)this.view.region(hits);this.position();
+    else if(hits.length)this.view.region(hits,false,true);this.position();
   }
   action(action,options={}) {
     this.finishNudge();if(!this.scene?.state.nodes.length){this.announce('Select a structural diagram with editable shapes to arrange its canvas.',true);return;}
@@ -92,7 +92,7 @@ export class CanvasEditing {
       }
       if(action==='selectAll') {
         const hits=[...this.scene.nodes.values()].map(r=>this.view.index.hits.get(r.el)).filter(Boolean);
-        this.view.region(hits);return;
+        this.view.region(hits,false,true);return;
       }
       if(action==='place') {
         const previous=new Set(options.existing||[]),added=state.nodes.filter(n=>!previous.has(n.id));

@@ -252,7 +252,10 @@ class Viewport {
     this.canvas?.position();
     return value;
   }
-  region(hits, add=false) {
+  region(hits, add=false, exactVisual=false) {
+    // DOT marquee selection owns nodes; their internal edges participate in
+    // source operations automatically. Explicit canvas selections stay exact.
+    if(!exactVisual && hits.some(hit=>hit.dot)) hits=hits.filter(hit=>hit.dot?.kind==='node'&&!hit.field);
     const requested = new Set(hits);
     const elements = [...this.index.hits].filter(([,hit])=>requested.has(hit)).map(([el])=>el);
     const geometric = elements.length > 0 && elements.every(el=>this.canvas?.scene?.nodeFor(el) || this.canvas?.scene?.edgeFor(el));

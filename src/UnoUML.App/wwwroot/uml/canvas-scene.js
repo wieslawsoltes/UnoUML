@@ -4,6 +4,8 @@ const ns='http://www.w3.org/2000/svg';
 const matrixText=m=>`matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`;
 const point=(p,m)=>new DOMPoint(p.x,p.y).matrixTransform(m);
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const textState=el=>({el,transform:el.getAttribute('transform')||'',x:Number.parseFloat(el.getAttribute('x'))||0,y:Number.parseFloat(el.getAttribute('y'))||0});
+const keepTextSize=(texts,sx,sy)=>{for(const t of texts)t.el.setAttribute('transform',`${t.transform} translate(${t.x} ${t.y}) scale(${1/sx} ${1/sy}) translate(${-t.x} ${-t.y})`);};
 const defaults={algorithm:'layered',direction:'down',nodeSpacing:32,layerSpacing:64,routingPadding:12,
   gridColumns:0,iterations:200,seed:1,gridSize:16,snapToGrid:true,snapToObjects:true,automatic:false};
 
@@ -70,7 +72,7 @@ export class CanvasScene {
       if(b.width<1 || b.height<1) continue;
       const base={id,...b,locked:false,pinned:false,rotation:0,zIndex:0,collapsed:false};
       const texts=[...el.querySelectorAll('text')].filter(text=>text.closest('g.entity,g.cluster,g[data-canvas-id]')===el)
-        .map(text=>({el:text,transform:text.getAttribute('transform') || '',x:Number.parseFloat(text.getAttribute('x')) || 0,y:Number.parseFloat(text.getAttribute('y')) || 0}));
+        .map(textState);
       this.nodes.set(id,{el,base,matrix:this.matrix(el),texts,display:el.style.display});
       byElement.set(el,id); this.base.nodes.push(base); el.dataset.canvasNode=id;
       ids.addNode(id,el.getAttribute('id'),['data-qualified-name','data-c4-alias','data-dot-id','data-entity'].map(name=>el.getAttribute(name)));
@@ -118,7 +120,8 @@ export class CanvasScene {
         const c=center(cb),near=Math.min(distance(c,initial[0]),distance(c,initial.at(-1)));
         const isLabel=child.localName==='text' || child.localName==='rect' || child.querySelector('text');
         const end=distance(c,initial[0])<=distance(c,initial.at(-1)) ? 0 : 1;
-        const fraction=isLabel ? (near<30 && distance(c,pointOnRoute(initial))>near*1.8 ? end : .5) : end;
+        const explicit=child.hasAttribute('data-canvas-fraction')?Number(child.getAttribute('data-canvas-fraction')):NaN;
+        const fraction=Number.isFinite(explicit)&&explicit>=0&&explicit<=1 ? explicit : isLabel ? (near<30 && distance(c,pointOnRoute(initial))>near*1.8 ? end : .5) : end;
         decorations.push({el:child,matrix:this.matrix(child),fraction,arrow:!isLabel});
       }
       const base={id,source,target,waypoints:initial,routing:'orthogonal',manual:false,locked:false};
@@ -127,7 +130,8 @@ export class CanvasScene {
     }
     for(const el of this.svg.querySelectorAll('[data-canvas-decoration-for]')) {
       const owner=el.getAttribute('data-canvas-decoration-for');
-      if(this.nodes.has(owner))this.decorations.push({el,owner,matrix:this.matrix(el),display:el.style.display});
+      if(this.nodes.has(owner))this.decorations.push({el,owner,matrix:this.matrix(el),display:el.style.display,
+        texts:(el.localName==='text'?[el]:[...el.querySelectorAll('text')]).map(textState)});
     }
   }
   points(el) {
@@ -172,11 +176,15 @@ export class CanvasScene {
       r.el.setAttribute('transform',matrixText(parent.inverse().multiply(change).multiply(r.matrix)));
       r.el.classList.toggle('canvas-locked',!!n.locked); r.el.classList.toggle('canvas-pinned',!!n.pinned);
       r.el.classList.toggle('canvas-collapsed',!!n.collapsed);
-      for(const t of r.texts) t.el.setAttribute('transform',`${t.transform} translate(${t.x} ${t.y}) scale(${1/sx} ${1/sy}) translate(${-t.x} ${-t.y})`);
+      keepTextSize(r.texts,sx,sy);
     }
     for(const decoration of this.decorations) {
       const change=changes.get(decoration.owner);decoration.el.style.display=change?decoration.display:'none';
-      if(change)decoration.el.setAttribute('transform',matrixText(this.matrix(decoration.el.parentElement).inverse().multiply(change).multiply(decoration.matrix)));
+      if(change) {
+        decoration.el.setAttribute('transform',matrixText(this.matrix(decoration.el.parentElement).inverse().multiply(change).multiply(decoration.matrix)));
+        const node=byId.get(decoration.owner),base=this.nodes.get(decoration.owner).base;
+        keepTextSize(decoration.texts,node.width/base.width,node.height/base.height);
+      }
     }
     // Only reorder siblings that represent nodes, never defs or renderer ornaments.
     const parents=new Map();
@@ -226,7 +234,11 @@ export class CanvasScene {
     this.svg.setAttribute('width',width);this.svg.setAttribute('height',height);
     this.view.x+=(x-previous.x)*this.view.z;this.view.y+=(y-previous.y)*this.view.z;
   }
-  nodeFor(el) {const owner=el?.closest('[data-canvas-node]');return owner && this.state.nodes.find(n=>n.id===owner.dataset.canvasNode);}
+  nodeFor(el) {
+    const owner=el?.closest('[data-canvas-node],[data-canvas-decoration-for]');
+    const id=owner?.dataset.canvasNode||owner?.dataset.canvasDecorationFor;
+    return id&&this.state.nodes.find(n=>n.id===id);
+  }
   edgeFor(el) {const owner=el?.closest('[data-canvas-edge]');return owner && this.state.edges.find(n=>n.id===owner.dataset.canvasEdge);}
   world(x,y) {return point({x,y},this.svg.getScreenCTM().inverse());}
   screen(p) {const value=point(p,this.svg.getScreenCTM()),r=this.view.rect();return {x:value.x-r.left,y:value.y-r.top};}

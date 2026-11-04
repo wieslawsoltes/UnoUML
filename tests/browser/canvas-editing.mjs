@@ -85,6 +85,10 @@ export async function verifyCanvasEditing(page,source) {
   const beforeChild=await shape('ZGroup.AChild').boundingBox(),group=shape('ZGroup').locator('text').filter({hasText:'ZGroup'}).first();
   await drag(group,42,24,['Alt']);
   const afterChild=await shape('ZGroup.AChild').boundingBox();assert.ok(Math.abs(afterChild.x-beforeChild.x-42)<2&&Math.abs(afterChild.y-beforeChild.y-24)<2,'Group drag translates children exactly once');
+  await shape('ZGroup.AChild').click();await menu('Lock selection');
+  await group.click();const childLocked=await source.inputValue();await surface.press('Delete');
+  assert.equal(await source.inputValue(),childLocked,'Deleting a container cannot bypass a child lock');
+  await shape('ZGroup.AChild').click();await menu('Unlock selection');await group.click();
   const routes=(await metadata()).edges.map(e=>e.waypoints);
   await menu('Collapse selected containers');assert.equal(await shape('ZGroup.AChild').isVisible(),false);
   await menu('Expand selected containers');assert.equal(await shape('ZGroup.AChild').isVisible(),true);

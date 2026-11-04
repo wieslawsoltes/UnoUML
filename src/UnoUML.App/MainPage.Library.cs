@@ -199,7 +199,7 @@ public sealed partial class MainPage
                 actions.Children.Add(Command("Move up", "up", () => Edit(() => doc.Move(item, -1))));
                 actions.Children.Add(Command("Move down", "down", () => Edit(() => doc.Move(item, 1))));
             }
-            actions.Children.Add(Command("Delete object", "delete", () => Edit(() => doc.Remove(item))));
+            actions.Children.Add(Command("Delete object", "delete", () => DeleteCanvasObjects(() => doc.Remove(item))));
             Properties.Children.Add(actions);
         }
         AddCanvasInspectorActions();

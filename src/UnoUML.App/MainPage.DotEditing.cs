@@ -79,7 +79,7 @@ public sealed partial class MainPage
         if (item.CanEditConnection)
         {
             Properties.Children.Add(Caption("Drag an endpoint handle onto another node to reconnect this edge."));
-            Properties.Children.Add(Item("Delete edge", "delete", () => Edit(() => doc.RemoveDotEdge(item), "Select an editable DOT edge to delete it.")));
+            Properties.Children.Add(Item("Delete edge", "delete", () => DeleteCanvasObjects(() => doc.RemoveDotEdge(item), "Select an editable DOT edge to delete it.")));
         }
         else if (item.Location.Kind == "edge") Properties.Children.Add(Caption("This edge metadata no longer matches the source. Select it again after rendering."));
     }
@@ -89,7 +89,7 @@ public sealed partial class MainPage
         Properties.Children.Add(Item("Group in cluster…", "layers", () => _ = GroupDotSelectionAsync(items)));
         if (items.All(item => item.CanDuplicate))
             Properties.Children.Add(Item(items.Length == 1 ? "Duplicate node" : "Duplicate selected nodes", "plus", () => Edit(() => doc.DuplicateDotObjects(items))));
-        Properties.Children.Add(Item(items.Length == 1 ? "Delete node" : "Delete selected nodes", "delete", () => Edit(() => doc.RemoveDotObjects(items))));
+        Properties.Children.Add(Item(items.Length == 1 ? "Delete node" : "Delete selected nodes", "delete", () => DeleteCanvasObjects(() => doc.RemoveDotObjects(items))));
     }
 
     private async Task GroupDotSelectionAsync(DotObjectEdit[] items)
