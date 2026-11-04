@@ -9,7 +9,7 @@ export async function verifyCanvasEditing(page,source) {
   const shape=id=>paper.locator(`[data-canvas-node="${id}"]`);
   const input='@startuml\nclass A\nclass B\nclass C\nA --> B : request\nB --> C : response\n@enduml';
   const metadata=async()=>JSON.parse((await source.inputValue()).replace(/^\uFEFF/,'').split('\n')[0].slice("' @unouml:canvas ".length));
-  const waitSource=expected=>page.waitForFunction(({input,expected})=>input.value===expected,{input:sourceElement,expected});
+  const waitSource=async expected=>page.waitForFunction(({input,expected})=>input.value===expected,{input:await source.elementHandle(),expected});
   const waitMetadata=expected=>page.waitForFunction(({input,expected})=>{
     try {
       const state=JSON.parse(input.value.replace(/^\uFEFF/,'').split('\n')[0].slice("' @unouml:canvas ".length));
@@ -166,21 +166,83 @@ export async function verifyCanvasEditing(page,source) {
   assert.equal(await paper.locator('.multi-mark').count(),(await metadata()).nodes.length-1,'Select all includes generated junctions and endpoints');
   await surface.press('Escape');
 
+  const caretProjection=await page.evaluate(async()=>{
+    const {syncSourceText,removeSourceText}=await import(new URL('uml/source-text.js',document.baseURI));
+    const root=document.createElement('div'),input=document.createElement('textarea');
+    root.id='unouml-source-text-projection-check';root.hidden=true;root.append(input);document.body.append(root);
+    try {
+      const results=[];
+      for(const [start,end,direction] of [[4,4,'forward'],[1,3,'backward']]) {
+        input.value='a\nbc';input.setSelectionRange(start,end,direction);
+        syncSourceText(root.id,JSON.stringify('\uFEFFa\r\nbc'));
+        results.push([input.value,input.selectionStart,input.selectionEnd,input.selectionDirection]);
+      }
+      return results;
+    } finally {removeSourceText(root.id);root.remove();}
+  });
+  assert.deepEqual(caretProjection,[['\uFEFFa\nbc',5,5,'forward'],['\uFEFFa\nbc',2,4,'backward']],
+    'Native BOM repair maps end/interior UTF-16 selections and normalizes only the textarea projection');
+
   // A BOM remains at file start while the geometry comment moves before @start.
   // Rebuild literal offsets when that changes the renderer's page-relative input.
   const bom='\uFEFF@startdot\ndigraph G { A [label="Original"]; B; A -> B; }\n@enddot';
   await source.fill(bom);await shape('node:A').waitFor();await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
+  await waitSource(bom);
+  assert.equal(await source.inputValue(),bom,'The native source editor retains the BOM before canvas edits');
   const bomDrawing=await paper.locator('svg').first().elementHandle(),bomBefore=await measure(shape('node:A'));
   await drag(shape('node:A'),24,16,['Alt']);
   await page.waitForFunction(el=>!el.isConnected,bomDrawing);
-  await waitBounds('node:A',{...bomBefore,x:bomBefore.x+24,y:bomBefore.y+16});
+  const bomMoved={...bomBefore,x:bomBefore.x+24,y:bomBefore.y+16};
+  await waitBounds('node:A',bomMoved);
   const beforeLabel=await source.inputValue();
+  assert.ok(beforeLabel.startsWith('\uFEFF' + "' @unouml:canvas "),'The native editor preserves a BOM ahead of inserted geometry metadata');
+  assert.equal(beforeLabel.slice(beforeLabel.indexOf('\n')+1),bom.slice(1),'Geometry metadata preserves every semantic source character');
+  await surface.press('Control+z');await waitSource(bom);await waitBounds('node:A',bomBefore);
+  await surface.press('Control+y');await waitSource(beforeLabel);await waitBounds('node:A',bomMoved);
   await shape('node:A').locator('text').filter({hasText:/^Original$/}).dblclick();
   const label=page.getByRole('textbox',{name:'Edit diagram label',exact:true});await label.waitFor();
   await label.fill('After geometry');await label.press('Control+Enter');await label.waitFor({state:'hidden'});
-  await waitSource(beforeLabel.replace('A [label="Original"]','A [label="After geometry"]'));
+  const afterLabel=beforeLabel.replace('A [label="Original"]','A [label="After geometry"]');
+  await waitSource(afterLabel);
   await shape('node:A').locator('text').filter({hasText:/^After geometry$/}).waitFor();
   assert.ok((await source.inputValue()).startsWith('\uFEFF'),'Canvas authoring preserves the document BOM');
   assert.match(await source.inputValue(),/A \[label="After geometry"\]/,'BOM geometry edits retain valid exact-source label offsets');
-  console.log('Verified free geometry, atomic undo, auto layout, source-map identity, compound collapse, activity selection and BOM editing.');
+  await surface.press('Control+z');await waitSource(beforeLabel);
+  await shape('node:A').locator('text').filter({hasText:/^Original$/}).waitFor();
+  await surface.press('Control+y');await waitSource(afterLabel);
+  await shape('node:A').locator('text').filter({hasText:/^After geometry$/}).waitFor();
+
+  const saveSource=async expected=>{
+    const pending=page.waitForEvent('download');
+    await page.getByRole('button',{name:'Save',exact:true}).click();
+    const download=await pending;
+    assert.deepEqual(await readFile(await download.path()),Buffer.from(expected,'utf8'),'Save preserves the exact UTF-8 BOM and source bytes');
+    await page.waitForFunction(expected=>{
+      const draft=JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1'));
+      return draft?.Source===expected&&draft.Dirty===false;
+    },expected);
+  };
+  await saveSource(afterLabel);
+
+  // Textarea values normalize CRLF to LF; document, draft and download bytes do
+  // not. Exercise a real file picker so the file decoder and native projection
+  // both have to preserve the BOM without normalizing the managed document.
+  const crlf=afterLabel.replace(/\n/g,'\r\n'),name='BOM-roundtrip.puml';
+  const choosing=page.waitForEvent('filechooser');
+  await page.getByRole('button',{name:'Open',exact:true}).click();
+  await (await choosing).setFiles({name,mimeType:'text/plain',buffer:Buffer.from(crlf,'utf8')});
+  await page.waitForFunction(({name,source})=>{
+    const draft=JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1'));
+    return draft?.FileName===name&&draft.Source===source;
+  },{name,source:crlf});
+  await waitSource(afterLabel);
+  await saveSource(crlf);
+  await page.reload({waitUntil:'domcontentloaded'});
+  await paper.locator('svg').first().waitFor({state:'visible',timeout:120000});
+  await page.getByRole('button',{name:'Split',exact:true}).click();await source.waitFor({state:'visible'});
+  await waitSource(afterLabel);
+  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1')).Source),crlf,'Draft reload preserves BOM and CRLF bytes');
+  await shape('node:A').locator('text').filter({hasText:/^After geometry$/}).waitFor();
+  await source.press('Control+Home');await source.press('Delete');await waitSource(afterLabel.slice(1));
+  console.log('Verified free geometry, atomic undo, auto layout, source-map identity, compound collapse, activity selection, BOM editing, byte-exact Save/Open/draft reload and intentional BOM removal.');
 }

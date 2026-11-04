@@ -32,6 +32,7 @@ public sealed partial class MainPage : Page
     {
         InitializeComponent();
         BrowserAccessibility.Attach(SourceEditor);
+        BrowserSourceText.Attach(SourceEditor);
         BrowserAccessibility.Attach(SearchBox);
         BrowserAccessibility.Attach(PagePicker);
         BrowserScrollSynchronization.Attach(InspectorScrollViewer);
