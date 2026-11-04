@@ -65,6 +65,8 @@ internal static partial class GraphRenderer
         // Inferred state names have no declaration. Never bind a node edit to its first transition.
         if (!n.Implicit) s.Append(CultureInfo.InvariantCulture, $" data-source-line=\"{n.Line}\"");
         if (n.Alias != "") s.Append(CultureInfo.InvariantCulture, $" data-qualified-name=\"{SvgText.Escape(n.Qualified)}\"");
+        s.Append(CultureInfo.InvariantCulture, $" data-canvas-id=\"{SvgText.Escape(n.Qualified)}\"");
+        if (n.Parent?.Parent != null) s.Append(CultureInfo.InvariantCulture, $" data-canvas-parent=\"{SvgText.Escape(n.Parent.Qualified)}\"");
         s.Append("><title>").Append(SvgText.Escape(n.Label)).Append("</title>");
         if (n.IsStatePort)
         {
@@ -327,7 +329,7 @@ internal static partial class GraphRenderer
         string weight = e.Paint?.Thickness ?? skin.Get("arrowthickness","1.4");
         string dashes = e.Paint?.Dashes ?? (e.Arrow.Contains('.') ? "5 4" : "");
         string font = skin.Get("arrowfontcolor",skin.Get("defaultfontcolor","#232333"));
-        s.Append(CultureInfo.InvariantCulture, $"<g class=\"link\" data-style-name=\"arrow\" data-source-line=\"{e.Line}\"{(e.Paint?.Stroke == null ? "" : " data-style-linecolor=\"explicit\"")}{(e.Paint?.Thickness == null ? "" : " data-style-linethickness=\"explicit\"")}{(e.Paint?.Dashes == null ? "" : " data-style-linestyle=\"explicit\"")}><title>{SvgText.Escape(e.Caption.Length == 0 ? e.From.Label + " to " + e.To.Label : e.Caption)}</title>");
+        s.Append(CultureInfo.InvariantCulture, $"<g class=\"link\" data-style-name=\"arrow\" data-source-line=\"{e.Line}\" data-entity-1=\"{SvgText.Escape(e.From.Qualified)}\" data-entity-2=\"{SvgText.Escape(e.To.Qualified)}\"{(e.Paint?.Stroke == null ? "" : " data-style-linecolor=\"explicit\"")}{(e.Paint?.Thickness == null ? "" : " data-style-linethickness=\"explicit\"")}{(e.Paint?.Dashes == null ? "" : " data-style-linestyle=\"explicit\"")}><title>{SvgText.Escape(e.Caption.Length == 0 ? e.From.Label + " to " + e.To.Label : e.Caption)}</title>");
         string points = string.Join(" ", p.Select(v => FormattableString.Invariant($"{v.X},{v.Y}")));
         s.Append(CultureInfo.InvariantCulture, $"<polyline points=\"{points}\" fill=\"none\" stroke=\"transparent\" stroke-width=\"9\"/>");
         if (skin.LineType == "curve") s.Append(CultureInfo.InvariantCulture, $"<path d=\"{RoundedRoute(p)}\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"{weight}\"");

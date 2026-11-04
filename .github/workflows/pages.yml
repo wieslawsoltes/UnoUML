@@ -24,6 +24,7 @@ jobs:
       - name: Test source editing
         run: |
           node --test tests/publish-layout.mjs
+          node --test tests/canvas-geometry.mjs
           dotnet run --project tests/UnoUML.Core.Tests -c Release
           dotnet run --project tests/UnoUML.PlantUml.Tests -c Release
       - name: Pack the portable C# library

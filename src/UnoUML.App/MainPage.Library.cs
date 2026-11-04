@@ -134,6 +134,8 @@ public sealed partial class MainPage
                 literal.Kind is "number" or "integer" ? "Enter a numeric value." : "Edit the displayed value on the canvas. Its surrounding syntax and formatting are preserved."));
             Properties.Children.Add(Item(literal.Kind == "salt-state" ? "Toggle checked state" : "Edit field…", "edit", () => BeginCanvasEdit(item)));
             AddSaltFieldActions(literal);
+            AddStructuredFieldActions(literal);
+            AddDotFieldStructureActions(literal);
         }
         else if (DotSelection is { } dot) ShowDotInspector(dot);
         else if (additionalSelection.Count > 0 && selected != null) ShowSelectionActions();
@@ -148,6 +150,7 @@ public sealed partial class MainPage
             Properties.Children.Add(info);
             Properties.Children.Add(Caption("Select an object on the canvas to edit its properties, or choose it from the outline."));
             if (doc.Drawing is { } drawing) Properties.Children.Add(Item("Edit ASCII drawing…", "edit", () => { selected = drawing; BeginCanvasEdit(drawing); }));
+            AddStructuredDiagramActions();
         }
         else
         {
@@ -199,6 +202,7 @@ public sealed partial class MainPage
             actions.Children.Add(Command("Delete object", "delete", () => Edit(() => doc.Remove(item))));
             Properties.Children.Add(actions);
         }
+        AddCanvasInspectorActions();
         var visualObjects = doc.Objects.Where(o => o.Kind is not ("Source" or "Style" or "Caption" or "Library")).ToList();
         var outline = includeSourceInOutline || visualObjects.Count == 0 ? doc.Objects : visualObjects;
         ObjectCount.Text = outline.Count.ToString();

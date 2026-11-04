@@ -79,3 +79,19 @@
   pointer-events:auto; border:1px solid #cdcadc; border-radius:6px; padding:5px 8px;
   background:white; color:#37344a; font:13px system-ui,sans-serif; }
 .sheet-picker[hidden] { display:none; }
+
+.canvas-controls,.canvas-guides { position:absolute;inset:0;pointer-events:none; }
+.canvas-controls { z-index:1; }
+.canvas-handle { position:absolute;width:10px;height:10px;padding:0;transform:translate(-50%,-50%);border:1.5px solid #6651ca;background:white;box-sizing:border-box;pointer-events:auto;touch-action:none;cursor:crosshair; }
+.canvas-handle.rotate { border-radius:50%;background:#6651ca;cursor:grab; }
+.canvas-handle.point { background:#ece7ff;transform:translate(-50%,-50%) rotate(45deg); }
+.canvas-handle.label { width:13px;height:13px;border-radius:50%;background:#fff5ce;border-color:#a17b18;cursor:move; }
+.canvas-handle.dock { width:10px;height:10px;border-radius:50%;background:#bde9e2;border-color:#257267;z-index:2; }
+.canvas-handle:focus-visible { outline:2px solid #332667;outline-offset:3px; }
+.canvas-guide { position:absolute;background:#d66baf;opacity:.9; }
+.canvas-guide.vertical { top:0;bottom:0;width:1px; }
+.canvas-guide.horizontal { left:0;right:0;height:1px; }
+.surface:not([data-tool="select"]) .canvas-controls { display:none; }
+.canvas-locked { cursor:not-allowed; }
+.canvas-pinned { --canvas-pinned:1; }
+@media (pointer:coarse) { .canvas-handle { width:18px;height:18px; } .canvas-handle.dock { width:16px;height:16px; } }

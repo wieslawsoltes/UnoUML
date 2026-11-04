@@ -57,7 +57,7 @@ public sealed partial class DiagramViewport : ContentControl
         {
             await BrowserBridge.ReadyAsync();
             if (generation != ready || mounted) return;
-            BrowserBridge.Mount(HostId, Receive, RenderManaged);
+            BrowserBridge.Mount(HostId, Receive, RenderManaged, ProcessCanvasLayout);
             BrowserBridge.SetLocalMode(HostId, NativeEnabled);
             mounted = true;
             BrowserBridge.SetTool(HostId, tool);
@@ -105,6 +105,13 @@ public sealed partial class DiagramViewport : ContentControl
         var data = payload.RootElement;
         switch (data.GetProperty("kind").GetString())
         {
+            case "canvasLayout":
+                CanvasLayoutCommitted?.Invoke(data.GetProperty("revision").GetInt32(), data.GetProperty("json").GetString() ?? "null",
+                    data.TryGetProperty("merge", out var merge) && merge.GetBoolean());
+                break;
+            case "canvasStatus":
+                CanvasStatus?.Invoke(data.GetProperty("text").GetString() ?? "", data.GetProperty("error").GetBoolean());
+                break;
             case "label":
                 LabelCommitted?.Invoke(data.GetProperty("revision").GetInt32(), data.GetProperty("text").GetString() ?? "");
                 break;
@@ -136,7 +143,9 @@ public sealed partial class DiagramViewport : ContentControl
                     data.TryGetProperty("direction", out var direction) ? direction.GetString() ?? "" : ""));
                 break;
             case "drop":
-                DropSnippet?.Invoke(this, data.GetProperty("text").GetString()!);
+                if (data.TryGetProperty("x", out var x) && data.TryGetProperty("y", out var y))
+                    CanvasToolDropped?.Invoke(new(data.GetProperty("text").GetString()!, x.GetDouble(), y.GetDouble(), data.GetProperty("revision").GetInt32()));
+                else DropSnippet?.Invoke(this, data.GetProperty("text").GetString()!);
                 break;
         }
     }

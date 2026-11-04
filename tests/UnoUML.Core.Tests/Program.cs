@@ -160,4 +160,6 @@ assertions += ArchiveEditCases.Run();
 assertions += SourceFieldCases.Run();
 assertions += SaltEditCases.Run();
 assertions += YamlFieldCases.Run();
+assertions += CanvasLayoutCases.Run();
+assertions += StructuredEditCases.Run();
 Console.WriteLine($"PASS {assertions} assertions, {StudioCatalog.Templates.Count} templates, {StudioCatalog.Tools.Count} tools.");

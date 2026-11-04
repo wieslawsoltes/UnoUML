@@ -32,6 +32,9 @@ public sealed partial class MainPage
     private void OnCanvasCommand(string action, string text)
     {
         if (renderedRevision != revision) return;
+        if (action is "delete" or "cut" && viewport.GetCanvasInfo() is { } canvas &&
+            (canvas.State.Nodes.Any(n => n.Locked && canvas.Nodes.Contains(n.Id)) || canvas.State.Edges.Any(e => e.Locked && canvas.Edges.Contains(e.Id))))
+        { Status("Unlock the selected canvas objects before deleting them."); return; }
         if (doc.Page.Family == "DOT" && action == "paste") { OnDotCanvasCommand(action, text); return; }
         if (JsonSelection != null)
         {

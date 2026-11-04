@@ -23,7 +23,8 @@ internal static partial class BrowserBridge
     [JSImport("readResource", Module)] internal static partial string? ReadResource(string path);
     [JSImport("mount", Module)]
     internal static partial void Mount(string id, [JSMarshalAs<JSType.Function<JSType.String>>] Action<string> receive,
-        [JSMarshalAs<JSType.Function<JSType.String, JSType.String>>] Func<string, string> renderManaged);
+        [JSMarshalAs<JSType.Function<JSType.String, JSType.String>>] Func<string, string> renderManaged,
+        [JSMarshalAs<JSType.Function<JSType.String, JSType.String>>] Func<string, string> layoutManaged);
     [JSImport("setLocalMode", Module)] internal static partial void SetLocalMode(string id, bool nativeEnabled);
     [JSImport("unmount", Module)] internal static partial void Unmount(string id);
     [JSImport("render", Module)] internal static partial Task Render(string id, string source, string? fileName);

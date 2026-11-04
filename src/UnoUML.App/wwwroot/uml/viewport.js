@@ -1,4 +1,5 @@
 import { DirectEditing } from './direct-editing.js';
+import { CanvasEditing } from './canvas-editing.js';
 import { indexHits, parseSvg } from './svg.js';
 import { download, includeFiles, includeRevision } from './files.js';
 import { beginResourcePass, prepareResources } from './resources.js';
@@ -37,7 +38,7 @@ function html(tag, css, parent) {
   return el;
 }
 class Viewport {
-  constructor(host, emit, renderManaged) {
+  constructor(host, emit, renderManaged, layoutManaged) {
     this.renderManaged = renderManaged;
     this.localMode = 'auto';
     this.host = host;
@@ -51,7 +52,7 @@ class Viewport {
     this.surface = html('div', 'surface', root);
     this.surface.tabIndex = 0; this.surface.dataset.tool = 'select';
     this.surface.setAttribute('role', 'region');
-    this.surface.setAttribute('aria-label', 'Diagram canvas. Arrow keys select objects, Enter edits the label. Drag the background to pan or Shift-drag to box-select; control-wheel or pinch to zoom.');
+    this.surface.setAttribute('aria-label', 'Diagram canvas. Drag shapes to move; handles resize and rotate. Arrow keys nudge selected shapes, Shift-arrow moves one grid step, Control-arrow selects objects. Enter edits a label. Shift-drag the background to box-select; control-wheel or pinch to zoom.');
     this.announcement = html('div', 'announcement', this.surface);
     this.announcement.setAttribute('role', 'status');
     this.announcement.setAttribute('aria-live', 'polite');
@@ -76,6 +77,7 @@ class Viewport {
       this.announcement.textContent = this.sheetPicker.selectedOptions[0].text;
     });
     this.direct = new DirectEditing(this);
+    this.canvas = new CanvasEditing(this, layoutManaged);
     this.bindGestures();
     this.resize = new ResizeObserver(() => this.autoFit ? this.fit() : this.position());
     this.resize.observe(host);
@@ -83,6 +85,7 @@ class Viewport {
   dispose() { this.direct.finishLabel(false); this.resize.disconnect(); this.version++; this.host.shadowRoot.replaceChildren(); this.cache.clear(); }
   async render(source, fileName = '') {
     this.direct.finishLabel(false);
+    this.canvas.cancel();
     const version = ++this.version;
     this.fetchJob?.abort();
     const endpoint = getServerEndpoint();
@@ -171,6 +174,7 @@ class Viewport {
     }).map(([el]) => el);
     this.drag = null; this.linkStart = null; this.clearGuide();
     this.paper.replaceChildren(this.svg);
+    this.canvas.attach();
     this.paper.classList.remove('is-new');
     requestAnimationFrame(() => this.paper.classList.add('is-new'));
     this.placeholder.hidden = true;
@@ -199,6 +203,7 @@ class Viewport {
     this.outline(this.selection, this.marked);
     this.direct.positionField();
     this.direct.positionEnds();
+    this.canvas?.position();
   }
   outline(box, el) {
     box.hidden = !el;
@@ -211,9 +216,15 @@ class Viewport {
     // Repeated sequence headers share a source identity. Keep the exact sheet
     // hit by the pointer when managed selection synchronizes that identity.
     const current = this.index?.hits.get(this.marked);
+    // Synthetic junctions and implicit entities still own visual geometry even
+    // when the source inspector has no literal declaration to select.
+    if (!id && line < 0 && current?.line < 0 && this.marked?.matches('[data-canvas-node],[data-canvas-edge]')) {
+      this.outline(this.selection,this.marked);this.canvas?.position();return;
+    }
     if (!current || (id ? current.id !== id : current.line !== line))
       this.marked = (id && this.index?.byId.get(id)) || this.index?.byLine.get(line) || null;
     this.outline(this.selection, this.marked);
+    this.canvas?.position();
   }
   setAdditional(values, text, byId = false) {
     this.clipboard = text;
@@ -221,12 +232,14 @@ class Viewport {
     this.additional = values ? values.split(',').map(value => byId
       ? this.index?.byId.get(decodeURIComponent(value)) : this.index?.byLine.get(Number(value))).filter(Boolean) : [];
     this.additional.forEach(el => el.classList.add('multi-mark'));
+    this.canvas?.position();
   }
   hit(el, kind='select') {
     const value = this.index?.hits.get(el) || empty;
     this.marked = el; this.outline(this.selection, el);
     this.announcement.textContent = value.label || value.id || (value.line >= 0 ? 'Source line ' + (value.line + 1) : 'Selection cleared');
     this.emit('hit', { action:kind, ...value });
+    this.canvas?.position();
     return value;
   }
   direction(el, x, y, drag) {
@@ -237,10 +250,13 @@ class Viewport {
     if (Math.max(Math.abs(dx), Math.abs(dy)) < .05) { dx = drag.x - x; dy = drag.y - y; }
     return Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down');
   }
-  setTool(tool) { this.surface.dataset.tool = tool; this.linkStart = null; this.clearGuide(); }
+  setTool(tool) { this.canvas.cancel(); this.surface.dataset.tool = tool; this.linkStart = null; this.clearGuide(); }
   clearGuide() { this.guide.setAttribute('hidden',''); this.target.hidden = true; this.direct.box.hidden = true; }
   bindGestures() {
     const s = this.surface, pointers = this.pointers;
+    s.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.target.closest('input,textarea,[contenteditable]')){this.spacePan=true;e.preventDefault();}});
+    s.addEventListener('keyup',e=>{if(e.code==='Space')this.spacePan=false;});
+    s.addEventListener('blur',()=>{this.spacePan=false;});
     const distance = () => { const [a,b] = pointers.values(); return Math.hypot(b.x-a.x,b.y-a.y); };
     for (const kind of ['copy','cut','paste']) s.addEventListener(kind, event => {
       if (!event.clipboardData) return;
@@ -273,13 +289,17 @@ class Viewport {
     });
     s.addEventListener('drop', e => {
       const text = e.dataTransfer.getData('text/plain');
-      if (text.startsWith('unouml:tool:')) { e.preventDefault(); e.stopPropagation(); this.emit('drop', { text }); }
+      if (text.startsWith('unouml:tool:')) {
+        e.preventDefault(); e.stopPropagation();
+        const p=this.canvas.scene?.world(e.clientX,e.clientY);
+        this.emit('drop', {text,x:p?.x,y:p?.y,revision:this.canvas.revision});
+      }
     });
     s.addEventListener('click', e => e.preventDefault());
     s.addEventListener('dblclick', e => { if (this.touchEditTime && performance.now() - this.touchEditTime < 400) return;
       const el = this.pick(this.host.shadowRoot.elementFromPoint(e.clientX, e.clientY)); if (el) this.hit(el,'edit'); });
     s.addEventListener('keydown', e => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if ((e.ctrlKey || e.metaKey) && !e.key.startsWith('Arrow') || e.altKey) return;
       if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End') {
         if (!this.objects?.length) return;
         const backwards = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
@@ -321,8 +341,9 @@ class Viewport {
       const el = port ? this.marked : this.pick(e.target);
       s.focus({preventScroll:true}); s.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-      if (pointers.size === 2) { this.drag=null; this.pinch=distance(); this.clearGuide(); return; }
-      let tool = s.dataset.tool;
+      if (pointers.size === 2) { this.canvas.cancel(); this.drag=null; this.pinch=distance(); this.clearGuide(); return; }
+      let tool = this.spacePan ? 'pan' : s.dataset.tool;
+      if (!port && this.canvas.pointerDown(e,el,tool)) { this.drag=null; return; }
       if (e.button === 1) tool = 'pan';
       else if (port) tool = port;
       else if (this.linkStart && el) tool = this.linkStart.action;
@@ -338,6 +359,7 @@ class Viewport {
         if (this.pinch>0 && next>0) this.zoom(next / this.pinch,(a.x+b.x)/2-r.left,(a.y+b.y)/2-r.top);
         this.pinch=next; return;
       }
+      if (this.canvas.pointerMove(e)) return;
       const drag=this.drag; if (!drag || drag.id!==e.pointerId) return;
       const dx=e.clientX-drag.x, dy=e.clientY-drag.y;
       drag.moved ||= Math.hypot(dx,dy)>4;
@@ -354,6 +376,7 @@ class Viewport {
     });
     const finish = (e, cancelled) => {
       pointers.delete(e.pointerId);
+      if (this.canvas.pointerUp(e,cancelled)) { this.drag=null; this.clearGuide(); return; }
       const d=this.drag; this.drag=null; delete s.dataset.panning; this.clearGuide();
       if (!d || cancelled || d.id!==e.pointerId) return;
       const el=this.pick(this.host.shadowRoot.elementFromPoint(e.clientX,e.clientY));
@@ -386,10 +409,10 @@ class Viewport {
     s.addEventListener('pointercancel',e=>finish(e,true));
   }
 }
-export function mount(id, emit, renderManaged) {
+export function mount(id, emit, renderManaged, layoutManaged) {
   const host=document.getElementById(id);
   if (!host) throw new Error('Uno canvas host is unavailable.');
-  views.get(id)?.dispose(); views.set(id,new Viewport(host,emit,renderManaged));
+  views.get(id)?.dispose(); views.set(id,new Viewport(host,emit,renderManaged,layoutManaged));
 }
 export function unmount(id) { views.get(id)?.dispose(); views.delete(id); }
 export function setTool(id, value) { views.get(id)?.setTool(value); }
@@ -399,11 +422,12 @@ export function fit(id) { views.get(id)?.fit(); }
 export async function render(id, source, fileName = '') { await views.get(id).render(source, fileName); }
 export async function exportDiagram(id, format, fileName) {
   const view = views.get(id);
-  const svg = view?.pristine && view.exportSource;
+  const svg = view?.pristine && view.svg;
   if (!svg) throw new Error('Render a diagram before exporting.');
   if (view.sheetPicker.selectedIndex > 0) fileName = fileName.replace(/(\.[^.]+)?$/, (_, ext) => '-sheet-' + view.sheetPicker.selectedIndex + (ext || ''));
   const clean = svg.cloneNode(true);
   clean.removeAttribute('x'); clean.removeAttribute('y');
+  clean.querySelectorAll('.multi-mark').forEach(el=>el.classList.remove('multi-mark'));
   const file = new Blob([new XMLSerializer().serializeToString(clean)],{type:'image/svg+xml;charset=utf-8'});
   if (format === 'svg') { download(fileName, file); return; }
   if (format === 'print') {
@@ -448,3 +472,8 @@ export function setLocalMode(id, nativeEnabled) { const view = views.get(id); if
 export function setEndpoints(id, from, to) { views.get(id)?.direct.setEndpoints(from, to); }
 
 export function selectJsonToken(id, start) { const v = views.get(id), el = v?.index?.byToken.get(start); if (el) { v.marked = el; v.outline(v.selection, el); } }
+
+export function setCanvasState(id, json, revision) { views.get(id)?.canvas.load(json,revision); }
+export function getCanvasState(id) { return views.get(id)?.canvas.info() || '{}'; }
+export function canvasAction(id, action, options) { views.get(id)?.canvas.action(action,options?JSON.parse(options):{}); }
+export function canvasCommitResult(id,accepted) { const c=views.get(id)?.canvas;if(c?.pendingCommit)c.pendingCommit.accepted=accepted; }

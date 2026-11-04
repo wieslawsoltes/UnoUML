@@ -176,12 +176,12 @@ export function indexHits(svg, source, exactSourceMap = false) {
     if (id && (!byId.has(id) || el.classList.contains('participant-head'))) byId.set(id, el);
     if (line >= 0 && (!byLine.has(line) || el.matches('.participant-head, .message'))) byLine.set(line, el);
   }
-  for (const el of svg.querySelectorAll('[data-source-line],[data-qualified-name],[data-edit-start]')) {
+  for (const el of svg.querySelectorAll('[data-source-line],[data-qualified-name],[data-edit-start],[data-canvas-id]')) {
     if (!el.children.length && !(exactSourceMap && (el.hasAttribute('data-json-start') || el.hasAttribute('data-edit-start')))) continue;
     // C4 aliases are global even inside visual boundaries. The renderer's
     // qualified names describe geometry while the source editor uses aliases.
     let id = (exactSourceMap && el.closest('[data-dot-id]')?.getAttribute('data-dot-id')) ||
-      (exactSourceMap && el.getAttribute('data-c4-alias')) || el.getAttribute('data-qualified-name') || '';
+      (exactSourceMap && el.getAttribute('data-c4-alias')) || el.getAttribute('data-qualified-name') || el.getAttribute('data-canvas-id') || '';
     const label = (el.localName === 'text' ? el.textContent : null) || el.querySelector('title')?.textContent || el.querySelector('text:last-of-type')?.textContent || id;
     const n = el.closest('[data-source-line]')?.getAttribute('data-source-line') ?? null;
     let line = n !== null && /^\d+$/.test(n) ? Number(n) : -1;

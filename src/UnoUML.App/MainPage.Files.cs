@@ -125,6 +125,7 @@ public sealed partial class MainPage
             viewport.SourceFileName = fileName;
             if (renderedRevision != request) await viewport.RenderAsync(doc.Page.Source);
             if (revision != request) { Status("The diagram changed during export. Export the updated version.", true); return; }
+            ApplyCanvasLayout();
             var stem = System.IO.Path.GetFileNameWithoutExtension(fileName);
             if (doc.Pages.Count > 1) stem += $"-{doc.ActivePage + 1}";
             await viewport.ExportAsync(format, stem + "." + format);

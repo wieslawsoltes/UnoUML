@@ -40,6 +40,9 @@ public sealed partial class MainPage : Page
         viewport.LabelCommitted += CommitCanvasLabel;
         viewport.RegionSelected += SelectCanvasRegion;
         viewport.CanvasCommand += OnCanvasCommand;
+        viewport.CanvasLayoutCommitted += CommitCanvasLayout;
+        viewport.CanvasToolDropped += DropCanvasTool;
+        viewport.CanvasStatus += Status;
         viewport.Hit += (_, hit) => OnHit(hit);
         viewport.Gesture += (_, gesture) => OnGesture(gesture);
         viewport.DropSnippet += (_, payload) => DropTool(payload);
@@ -90,6 +93,8 @@ public sealed partial class MainPage : Page
         {
             var b = Command(name, key, () => SetTool(key)); tools.Add(key, b); CanvasTools.Children.Add(b);
         }
+        arrangeButton = Command("Arrange canvas", "layers", ShowArrangeMenu);
+        CanvasTools.Children.Add(arrangeButton);
         ZoomActions.Children.Add(Command("Zoom out", "minus", () => viewport.ZoomBy(1 / 1.2)));
         ZoomActions.Children.Add(zoomLabel);
         ZoomActions.Children.Add(Command("Zoom in", "plus", () => viewport.ZoomBy(1.2)));
@@ -204,7 +209,7 @@ public sealed partial class MainPage : Page
         SourcePanel.Visibility = mode == "Design" ? Visibility.Collapsed : Visibility.Visible;
         CanvasTools.Visibility = mode == "Source" ? Visibility.Collapsed : Visibility.Visible;
         ZoomActions.Visibility = CanvasTools.Visibility;
-        if (centerWidth < 390 && CanvasTools.Children.Count > 2)
+        if (centerWidth < 450 && CanvasTools.Children.Count > 2)
         {
             CanvasTools.Children[1].Visibility = CanvasTools.Children[3].Visibility = Visibility.Collapsed;
         }
@@ -302,6 +307,7 @@ public sealed partial class MainPage : Page
             await viewport.RenderAsync(input);
             if (request != revision) return;
             renderedRevision = request;
+            CanvasRendered(input);
             if (fitAfterRender) { viewport.Fit(); fitAfterRender = false; }
             SyncCanvasSelection();
             if (draftSaved) Status((dirty ? "Draft saved in this browser" : "Ready") + " · " + viewport.ActiveRenderer);

@@ -42,6 +42,7 @@ DotCases.Run();
 StateCases.Run();
 ActivityCases.Run();
 ChartCases.Run();
+Console.WriteLine($"PASS {StructuredRendererCases.Run()} structured renderer assertions.");
 GanttCases.Run();
 NetworkCases.Run();
 SaltCases.Run();
