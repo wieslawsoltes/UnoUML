@@ -238,11 +238,35 @@ class Viewport {
   }
   hit(el, kind='select') {
     const value = this.index?.hits.get(el) || empty;
+    const owner = item => this.canvas?.scene?.nodeFor(item)?.id || this.canvas?.scene?.edgeFor(item)?.id;
+    let visual;
+    if (kind === 'toggle' && owner(el)) {
+      const current = [...new Set([this.marked,...this.additional||[]])].filter(Boolean);
+      const exists = current.some(item=>owner(item)===owner(el));
+      visual = exists ? current.filter(item=>owner(item)!==owner(el)) : [el,...current];
+    }
     this.marked = el; this.outline(this.selection, el);
     this.announcement.textContent = value.label || value.id || (value.line >= 0 ? 'Source line ' + (value.line + 1) : 'Selection cleared');
     this.emit('hit', { action:kind, ...value });
+    if (visual) this.selectVisual(visual);
     this.canvas?.position();
     return value;
+  }
+  region(hits, add=false) {
+    const requested = new Set(hits);
+    const elements = [...this.index.hits].filter(([,hit])=>requested.has(hit)).map(([el])=>el);
+    const geometric = elements.length > 0 && elements.every(el=>this.canvas?.scene?.nodeFor(el) || this.canvas?.scene?.edgeFor(el));
+    const visual = geometric ? [...new Set([...(add?[this.marked,...this.additional||[]]:[]),...elements])].filter(Boolean) : null;
+    this.emit('region',{hits,add});
+    // Source constructs can own several independent visual junctions. Source
+    // selection drives the inspector; canvas selection retains those junctions.
+    if (visual) this.selectVisual(visual);
+  }
+  selectVisual(elements) {
+    this.additional?.forEach(el=>el.classList.remove('multi-mark'));
+    this.marked=elements[0]||null;this.additional=elements.slice(1);
+    this.additional.forEach(el=>el.classList.add('multi-mark'));
+    this.outline(this.selection,this.marked);this.canvas?.position();
   }
   direction(el, x, y, drag) {
     const r = el.getBoundingClientRect();

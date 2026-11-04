@@ -118,6 +118,9 @@ export function indexHits(svg, source, exactSourceMap = false) {
   function register(el, id, line, label) {
     el.setAttribute('data-uml-hit', '');
     const hit = { id, line, label };
+    // Closing junctions have visual geometry and may expose a literal field,
+    // but do not represent a separately deletable source declaration.
+    if (el.matches('.activity-Join,.activity-LoopTest')) hit.visualOnly = true;
     if (exactSourceMap && el.closest('[data-source-generated="true"]')) hit.generated = true;
     const origin = el.closest('[data-source-file][data-file-line]');
     if (exactSourceMap && origin) {

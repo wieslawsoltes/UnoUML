@@ -77,7 +77,7 @@ export class CanvasEditing {
   replaySelection() {
     const hits=[...new Set([this.view.marked,...this.view.additional||[]])].map(el=>this.view.index?.hits.get(el)).filter(Boolean);
     if(hits.length===1)this.view.emit('hit',{action:'select',...hits[0]});
-    else if(hits.length)this.view.emit('region',{hits,add:false});this.position();
+    else if(hits.length)this.view.region(hits);this.position();
   }
   action(action,options={}) {
     this.finishNudge();if(!this.scene?.state.nodes.length){this.announce('Select a structural diagram with editable shapes to arrange its canvas.',true);return;}
@@ -92,7 +92,7 @@ export class CanvasEditing {
       }
       if(action==='selectAll') {
         const hits=[...this.scene.nodes.values()].map(r=>this.view.index.hits.get(r.el)).filter(Boolean);
-        this.view.emit('region',{hits,add:false});return;
+        this.view.region(hits);return;
       }
       if(action==='place') {
         const previous=new Set(options.existing||[]),added=state.nodes.filter(n=>!previous.has(n.id));
@@ -144,7 +144,7 @@ export class CanvasEditing {
     if(!handle && (!node || e.ctrlKey || e.metaKey))return false;
     const ids=this.selectedNodes();
     if(e.shiftKey && node && !ids.includes(node.id) && !handle)return false;
-    if(node && !ids.includes(node.id) && !handle) {this.view.hit(this.scene.nodes.get(node.id).el,e.shiftKey?'toggle':'select');}
+    if(node && !ids.includes(node.id) && !handle) {this.view.hit(el,e.shiftKey?'toggle':'select');}
     const selected=this.selectedNodes(),moving=descendants(this.scene.state.nodes,selected);
     const byId=new Map(this.scene.state.nodes.map(n=>[n.id,n]));
     const lockedParent=n=>{for(let p=byId.get(n?.parent);p;p=byId.get(p.parent))if(p.locked)return true;return false;};
@@ -152,7 +152,7 @@ export class CanvasEditing {
     if(node?.locked||blocked){this.announce('Unlock this selection before moving it.');return false;}
     const point=this.scene.world(e.clientX,e.clientY);
     this.gesture={pointer:e.pointerId,handle:handle||'move',start:point,screen:{x:e.clientX,y:e.clientY},
-      before:clone(this.scene.state),ids:selected,moving,nodeId:node?.id||selected[0],edgeId:edge?.id||this.selectedEdges()[0],moved:false,add:e.shiftKey};
+      before:clone(this.scene.state),ids:selected,moving,nodeId:node?.id||selected[0],edgeId:edge?.id||this.selectedEdges()[0],hit:el,moved:false,add:e.shiftKey};
     this.waypointSelection=handle?.startsWith('point:')?Number(handle.split(':')[1]):null;
     this.waypointEdge=this.gesture.edgeId;
     e.preventDefault();return true;
@@ -198,7 +198,7 @@ export class CanvasEditing {
     if(cancelled){this.apply(g.before);this.view.position();return true;}
     if(g.moved)this.commit(this.scene.state,g.before,'Canvas geometry saved.');
     else if(g.handle==='move') {
-      const el=this.scene.nodes.get(g.nodeId).el;
+      const el=g.hit||this.scene.nodes.get(g.nodeId).el;
       if(e.pointerType==='touch') {
         const now=performance.now(),twice=this.view.tap?.el===el && now-this.view.tap.at<400;
         this.view.tap=twice?null:{el,at:now};if(twice){this.view.touchEditTime=now;this.view.hit(el,'edit');return true;}

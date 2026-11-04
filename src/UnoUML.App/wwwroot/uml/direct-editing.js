@@ -241,7 +241,7 @@ export class DirectEditing {
       chosen.add(el); hits.push(this.view.index.hits.get(el));
     }
     this.box.hidden = true;
-    this.view.emit('region', {hits, add: drag.add});
+    this.view.region(hits, drag.add);
     this.view.announcement.textContent = hits.length + ' objects inside the selection box';
   }
 }

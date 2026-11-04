@@ -346,6 +346,7 @@ public sealed partial class MainPage : Page
 
     DiagramObject? Resolve(DiagramHit hit)
     {
+        if (hit.VisualOnly) return null;
         var item = doc.Find(hit.Id, hit.Line >= 0 ? hit.Line + doc.Page.StartLine : null);
         if (hit.Generated && (item is not { CanRename: true, MacroName.Length: > 0 } ||
             item.IsConnectable && (hit.Id.Length == 0 || hit.Id != item.Alias && !hit.Id.EndsWith("." + item.Alias, StringComparison.Ordinal)))) return null;
@@ -381,7 +382,12 @@ public sealed partial class MainPage : Page
         }
         if (hit.Kind == "toggle" && JsonSelection == null && DotSelection == null &&
             (FieldSelection == null || FieldSelection.Kind == "activity-label" && Resolve(hit)?.Kind == "Activity"))
-        { selectedSourceField = null; ToggleSelection(Resolve(hit)); return; }
+        {
+            selectedSourceField = null;
+            if (Resolve(hit) is { } toggled) ToggleSelection(toggled);
+            else { selected = null; additionalSelection.Clear(); ShowInspector(); SyncCanvasSelection(hit); }
+            return;
+        }
         additionalSelection.Clear();
         selected = DotSelection == null ? Resolve(hit) : null;
         ShowInspector(); SyncCanvasSelection(hit);

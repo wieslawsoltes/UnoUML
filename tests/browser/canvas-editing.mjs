@@ -6,7 +6,7 @@ export async function verifyCanvasEditing(page,source) {
   const paper=page.locator('.paper').first(),surface=page.locator('.surface').first();
   const shape=id=>paper.locator(`[data-canvas-node="${id}"]`);
   const input='@startuml\nclass A\nclass B\nclass C\nA --> B : request\nB --> C : response\n@enduml';
-  const metadata=async()=>JSON.parse((await source.inputValue()).split('\n')[0].slice("' @unouml:canvas ".length));
+  const metadata=async()=>JSON.parse((await source.inputValue()).replace(/^\uFEFF/,'').split('\n')[0].slice("' @unouml:canvas ".length));
   const menu=async title=>{await page.getByRole('button',{name:'Arrange canvas',exact:true}).click();await page.getByText(title,{exact:true}).last().click();};
   const drag=async(locator,dx,dy,modifiers=[])=>{
     const box=await locator.boundingBox();assert.ok(box);const x=box.x+box.width/2,y=box.y+box.height/2;
@@ -89,5 +89,36 @@ export async function verifyCanvasEditing(page,source) {
   await menu('Collapse selected containers');assert.equal(await shape('ZGroup.AChild').isVisible(),false);
   await menu('Expand selected containers');assert.equal(await shape('ZGroup.AChild').isVisible(),true);
   assert.deepEqual((await metadata()).edges.map(e=>e.waypoints),routes,'Collapse is a transient projection and retains logical routes');
-  console.log('Verified free drag, resize, nudge, atomic undo, pin/lock, auto layout, exact bounds, cancellation, SVG export and compound collapse.');
+
+  const activity='@startuml\nstart\nif (Ready?) then (yes)\n:Accept;\nelse (no)\n:Reject;\nendif\n:Continue;\nstop\n@enduml';
+  await source.fill(activity);await paper.locator('.activity-Join').waitFor();
+  await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
+  const join=paper.locator('.activity-Join'),decision=paper.locator('.activity-Decision');
+  const joinBefore=await join.boundingBox(),decisionBefore=await decision.boundingBox();
+  await drag(join,31,23,['Alt']);
+  const joinAfter=await join.boundingBox(),decisionAfter=await decision.boundingBox();
+  assert.ok(Math.abs(joinAfter.x-joinBefore.x-31)<2&&Math.abs(joinAfter.y-joinBefore.y-23)<2,'A closing junction moves independently of its source construct');
+  assert.ok(Math.abs(decisionAfter.x-decisionBefore.x)<1&&Math.abs(decisionAfter.y-decisionBefore.y)<1,'Moving a join does not move the decision header');
+  const accept=paper.locator('.activity-Action').filter({hasText:'Accept'});
+  await accept.click();await join.click({modifiers:['Shift']});
+  assert.equal(await paper.locator('.multi-mark').count(),1,'Activity actions and closing junctions retain distinct visual multi-selection');
+  await surface.press('Escape');assert.equal(await page.locator('[data-canvas-handle]').count(),0,'Escape clears a visual-only selection');
+  await menu('Select all shapes');
+  assert.equal(await paper.locator('.multi-mark').count(),(await metadata()).nodes.length-1,'Select all includes generated junctions and endpoints');
+  await surface.press('Escape');
+
+  // A BOM remains at file start while the geometry comment moves before @start.
+  // Rebuild literal offsets when that changes the renderer's page-relative input.
+  const bom='\uFEFF@startdot\ndigraph G { A [label="Original"]; B; A -> B; }\n@enddot';
+  await source.fill(bom);await shape('node:A').waitFor();await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
+  const bomDrawing=await paper.locator('svg').first().elementHandle();
+  await drag(shape('node:A'),24,16,['Alt']);
+  await page.waitForFunction(el=>!el.isConnected,bomDrawing);
+  await shape('node:A').getByText('Original',{exact:true}).dblclick();
+  const label=page.getByRole('textbox',{name:'Edit diagram label',exact:true});await label.waitFor();
+  await label.fill('After geometry');await label.press('Control+Enter');await label.waitFor({state:'hidden'});
+  await shape('node:A').getByText('After geometry',{exact:true}).waitFor();
+  assert.ok((await source.inputValue()).startsWith('\uFEFF'),'Canvas authoring preserves the document BOM');
+  assert.match(await source.inputValue(),/A \[label="After geometry"\]/,'BOM geometry edits retain valid exact-source label offsets');
+  console.log('Verified free geometry, atomic undo, auto layout, source-map identity, compound collapse, activity selection and BOM editing.');
 }

@@ -9,7 +9,7 @@ namespace UnoUML.App.Rendering;
 public sealed record JsonHit(int Start, int Length, string Kind);
 public sealed record SourceFieldHit(int Start, int Length, string Kind, string Role);
 public sealed record DiagramHit(string Kind, string Id, int Line, string Label, bool Participant = false, JsonHit? Token = null, bool Generated = false,
-    string? SourceFile = null, int FileLine = -1, string? SourceArchive = null, SourceFieldHit? Field = null, DotSourceLocation? Dot = null);
+    string? SourceFile = null, int FileLine = -1, string? SourceArchive = null, SourceFieldHit? Field = null, DotSourceLocation? Dot = null, bool VisualOnly = false);
 public sealed record DiagramGesture(string Kind, DiagramHit From, DiagramHit To, string Direction = "");
 
 public sealed partial class DiagramViewport : ContentControl
@@ -160,7 +160,8 @@ public sealed partial class DiagramViewport : ContentControl
             el.TryGetProperty("sourceArchive", out var archive) ? archive.GetString() : null,
             el.TryGetProperty("field", out var field) ? new SourceFieldHit(field.GetProperty("start").GetInt32(), field.GetProperty("length").GetInt32(),
                 field.GetProperty("kind").GetString()!, field.GetProperty("role").GetString()!) : null,
-            el.TryGetProperty("dot", out var dot) ? ReadDot(dot) : null);
+            el.TryGetProperty("dot", out var dot) ? ReadDot(dot) : null,
+            el.TryGetProperty("visualOnly", out var visualOnly) && visualOnly.GetBoolean());
 
     private static DotSourceLocation ReadDot(JsonElement value)
     {
