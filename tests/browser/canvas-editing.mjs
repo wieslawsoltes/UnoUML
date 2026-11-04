@@ -63,6 +63,13 @@ export async function verifyCanvasEditing(page,source) {
   assert.equal(exactB.x,-100);assert.equal(exactB.y,180);assert.equal(exactB.rotation,30);
   assert.ok(Number((await paper.locator('svg').first().getAttribute('viewBox')).split(' ')[0])<0,'Negative placement expands the exported viewBox');
 
+  const beforeSemantic=await shape('B').boundingBox(),oldDrawing=await paper.locator('svg').first().elementHandle();
+  await source.fill((await source.inputValue()).replace('class C','class "Renamed C" as C'));
+  await page.waitForFunction(el=>!el.isConnected,oldDrawing);
+  await shape('C').getByText('Renamed C',{exact:true}).waitFor();
+  const afterSemantic=await shape('B').boundingBox();
+  assert.ok(Math.abs(beforeSemantic.x-afterSemantic.x)<1&&Math.abs(beforeSemantic.y-afterSemantic.y)<1,'A semantic re-render preserves the camera origin after negative placement');
+
   const beforeEscape=await source.inputValue(),box=await shape('C').boundingBox();
   await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2+25,box.y+box.height/2+20,{steps:4});
   await page.keyboard.press('Escape');await page.mouse.up();assert.equal(await source.inputValue(),beforeEscape,'Escape cancels a preview without history');
@@ -70,7 +77,7 @@ export async function verifyCanvasEditing(page,source) {
   const downloaded=page.waitForEvent('download');await page.getByRole('button',{name:'Export',exact:true}).click();
   await page.getByText('Vector image (.svg)',{exact:true}).last().click();
   const file=await downloaded,svg=await readFile(await file.path(),'utf8');
-  assert.match(svg,/data-canvas-node="B"/);assert.match(svg,/transform="matrix\(/);assert.doesNotMatch(svg,/canvas-handle|multi-mark/,'SVG export contains geometry, not editing controls');
+  assert.match(svg,/data-qualified-name="B"/);assert.match(svg,/transform="matrix\(/);assert.doesNotMatch(svg,/data-uml-hit|data-canvas-(?:node|edge)|canvas-handle|multi-mark/,'SVG export contains geometry, not editing controls');
 
   // Nested DOM ordering and collapse projection must not corrupt child geometry or manual paths.
   const grouped='@startuml\npackage ZGroup {\n class AChild\n class BChild\n AChild --> BChild : inner\n}\nclass Outside\nAChild --> Outside : outer\n@enduml';

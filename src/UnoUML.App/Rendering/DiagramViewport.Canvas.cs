@@ -56,7 +56,7 @@ public sealed partial class DiagramViewport
             CanvasLayoutState Geometry()
             {
                 if (!CanvasLayoutJson.TryParse(root.GetProperty("before").GetRawText(), out var before, out var reason)) throw new ArgumentException(reason);
-                return CanvasLayoutEngine.UpdateGeometry(before!, state!);
+                return CanvasLayoutEngine.UpdateGeometry(before!, state!, allowOverlapFallback: true);
             }
             var result = root.GetProperty("action").GetString() switch
             {

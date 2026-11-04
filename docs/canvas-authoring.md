@@ -42,6 +42,8 @@ Existing source-backed connect and reattach tools still create or retarget seman
 
 Moving both endpoints by the same vector translates an entire manual route. Moving or resizing one terminal reattaches that end while retaining interior bends. Manual edges are not silently replaced by an automatic layout. Routing respects locked edges, normalized ports, rotated terminal bounds, self-loops, and parallel relationships.
 
+Explicit free movement can overlap shapes. If overlapping geometry blocks every route, the gesture uses a temporary docked segment and retains the chosen routing style; separating the shapes retries normal routing. Automatic layout still requires feasible obstacle-free placement. Work-budget and cancellation failures do not use this fallback.
+
 ## Automatic layout
 
 The dialog can arrange the entire diagram or only the selected shapes. Unselected, pinned and locked geometry stays fixed. Selecting a compound container includes its subtree in the operation; selecting only children arranges the interior against the fixed container bounds.

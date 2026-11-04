@@ -361,7 +361,7 @@ public sealed partial class MainPage : Page
         {
             selectedJsonField = null; selectedSourceField = null; selectedDot = null; additionalSelection.Clear(); selected = null;
             selectedGenerated = hit; generatedRevision = revision;
-            ShowInspector(); SyncCanvasSelection();
+            ShowInspector(); SyncCanvasSelection(hit);
             if (hit.Kind == "edit" && !BeginImportedLabel(hit)) EditGeneratedSource(hit);
             int line = doc.Page.StartLine + hit.Line;
             if (mode == "Split" && doc.Find(null,line) is { } origin) SelectSource(origin);
@@ -379,10 +379,12 @@ public sealed partial class MainPage : Page
             ShowInspector(); SyncCanvasSelection();
             return;
         }
-        if (hit.Kind == "toggle" && JsonSelection == null && FieldSelection == null && DotSelection == null) { ToggleSelection(Resolve(hit)); return; }
+        if (hit.Kind == "toggle" && JsonSelection == null && DotSelection == null &&
+            (FieldSelection == null || FieldSelection.Kind == "activity-label" && Resolve(hit)?.Kind == "Activity"))
+        { selectedSourceField = null; ToggleSelection(Resolve(hit)); return; }
         additionalSelection.Clear();
         selected = DotSelection == null ? Resolve(hit) : null;
-        ShowInspector(); SyncCanvasSelection();
+        ShowInspector(); SyncCanvasSelection(hit);
         if (mode == "Split" && JsonSelection is { } json) SourceEditor.Select(json.Offset, json.Length);
         else if (mode == "Split" && FieldSelection is { } field) SourceEditor.Select(field.Offset, field.Length);
         else if (mode == "Split" && DotSelection is { } dot) SourceEditor.Select(dot.Offset, dot.Location.Length);
@@ -390,11 +392,14 @@ public sealed partial class MainPage : Page
         if (hit.Kind == "edit") BeginCanvasEdit(selected);
     }
 
-    void SyncCanvasSelection()
+    void SyncCanvasSelection(DiagramHit? visualHit = null)
     {
         var dot = DotSelection;
         var dotItems = DotSelectionItems();
-        viewport.SetSelection(dot?.Location.Id ?? selected?.Alias ?? GeneratedSelection?.Id ?? "", selected == null ? GeneratedSelection?.Line ?? -1 : selected.Line - doc.Page.StartLine);
+        // Several visual activity junctions share one source construct. Keep
+        // the exact canvas hit while the inspector resolves its source owner.
+        viewport.SetSelection(visualHit?.Id ?? dot?.Location.Id ?? selected?.Alias ?? GeneratedSelection?.Id ?? "",
+            visualHit?.Line ?? (selected == null ? GeneratedSelection?.Line ?? -1 : selected.Line - doc.Page.StartLine));
         if (JsonSelection != null) viewport.SelectJsonToken(jsonStart);
         if (FieldSelection != null) viewport.SelectJsonToken(fieldStart);
         viewport.SetConnectable((dot?.IsConnectable == true || selected?.IsConnectable == true) && additionalSelection.Count == 0 && dotItems.Length <= 1 && FieldSelection == null);

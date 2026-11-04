@@ -158,11 +158,18 @@ class Viewport {
   }
   showSheet(index) {
     if (!this.pristine) return;
+    const priorOrigin = this.svg ? {x:this.svg.viewBox.baseVal.x,y:this.svg.viewBox.baseVal.y} : null;
     const svg = this.sheets[index-1] || this.pristine;
     this.sheetPicker.selectedIndex = index;
     this.exportSource = svg;
     this.svg = document.importNode(svg, true);
     this.svg.removeAttribute('x'); this.svg.removeAttribute('y');
+    // A semantic render starts with the renderer's original box. Keep the same
+    // world point under the camera before saved canvas bounds are projected.
+    if (!this.autoFit && priorOrigin) {
+      this.x += (this.svg.viewBox.baseVal.x-priorOrigin.x)*this.z;
+      this.y += (this.svg.viewBox.baseVal.y-priorOrigin.y)*this.z;
+    }
     this.index = indexHits(this.svg, this.input, this.pristine.backend === 'managed');
     const visited = new Set();
     this.objects = [...this.index.hits].filter(([el, hit]) => {
@@ -216,11 +223,6 @@ class Viewport {
     // Repeated sequence headers share a source identity. Keep the exact sheet
     // hit by the pointer when managed selection synchronizes that identity.
     const current = this.index?.hits.get(this.marked);
-    // Synthetic junctions and implicit entities still own visual geometry even
-    // when the source inspector has no literal declaration to select.
-    if (!id && line < 0 && current?.line < 0 && this.marked?.matches('[data-canvas-node],[data-canvas-edge]')) {
-      this.outline(this.selection,this.marked);this.canvas?.position();return;
-    }
     if (!current || (id ? current.id !== id : current.line !== line))
       this.marked = (id && this.index?.byId.get(id)) || this.index?.byLine.get(line) || null;
     this.outline(this.selection, this.marked);
@@ -427,7 +429,12 @@ export async function exportDiagram(id, format, fileName) {
   if (view.sheetPicker.selectedIndex > 0) fileName = fileName.replace(/(\.[^.]+)?$/, (_, ext) => '-sheet-' + view.sheetPicker.selectedIndex + (ext || ''));
   const clean = svg.cloneNode(true);
   clean.removeAttribute('x'); clean.removeAttribute('y');
-  clean.querySelectorAll('.multi-mark').forEach(el=>el.classList.remove('multi-mark'));
+  // Export the projected drawing, without runtime selection and gesture markers.
+  // Keep renderer source identities so the image remains inspectable downstream.
+  for (const el of clean.querySelectorAll('[data-uml-hit],[data-canvas-node],[data-canvas-edge],.multi-mark,.canvas-locked,.canvas-pinned,.canvas-collapsed')) {
+    for (const name of ['data-uml-hit','data-canvas-node','data-canvas-edge']) el.removeAttribute(name);
+    el.classList.remove('multi-mark','canvas-locked','canvas-pinned','canvas-collapsed');
+  }
   const file = new Blob([new XMLSerializer().serializeToString(clean)],{type:'image/svg+xml;charset=utf-8'});
   if (format === 'svg') { download(fileName, file); return; }
   if (format === 'print') {

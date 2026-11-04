@@ -75,8 +75,9 @@ export class CanvasEditing {
     }catch(error){this.apply(before);this.view.position();this.announce(error.message,true);}
   }
   replaySelection() {
-    const hits=[this.view.marked,...this.view.additional||[]].map(el=>this.view.index?.hits.get(el)).filter(Boolean);
-    if(hits.length)this.view.emit('region',{hits,add:false});this.position();
+    const hits=[...new Set([this.view.marked,...this.view.additional||[]])].map(el=>this.view.index?.hits.get(el)).filter(Boolean);
+    if(hits.length===1)this.view.emit('hit',{action:'select',...hits[0]});
+    else if(hits.length)this.view.emit('region',{hits,add:false});this.position();
   }
   action(action,options={}) {
     this.finishNudge();if(!this.scene?.state.nodes.length){this.announce('Select a structural diagram with editable shapes to arrange its canvas.',true);return;}
@@ -180,7 +181,9 @@ export class CanvasEditing {
         const old=g.before.edges.find(n=>n.id===edge.id).labelOffset||{x:0,y:0};edge.labelOffset={x:round(old.x+p.x-g.start.x),y:round(old.y+p.y-g.start.y)};
       }else if(g.handle.startsWith('dock:')) {
         const source=g.handle==='dock:source',terminal=state.nodes.find(n=>n.id===(source?edge.source:edge.target));
-        const local=rotate(p,center(terminal),-(terminal.rotation||0)),x=Math.max(0,Math.min(1,(local.x-terminal.x)/terminal.width)),y=Math.max(0,Math.min(1,(local.y-terminal.y)/terminal.height));
+        const endpoint=source?edge.waypoints[0]:edge.waypoints.at(-1);
+        const moved={x:endpoint.x+p.x-g.start.x,y:endpoint.y+p.y-g.start.y};
+        const local=rotate(moved,center(terminal),-(terminal.rotation||0)),x=Math.max(0,Math.min(1,(local.x-terminal.x)/terminal.width)),y=Math.max(0,Math.min(1,(local.y-terminal.y)/terminal.height));
         const distances=[x,1-x,y,1-y],side=distances.indexOf(Math.min(...distances));
         edge[source?'sourcePort':'targetPort']={x:side===0?0:side===1?1:round(x),y:side===2?0:side===3?1:round(y)};
       }
@@ -268,7 +271,15 @@ export class CanvasEditing {
     }else if(edgeIds.length===1&&!ids.length) {
       const edge=this.scene.state.edges.find(v=>v.id===edgeIds[0]);if(!edge||edge.locked||edge.waypoints.length<2)return;
       edge.waypoints.slice(1,-1).forEach((p,i)=>button('point:'+(i+1),p,'Move waypoint '+(i+1)+'; Delete removes it'));
-      button('dock:source',edge.waypoints[0],'Move source attachment on its shape');button('dock:target',edge.waypoints.at(-1),'Move target attachment on its shape');
+      // Keep attachment controls clear of the S/T semantic retarget buttons.
+      // Offset in screen pixels; dragging still starts at the real attachment.
+      const dock=(name,index,adjacent,label)=>{
+        const p=edge.waypoints[index],q=edge.waypoints[adjacent],dx=q.x-p.x,dy=q.y-p.y,length=Math.hypot(dx,dy)||1;
+        const offset=28/this.view.z;
+        button(name,{x:p.x-dy/length*offset,y:p.y+(dx||(!dy?1:0))/length*offset},label);
+      };
+      dock('dock:source',0,1,'Move source attachment on its shape');
+      dock('dock:target',edge.waypoints.length-1,edge.waypoints.length-2,'Move target attachment on its shape');
       const p=pointOnRoute(edge.waypoints),offset=edge.labelOffset||{x:0,y:0};button('label',{x:p.x+offset.x,y:p.y+offset.y},'Move connector label');
     }
   }

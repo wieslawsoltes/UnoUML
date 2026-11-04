@@ -36,6 +36,7 @@ public sealed partial class MainPage
             Status(parseError ?? "Invalid canvas geometry.", true);
             return;
         }
+        string semanticSource = doc.Page.Source;
         bool changed = merge && canvasMergeState != 0 && doc.HistoryState == canvasMergeState ?
             doc.TrySetCanvasLayout(layout, canvasMergeState, out var error) : doc.TrySetCanvasLayout(layout, out error);
         if (!changed)
@@ -46,7 +47,8 @@ public sealed partial class MainPage
         }
         DiscardResourceRedo();
         canvasMergeState = 0;
-        revision++; renderedRevision = revision; dirty = true;
+        bool refreshSourceMap = semanticSource != doc.Page.Source;
+        revision++; renderedRevision = refreshSourceMap ? -1 : revision; dirty = true;
         changeTimer.Stop();
         // The comment precedes @start: the rendered semantic source and its hit
         // offsets are unchanged. JS replays its selection against the new index.
@@ -55,6 +57,9 @@ public sealed partial class MainPage
         Refresh();
         viewport.SetCanvasLayout(layout, revision);
         viewport.CompleteCanvasLayoutCommit(true);
+        // Moving metadata ahead of a leading BOM changes page-relative token
+        // offsets. Rebuild those hits before accepting another source edit.
+        if (refreshSourceMap) _ = RenderPageAsync();
     }
 
     private void DropCanvasTool(CanvasToolDrop drop)
