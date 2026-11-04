@@ -1,12 +1,33 @@
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {mkdir,readFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
 
 export async function verifyCanvasEditing(page,source) {
   await page.setViewportSize({width:1480,height:960});
   const paper=page.locator('.paper').first(),surface=page.locator('.surface').first();
+  const surfaceElement=await surface.elementHandle(),sourceElement=await source.elementHandle();
   const shape=id=>paper.locator(`[data-canvas-node="${id}"]`);
   const input='@startuml\nclass A\nclass B\nclass C\nA --> B : request\nB --> C : response\n@enduml';
   const metadata=async()=>JSON.parse((await source.inputValue()).replace(/^\uFEFF/,'').split('\n')[0].slice("' @unouml:canvas ".length));
+  const waitSource=expected=>page.waitForFunction(({input,expected})=>input.value===expected,{input:sourceElement,expected});
+  const waitMetadata=expected=>page.waitForFunction(({input,expected})=>{
+    try {
+      const state=JSON.parse(input.value.replace(/^\uFEFF/,'').split('\n')[0].slice("' @unouml:canvas ".length));
+      return Object.entries(expected.settings||{}).every(([key,value])=>state.settings[key]===value)&&
+        (expected.nodes||[]).every(({id,...values})=>{
+          const node=state.nodes.find(node=>node.id===id);
+          return node&&Object.entries(values).every(([key,value])=>node[key]===value);
+        });
+    } catch { return false; }
+  },{input:sourceElement,expected});
+  // Resolve the current SVG through the persistent surface on every poll. Source
+  // history and semantic edits can replace the SVG before saved geometry is applied.
+  const waitBounds=(id,expected)=>page.waitForFunction(({surface,id,expected})=>{
+    const node=[...surface.querySelectorAll('[data-canvas-node]')].find(node=>node.dataset.canvasNode===id);
+    if(!node)return false;
+    const actual=node.getBoundingClientRect();
+    return actual.width>0&&actual.height>0&&['x','y','width','height'].every(key=>Math.abs(actual[key]-expected[key])<0.25);
+  },{surface:surfaceElement,id,expected});
   const menu=async title=>{await page.getByRole('button',{name:'Arrange canvas',exact:true}).click();await page.getByText(title,{exact:true}).last().click();};
   const drag=async(locator,dx,dy,modifiers=[])=>{
     const box=await locator.boundingBox();assert.ok(box);const x=box.x+box.width/2,y=box.y+box.height/2;
@@ -16,14 +37,17 @@ export async function verifyCanvasEditing(page,source) {
   };
   await source.fill(input);await shape('A').waitFor();await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
+  const originalBounds=await shape('A').boundingBox();assert.ok(originalBounds);
   await drag(shape('A'),91,55,['Alt']);
   const movedSource=await source.inputValue(),moved=await metadata();
   assert.equal(movedSource.split('\n').slice(1).join('\n'),input,'Free movement preserves semantic source verbatim');
   assert.equal(moved.nodes.length,3);assert.equal(moved.edges.length,2);
   assert.ok(moved.edges.every(e=>e.waypoints.length>=2),'Incident connectors have complete docked paths');
   const at=await shape('A').boundingBox();
-  await surface.press('Control+z');assert.equal(await source.inputValue(),input,'One undo removes a complete pointer gesture');
-  await surface.press('Control+y');assert.equal(await source.inputValue(),movedSource);
+  await surface.press('Control+z');await waitSource(input);await waitBounds('A',originalBounds);
+  assert.equal(await source.inputValue(),input,'One undo removes a complete pointer gesture');
+  await surface.press('Control+y');await waitSource(movedSource);await waitBounds('A',at);
+  assert.equal(await source.inputValue(),movedSource);
   const restored=await shape('A').boundingBox();
   assert.ok(Math.abs(restored.x-at.x)<1&&Math.abs(restored.y-at.y)<1,'Redo restores visible geometry without drifting the camera');
 
@@ -32,9 +56,14 @@ export async function verifyCanvasEditing(page,source) {
   await drag(page.locator('[data-canvas-handle="resize:se"]'),48,27,['Alt']);
   const resized=await metadata(),newA=resized.nodes.find(n=>n.id==='A');
   assert.ok(newA.width>oldA.width+10&&newA.height>oldA.height+10,'Resize handles change persisted dimensions');
+  const resizedSource=await source.inputValue(),resizedBounds=await shape('A').boundingBox();
+  const unit=await shape('A').evaluate(node=>{const matrix=node.ownerSVGElement.getScreenCTM();return {x:matrix.a,y:matrix.b};});
   await surface.press('ArrowRight');
+  await waitMetadata({nodes:[{id:'A',x:newA.x+1}]});
+  await waitBounds('A',{...resizedBounds,x:resizedBounds.x+unit.x,y:resizedBounds.y+unit.y});
   const nudged=await metadata();assert.equal(nudged.nodes.find(n=>n.id==='A').x,newA.x+1,'Arrow nudge uses world coordinates');
-  await surface.press('Control+z');assert.equal((await metadata()).nodes.find(n=>n.id==='A').x,newA.x,'A keyboard nudge is atomic');
+  await surface.press('Control+z');await waitSource(resizedSource);await waitBounds('A',resizedBounds);
+  assert.equal((await metadata()).nodes.find(n=>n.id==='A').x,newA.x,'A keyboard nudge is atomic');
 
   await shape('A').click();await menu('Pin selection for automatic layout');
   const pinned=await metadata(),fixed=pinned.nodes.find(n=>n.id==='A');assert.equal(fixed.pinned,true);
@@ -44,7 +73,12 @@ export async function verifyCanvasEditing(page,source) {
   await page.getByRole('listbox',{name:'Layout algorithm',exact:true}).getByRole('option',{name:'Grid',exact:true}).click();
   await dialog.getByRole('combobox',{name:'Layout scope',exact:true}).click();
   await page.getByRole('listbox',{name:'Layout scope',exact:true}).getByRole('option',{name:'Entire diagram',exact:true}).click();
+  if(process.env.SCREENSHOT_DIR) {
+    await mkdir(process.env.SCREENSHOT_DIR,{recursive:true});
+    await page.screenshot({path:resolve(process.env.SCREENSHOT_DIR,'canvas-authoring.png')});
+  }
   await dialog.getByRole('button',{name:'Apply',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  await waitMetadata({settings:{algorithm:'grid'}});
   const laidOut=await metadata(),afterA=laidOut.nodes.find(n=>n.id==='A');
   assert.deepEqual([afterA.x,afterA.y,afterA.width,afterA.height],[fixed.x,fixed.y,fixed.width,fixed.height],'Pinned geometry survives whole-diagram automatic layout');
   assert.equal(laidOut.settings.algorithm,'grid');
@@ -59,14 +93,17 @@ export async function verifyCanvasEditing(page,source) {
   await dialog.getByRole('textbox',{name:'Y position',exact:true}).fill('180');
   await dialog.getByRole('textbox',{name:'Rotation in degrees',exact:true}).fill('30');
   await dialog.getByRole('button',{name:'Apply',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  await waitMetadata({nodes:[{id:'B',x:-100,y:180,rotation:30}]});
   const exact=await metadata(),exactB=exact.nodes.find(n=>n.id==='B');
   assert.equal(exactB.x,-100);assert.equal(exactB.y,180);assert.equal(exactB.rotation,30);
   assert.ok(Number((await paper.locator('svg').first().getAttribute('viewBox')).split(' ')[0])<0,'Negative placement expands the exported viewBox');
 
   const beforeSemantic=await shape('B').boundingBox(),oldDrawing=await paper.locator('svg').first().elementHandle();
-  await source.fill((await source.inputValue()).replace('class C','class "Renamed C" as C'));
+  const renamedSource=(await source.inputValue()).replace('class C','class "Renamed C" as C');
+  await source.fill(renamedSource);
   await page.waitForFunction(el=>!el.isConnected,oldDrawing);
   await shape('C').getByText('Renamed C',{exact:true}).waitFor();
+  await waitBounds('B',beforeSemantic);await waitSource(renamedSource);
   const afterSemantic=await shape('B').boundingBox();
   assert.ok(Math.abs(beforeSemantic.x-afterSemantic.x)<1&&Math.abs(beforeSemantic.y-afterSemantic.y)<1,'A semantic re-render preserves the camera origin after negative placement');
 
@@ -115,12 +152,15 @@ export async function verifyCanvasEditing(page,source) {
   // Rebuild literal offsets when that changes the renderer's page-relative input.
   const bom='\uFEFF@startdot\ndigraph G { A [label="Original"]; B; A -> B; }\n@enddot';
   await source.fill(bom);await shape('node:A').waitFor();await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
-  const bomDrawing=await paper.locator('svg').first().elementHandle();
+  const bomDrawing=await paper.locator('svg').first().elementHandle(),bomBefore=await shape('node:A').boundingBox();
   await drag(shape('node:A'),24,16,['Alt']);
   await page.waitForFunction(el=>!el.isConnected,bomDrawing);
+  await waitBounds('node:A',{...bomBefore,x:bomBefore.x+24,y:bomBefore.y+16});
+  const beforeLabel=await source.inputValue();
   await shape('node:A').getByText('Original',{exact:true}).dblclick();
   const label=page.getByRole('textbox',{name:'Edit diagram label',exact:true});await label.waitFor();
   await label.fill('After geometry');await label.press('Control+Enter');await label.waitFor({state:'hidden'});
+  await waitSource(beforeLabel.replace('A [label="Original"]','A [label="After geometry"]'));
   await shape('node:A').getByText('After geometry',{exact:true}).waitFor();
   assert.ok((await source.inputValue()).startsWith('\uFEFF'),'Canvas authoring preserves the document BOM');
   assert.match(await source.inputValue(),/A \[label="After geometry"\]/,'BOM geometry edits retain valid exact-source label offsets');
