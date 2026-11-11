@@ -27,6 +27,7 @@ jobs:
         run: |
           node --test tests/publish-layout.mjs
           node --test tests/canvas-geometry.mjs
+          node --test tests/gpu-geometry.mjs
           node --test tests/gantt-geometry.mjs
           node --test tests/source-text.mjs
           dotnet run --project tests/UnoUML.Core.Tests -c Release
