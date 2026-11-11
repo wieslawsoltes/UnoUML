@@ -67,7 +67,7 @@ internal static class BuiltinCases
             """{}"""),
         ("date",
             """%date("yyyy-MM-dd HH:mm:ss",1700000000,"UTC") / %date("EEE D w W F u a h k K G",1700000000,"UTC")""",
-            """2023-11-14 22:13:20 / Tue 318 46 3 2 2 PM 10 22 10 AD"""),
+            "2023-11-14 22:13:20 / Tue 318 46 3 2 2 " + CultureInfo.GetCultureInfo("en-US").DateTimeFormat.PMDesignator + " 10 22 10 AD"),
         ("date_weekyear",
             """%date("YYYY-ww yyyy-MM-dd XXX",1640995200,"UTC")""",
             """2022-01 2022-01-01 Z"""),
@@ -100,6 +100,8 @@ internal static class BuiltinCases
 
     // Frozen Java SimpleDateFormat results cover legacy timezone aliases, DST,
     // locale calendars/digits/month forms, ISO week boundaries and invalid input.
+    // AM/PM strings are supplied by the configured platform culture. ICU/CLDR
+    // versions change those labels; every other expected date field stays frozen.
     private static readonly (string Name, string Source, string? Expected, string Culture, string Zone, long Instant)[] DateCases =
     [
         ("zone_ACT_1700000000000", "A -> B: %date(\"yyyy-MM-dd HH:mm:ss z zzzz Z X XX XXX\",1700000000,\"ACT\")", "A -> B: 2023-11-15 07:43:20 ACST Australian Central Standard Time +0930 +09 +0930 +09:30", "en-US", "UTC", 1700000000000L),
@@ -180,57 +182,55 @@ internal static class BuiltinCases
         ("zone_Australia/Lord_Howe_1680000000000", "A -> B: %date(\"yyyy-MM-dd HH:mm:ss z zzzz Z X XX XXX\",1680000000,\"Australia/Lord_Howe\")", "A -> B: 2023-03-28 21:40:00 LHDT Lord Howe Daylight Time +1100 +11 +1100 +11:00", "en-US", "UTC", 1680000000000L),
         ("zone_Etc/GMT+5_1700000000000", "A -> B: %date(\"yyyy-MM-dd HH:mm:ss z zzzz Z X XX XXX\",1700000000,\"Etc/GMT+5\")", "A -> B: 2023-11-14 17:13:20 GMT-05:00 GMT-05:00 -0500 -05 -0500 -05:00", "en-US", "UTC", 1700000000000L),
         ("zone_Etc/GMT+5_1680000000000", "A -> B: %date(\"yyyy-MM-dd HH:mm:ss z zzzz Z X XX XXX\",1680000000,\"Etc/GMT+5\")", "A -> B: 2023-03-28 05:40:00 GMT-05:00 GMT-05:00 -0500 -05 -0500 -05:00", "en-US", "UTC", 1680000000000L),
-        ("locale_en-US", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: AD AD AD | 2023 2023 11 Nov November 11 Nov November | Tue Tuesday PM | 318 2 2 46 3", "en-US", "UTC", 1700000000000L),
+        ("locale_en-US", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: AD AD AD | 2023 2023 11 Nov November 11 Nov November | Tue Tuesday " + CultureInfo.GetCultureInfo("en-US").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "en-US", "UTC", 1700000000000L),
         ("locale_context_en-US", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 November 2023 | 14 November 2023 | November", "en-US", "UTC", 1700000000000L),
         ("week_en-US_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2016-01 1", "en-US", "UTC", 1451606400000L),
         ("week_en-US_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2021-01-01 2021-01 1", "en-US", "UTC", 1609459200000L),
         ("week_en-US_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2022-01 1", "en-US", "UTC", 1640995200000L),
         ("week_en-US_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "en-US", "UTC", 1735603200000L),
         ("week_en-US_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2023-01 1", "en-US", "UTC", 1672531200000L),
-        ("locale_en-GB", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: AD AD AD | 2023 2023 11 Nov November 11 Nov November | Tue Tuesday pm | 318 2 2 46 3", "en-GB", "UTC", 1700000000000L),
+        ("locale_en-GB", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: AD AD AD | 2023 2023 11 Nov November 11 Nov November | Tue Tuesday " + CultureInfo.GetCultureInfo("en-GB").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "en-GB", "UTC", 1700000000000L),
         ("locale_context_en-GB", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 November 2023 | 14 November 2023 | November", "en-GB", "UTC", 1700000000000L),
         ("week_en-GB_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2015-53 0", "en-GB", "UTC", 1451606400000L),
         ("week_en-GB_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2021-01-01 2020-53 0", "en-GB", "UTC", 1609459200000L),
         ("week_en-GB_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2021-52 0", "en-GB", "UTC", 1640995200000L),
         ("week_en-GB_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "en-GB", "UTC", 1735603200000L),
         ("week_en-GB_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2022-52 0", "en-GB", "UTC", 1672531200000L),
-        ("locale_fr-FR", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: ap. J.-C. ap. J.-C. ap. J.-C. | 2023 2023 11 nov. novembre 11 nov. novembre | mar. mardi PM | 318 2 2 46 3", "fr-FR", "UTC", 1700000000000L),
+        ("locale_fr-FR", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: ap. J.-C. ap. J.-C. ap. J.-C. | 2023 2023 11 nov. novembre 11 nov. novembre | mar. mardi " + CultureInfo.GetCultureInfo("fr-FR").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "fr-FR", "UTC", 1700000000000L),
         ("locale_context_fr-FR", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 novembre 2023 | 14 novembre 2023 | novembre", "fr-FR", "UTC", 1700000000000L),
         ("week_fr-FR_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2015-53 0", "fr-FR", "UTC", 1451606400000L),
         ("week_fr-FR_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2021-01-01 2020-53 0", "fr-FR", "UTC", 1609459200000L),
         ("week_fr-FR_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2021-52 0", "fr-FR", "UTC", 1640995200000L),
         ("week_fr-FR_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "fr-FR", "UTC", 1735603200000L),
         ("week_fr-FR_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2022-52 0", "fr-FR", "UTC", 1672531200000L),
-        ("locale_de-DE", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: n. Chr. n. Chr. n. Chr. | 2023 2023 11 Nov. November 11 Nov November | Di. Dienstag PM | 318 2 2 46 3", "de-DE", "UTC", 1700000000000L),
+        ("locale_de-DE", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: n. Chr. n. Chr. n. Chr. | 2023 2023 11 Nov. November 11 Nov November | Di. Dienstag " + CultureInfo.GetCultureInfo("de-DE").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "de-DE", "UTC", 1700000000000L),
         ("locale_context_de-DE", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 November 2023 | 14 November 2023 | November", "de-DE", "UTC", 1700000000000L),
         ("week_de-DE_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2015-53 0", "de-DE", "UTC", 1451606400000L),
         ("week_de-DE_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2021-01-01 2020-53 0", "de-DE", "UTC", 1609459200000L),
         ("week_de-DE_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2021-52 0", "de-DE", "UTC", 1640995200000L),
         ("week_de-DE_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "de-DE", "UTC", 1735603200000L),
         ("week_de-DE_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2022-52 0", "de-DE", "UTC", 1672531200000L),
-        ("locale_pl-PL", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: n.e. n.e. n.e. | 2023 2023 11 lis listopada 11 lis listopad | wt. wtorek PM | 318 2 2 46 3", "pl-PL", "UTC", 1700000000000L),
+        ("locale_pl-PL", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: n.e. n.e. n.e. | 2023 2023 11 lis listopada 11 lis listopad | wt. wtorek " + CultureInfo.GetCultureInfo("pl-PL").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "pl-PL", "UTC", 1700000000000L),
         ("locale_context_pl-PL", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 listopada 2023 | 14 listopad 2023 | listopada", "pl-PL", "UTC", 1700000000000L),
         ("week_pl-PL_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2015-53 0", "pl-PL", "UTC", 1451606400000L),
         ("week_pl-PL_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2021-01-01 2020-53 0", "pl-PL", "UTC", 1609459200000L),
         ("week_pl-PL_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2021-52 0", "pl-PL", "UTC", 1640995200000L),
         ("week_pl-PL_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "pl-PL", "UTC", 1735603200000L),
         ("week_pl-PL_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2022-52 0", "pl-PL", "UTC", 1672531200000L),
-        ("locale_ru-RU", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: н. э. н. э. н. э. | 2023 2023 11 нояб. ноября 11 нояб. ноябрь | вт вторник PM | 318 2 2 46 3", "ru-RU", "UTC", 1700000000000L),
+        ("locale_ru-RU", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: н. э. н. э. н. э. | 2023 2023 11 нояб. ноября 11 нояб. ноябрь | вт вторник " + CultureInfo.GetCultureInfo("ru-RU").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "ru-RU", "UTC", 1700000000000L),
         ("locale_context_ru-RU", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 ноября 2023 | 14 ноябрь 2023 | ноября", "ru-RU", "UTC", 1700000000000L),
         ("week_ru-RU_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2015-53 0", "ru-RU", "UTC", 1451606400000L),
         ("week_ru-RU_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2021-01-01 2020-53 0", "ru-RU", "UTC", 1609459200000L),
         ("week_ru-RU_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2021-52 0", "ru-RU", "UTC", 1640995200000L),
         ("week_ru-RU_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "ru-RU", "UTC", 1735603200000L),
         ("week_ru-RU_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2022-52 0", "ru-RU", "UTC", 1672531200000L),
-        ("locale_cs-CZ", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: n. l. n. l. n. l. | 2023 2023 11 lis listopadu 11 lis listopad | út úterý odp. | 318 2 2 46 3", "cs-CZ", "UTC", 1700000000000L),
+        ("locale_cs-CZ", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: n. l. n. l. n. l. | 2023 2023 11 lis listopadu 11 lis listopad | út úterý " + CultureInfo.GetCultureInfo("cs-CZ").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "cs-CZ", "UTC", 1700000000000L),
         ("locale_context_cs-CZ", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 listopadu 2023 | 14 listopad 2023 | listopadu", "cs-CZ", "UTC", 1700000000000L),
         ("week_cs-CZ_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2015-53 0", "cs-CZ", "UTC", 1451606400000L),
         ("week_cs-CZ_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2021-01-01 2020-53 0", "cs-CZ", "UTC", 1609459200000L),
         ("week_cs-CZ_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2021-52 0", "cs-CZ", "UTC", 1640995200000L),
         ("week_cs-CZ_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "cs-CZ", "UTC", 1735603200000L),
         ("week_cs-CZ_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2022-52 0", "cs-CZ", "UTC", 1672531200000L),
-        // ICU/CLDR versions differ in the no-break space within the Spanish day period.
-        // Keep all date fields exact and require the configured culture's actual PM designator.
         ("locale_es-ES", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: d. C. d. C. d. C. | 2023 2023 11 nov noviembre 11 nov noviembre | mar martes " + CultureInfo.GetCultureInfo("es-ES").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "es-ES", "UTC", 1700000000000L),
         ("locale_context_es-ES", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 noviembre 2023 | 14 noviembre 2023 | noviembre", "es-ES", "UTC", 1700000000000L),
         ("week_es-ES_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2015-53 0", "es-ES", "UTC", 1451606400000L),
@@ -238,28 +238,27 @@ internal static class BuiltinCases
         ("week_es-ES_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2021-52 0", "es-ES", "UTC", 1640995200000L),
         ("week_es-ES_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "es-ES", "UTC", 1735603200000L),
         ("week_es-ES_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2022-52 0", "es-ES", "UTC", 1672531200000L),
-        ("locale_it-IT", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: d.C. d.C. d.C. | 2023 2023 11 nov novembre 11 nov novembre | mar martedì PM | 318 2 2 46 3", "it-IT", "UTC", 1700000000000L),
+        ("locale_it-IT", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: d.C. d.C. d.C. | 2023 2023 11 nov novembre 11 nov novembre | mar martedì " + CultureInfo.GetCultureInfo("it-IT").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "it-IT", "UTC", 1700000000000L),
         ("locale_context_it-IT", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 novembre 2023 | 14 novembre 2023 | novembre", "it-IT", "UTC", 1700000000000L),
         ("week_it-IT_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2015-53 0", "it-IT", "UTC", 1451606400000L),
         ("week_it-IT_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2021-01-01 2020-53 0", "it-IT", "UTC", 1609459200000L),
         ("week_it-IT_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2021-52 0", "it-IT", "UTC", 1640995200000L),
         ("week_it-IT_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "it-IT", "UTC", 1735603200000L),
         ("week_it-IT_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2022-52 0", "it-IT", "UTC", 1672531200000L),
-        ("locale_ja-JP", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: 西暦 西暦 西暦 | 2023 2023 11 11月 11月 11 11月 11月 | 火 火曜日 午後 | 318 2 2 46 3", "ja-JP", "UTC", 1700000000000L),
+        ("locale_ja-JP", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: 西暦 西暦 西暦 | 2023 2023 11 11月 11月 11 11月 11月 | 火 火曜日 " + CultureInfo.GetCultureInfo("ja-JP").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "ja-JP", "UTC", 1700000000000L),
         ("locale_context_ja-JP", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 11月 2023 | 14 11月 2023 | 11月", "ja-JP", "UTC", 1700000000000L),
         ("week_ja-JP_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2016-01 1", "ja-JP", "UTC", 1451606400000L),
         ("week_ja-JP_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2021-01-01 2021-01 1", "ja-JP", "UTC", 1609459200000L),
         ("week_ja-JP_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2022-01 1", "ja-JP", "UTC", 1640995200000L),
         ("week_ja-JP_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "ja-JP", "UTC", 1735603200000L),
         ("week_ja-JP_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2023-01 1", "ja-JP", "UTC", 1672531200000L),
-        ("locale_zh-CN", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: 公元 公元 公元 | 2023 2023 11 11月 十一月 11 11月 十一月 | 周二 星期二 下午 | 318 2 2 46 3", "zh-CN", "UTC", 1700000000000L),
+        ("locale_zh-CN", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: 公元 公元 公元 | 2023 2023 11 11月 十一月 11 11月 十一月 | 周二 星期二 " + CultureInfo.GetCultureInfo("zh-CN").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "zh-CN", "UTC", 1700000000000L),
         ("locale_context_zh-CN", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 十一月 2023 | 14 十一月 2023 | 十一月", "zh-CN", "UTC", 1700000000000L),
         ("week_zh-CN_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2016-01 1", "zh-CN", "UTC", 1451606400000L),
         ("week_zh-CN_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2021-01-01 2021-01 1", "zh-CN", "UTC", 1609459200000L),
         ("week_zh-CN_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2022-01 1", "zh-CN", "UTC", 1640995200000L),
         ("week_zh-CN_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "zh-CN", "UTC", 1735603200000L),
         ("week_zh-CN_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2023-01 1", "zh-CN", "UTC", 1672531200000L),
-        // Korean day-period labels also depend on the installed ICU/CLDR data.
         ("locale_ko-KR", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: AD AD AD | 2023 2023 11 11월 11월 11 11월 11월 | 화 화요일 " + CultureInfo.GetCultureInfo("ko-KR").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "ko-KR", "UTC", 1700000000000L),
         ("locale_context_ko-KR", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 11월 2023 | 14 11월 2023 | 11월", "ko-KR", "UTC", 1700000000000L),
         ("week_ko-KR_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2016-01 1", "ko-KR", "UTC", 1451606400000L),
@@ -267,21 +266,21 @@ internal static class BuiltinCases
         ("week_ko-KR_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2022-01 1", "ko-KR", "UTC", 1640995200000L),
         ("week_ko-KR_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "ko-KR", "UTC", 1735603200000L),
         ("week_ko-KR_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2023-01 1", "ko-KR", "UTC", 1672531200000L),
-        ("locale_ar-EG", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: م م م | ٢٠٢٣ ٢٠٢٣ ١١ نوفمبر نوفمبر ١١ نوفمبر نوفمبر | الثلاثاء الثلاثاء م | ٣١٨ ٢ ٢ ٤٦ ٣", "ar-EG", "UTC", 1700000000000L),
+        ("locale_ar-EG", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: م م م | ٢٠٢٣ ٢٠٢٣ ١١ نوفمبر نوفمبر ١١ نوفمبر نوفمبر | الثلاثاء الثلاثاء " + CultureInfo.GetCultureInfo("ar-EG").DateTimeFormat.PMDesignator + " | ٣١٨ ٢ ٢ ٤٦ ٣", "ar-EG", "UTC", 1700000000000L),
         ("locale_context_ar-EG", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: ١٤ نوفمبر ٢٠٢٣ | ١٤ نوفمبر ٢٠٢٣ | نوفمبر", "ar-EG", "UTC", 1700000000000L),
         ("week_ar-EG_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: ٢٠١٦-٠١-٠١ ٢٠١٦-٠١ ١", "ar-EG", "UTC", 1451606400000L),
         ("week_ar-EG_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: ٢٠٢١-٠١-٠١ ٢٠٢١-٠١ ١", "ar-EG", "UTC", 1609459200000L),
         ("week_ar-EG_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: ٢٠٢٢-٠١-٠١ ٢٠٢٢-٠١ ١", "ar-EG", "UTC", 1640995200000L),
         ("week_ar-EG_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: ٢٠٢٤-١٢-٣١ ٢٠٢٥-٠١ ٥", "ar-EG", "UTC", 1735603200000L),
         ("week_ar-EG_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: ٢٠٢٣-٠١-٠١ ٢٠٢٣-٠١ ١", "ar-EG", "UTC", 1672531200000L),
-        ("locale_fa-IR", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: م. م. م. | ۲۰۲۳ ۲۰۲۳ ۱۱ نوامبر نوامبر ۱۱ نوامبر نوامبر | سه‌شنبه سه‌شنبه بعدازظهر | ۳۱۸ ۲ ۲ ۴۶ ۳", "fa-IR", "UTC", 1700000000000L),
+        ("locale_fa-IR", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: م. م. م. | ۲۰۲۳ ۲۰۲۳ ۱۱ نوامبر نوامبر ۱۱ نوامبر نوامبر | سه‌شنبه سه‌شنبه " + CultureInfo.GetCultureInfo("fa-IR").DateTimeFormat.PMDesignator + " | ۳۱۸ ۲ ۲ ۴۶ ۳", "fa-IR", "UTC", 1700000000000L),
         ("locale_context_fa-IR", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: ۱۴ نوامبر ۲۰۲۳ | ۱۴ نوامبر ۲۰۲۳ | نوامبر", "fa-IR", "UTC", 1700000000000L),
         ("week_fa-IR_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: ۲۰۱۶-۰۱-۰۱ ۲۰۱۶-۰۱ ۱", "fa-IR", "UTC", 1451606400000L),
         ("week_fa-IR_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: ۲۰۲۱-۰۱-۰۱ ۲۰۲۱-۰۱ ۱", "fa-IR", "UTC", 1609459200000L),
         ("week_fa-IR_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: ۲۰۲۲-۰۱-۰۱ ۲۰۲۲-۰۱ ۱", "fa-IR", "UTC", 1640995200000L),
         ("week_fa-IR_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: ۲۰۲۴-۱۲-۳۱ ۲۰۲۵-۰۱ ۵", "fa-IR", "UTC", 1735603200000L),
         ("week_fa-IR_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: ۲۰۲۳-۰۱-۰۱ ۲۰۲۳-۰۱ ۱", "fa-IR", "UTC", 1672531200000L),
-        ("locale_th-TH", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: พ.ศ. พ.ศ. พุทธศักราช | 2566 2566 11 พ.ย. พฤศจิกายน 11 พ.ย. พฤศจิกายน | อ. วันอังคาร หลังเที่ยง | 318 2 2 46 3", "th-TH", "UTC", 1700000000000L),
+        ("locale_th-TH", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: พ.ศ. พ.ศ. พุทธศักราช | 2566 2566 11 พ.ย. พฤศจิกายน 11 พ.ย. พฤศจิกายน | อ. วันอังคาร " + CultureInfo.GetCultureInfo("th-TH").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "th-TH", "UTC", 1700000000000L),
         ("locale_context_th-TH", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 พฤศจิกายน 2566 | 14 พฤศจิกายน 2566 | พฤศจิกายน", "th-TH", "UTC", 1700000000000L),
         ("week_th-TH_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2559-01-01 2559-01 1", "th-TH", "UTC", 1451606400000L),
         ("week_th-TH_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2564-01-01 2564-01 1", "th-TH", "UTC", 1609459200000L),
@@ -432,6 +431,21 @@ internal static class BuiltinCases
                 Expect(item.Source, item.Expected, configured, item.Name);
                 if (item.Source.Contains("%date()", StringComparison.Ordinal))
                     Expect(item.Source.Replace("%date()", "%filedate()", StringComparison.Ordinal), item.Expected, configured, item.Name + " file date");
+            }
+        }
+        // Check both sides of midnight/noon and repeated Java 'a' fields for
+        // every locale covered by the exact compound date fixtures.
+        foreach (string locale in DateCases.Where(item => item.Name == "locale_" + item.Culture).Select(item => item.Culture).Distinct())
+        {
+            var culture = CultureInfo.GetCultureInfo(locale);
+            foreach (int hour in new[] { 0, 11, 12, 23 })
+            {
+                var instant = new DateTimeOffset(2023, 11, 14, hour, 0, 0, TimeSpan.Zero);
+                string period = hour < 12 ? culture.DateTimeFormat.AMDesignator : culture.DateTimeFormat.PMDesignator;
+                string seconds = instant.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
+                Expect("A -> B: %date(\"a | aa | aaaa\"," + seconds + ",\"UTC\")",
+                    "A -> B: " + period + " | " + period + " | " + period,
+                    options with { Culture = culture, TimeZone = TimeZoneInfo.Utc }, "day period " + locale + " hour " + hour);
             }
         }
         Expect("A -> B: %filedate()", "A -> B: ", options with { SourceFileModifiedAt = null }, "Missing file date");
