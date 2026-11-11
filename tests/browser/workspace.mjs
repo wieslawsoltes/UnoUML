@@ -1,3 +1,4 @@
+import { activateAccessibility, clickControl } from './native-controls.mjs';
 import { verifyGpuScene } from './gpu-scene.mjs';
 import { publishedPrefix, servePublishedSite } from './published-site.mjs';
 import { graphicsLaunchOptions } from './graphics-options.mjs';
@@ -44,7 +45,8 @@ async function verifyIndependentAuthoring(browser, url) {
     try {
       await check.goto(url, { waitUntil: 'domcontentloaded' });
       await check.locator('.paper svg').first().waitFor({ state: 'visible', timeout: 120000 });
-      await check.getByRole('button', {name:'Split',exact:true}).click();
+      await activateAccessibility(check);
+      await clickControl(check, check.getByRole('button', {name:'Split',exact:true}));
       const source = check.getByRole('textbox', {name:'PlantUML source',exact:true});
       await source.waitFor({state:'visible'});
       await verify(check, source);
@@ -86,7 +88,7 @@ try {
     if (graphicsLog.length < 1000) graphicsLog.push(message.type() + ': ' + message.text());
   });
   const url = external || `http://127.0.0.1:${server.address().port}${prefix}`;
-  const click = name => page.getByText(name, { exact: true }).last().click();
+  const click = name => clickControl(page, page.getByRole('button', {name,exact:true}));
   const paper = page.locator('.paper svg').first();
   const store = page.locator('.paper text').filter({ hasText: /^Storefront$/ }).first();
   const screenshot = async name => {
@@ -98,6 +100,7 @@ try {
 
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await paper.waitFor({ state: 'visible', timeout: 120000 });
+  await activateAccessibility(page);
   assert.equal(await page.locator('.paper').first().getAttribute('data-renderer'), 'managed', 'The starter diagram must render in C#');
   assert.equal(page.frames().filter(f => f.url().includes('/uml/engine.html')).length, 0, 'The managed path must leave the JS engine unloaded');
   await verifyGpuPresentation(page);
@@ -105,8 +108,8 @@ try {
   await screenshot('unouml-desktop');
   const textbox = await verifyAccessibility(page);
   // Normal pointer clicks exercise the Uno native-host presenter and hit testing in the shadow SVG.
-  await store.click();
-  await page.getByText('Apply label', { exact: true }).waitFor();
+  await clickControl(page, store);
+  await page.getByRole('button', { name: 'Apply label', exact: true }).waitFor();
   await verifyStudioEditing(page, textbox);
   const modified = (await textbox.inputValue()).replace('Place order', 'Confirm basket');
   await textbox.fill(modified);
@@ -133,13 +136,13 @@ try {
   await page.getByRole('combobox', { name: 'Diagram page', exact: true }).waitFor({ state: 'visible' });
   const node = name => page.locator(`.paper [data-qualified-name="${name}"] text`).filter({ hasText: new RegExp('^' + name + '$') }).first();
   const selectPair = async () => {
-    await node('Order').click();
-    await node('LineItem').click({ modifiers: ['Shift'] });
+    await clickControl(page, node('Order'));
+    await clickControl(page, node('LineItem'), { modifiers: ['Shift'] });
     await page.getByText('MULTIPLE SELECTION', { exact: true }).waitFor();
   };
   // A new page must become selectable after a manual zoom. This is a normal, unforced click
   // and Playwright waits for the camera update before hit testing.
-  await node('Order').click();
+  await clickControl(page, node('Order'));
   await surface.press('0');
   await selectPair();
   await page.keyboard.press('Control+d');
@@ -151,10 +154,10 @@ try {
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1')).Source.includes('package "Group"'));
   await click('Objects');
   await click('Standard library…');
-  await page.getByText('Search include paths', { exact: true }).last().waitFor();
-  const search = page.locator('textarea:visible').last();
+  const search = page.getByRole('textbox', { name: 'Search include paths', exact: true });
+  await search.waitFor();
   await search.fill('c4_context');
-  await click('c4/c4_context');
+  await clickControl(page, page.getByRole('option', { name: 'c4/c4_context', exact: true }));
   await click('Insert include');
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1')).Source.includes('!include <c4/c4_context>'));
   const download = page.waitForEvent('download');
@@ -165,6 +168,7 @@ try {
   await screenshot('unouml-mobile');
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('.paper [data-qualified-name="OrderCopy"]').first().waitFor({ timeout: 120000 });
+  await activateAccessibility(page);
   await verifyPorts(page);
   await verifyCompatibilityEditing(page, textbox);
   await verifyTypedFields(page, textbox);

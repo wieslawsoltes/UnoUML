@@ -1,8 +1,9 @@
+import { clickControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyDotStructuralAuthoring(page, source) {
   await page.setViewportSize({width:1480,height:960});
-  await page.getByText('Split',{exact:true}).last().click();
+  await clickControl(page, page.getByRole('button', {name:'Split',exact:true}));
   await source.waitFor({state:'visible'});
   const paper = page.locator('.paper').first(), surface = page.locator('.surface').first();
   const node = id => paper.locator(`[data-dot-id=${JSON.stringify('node:' + id)}]`);
@@ -16,7 +17,7 @@ export async function verifyDotStructuralAuthoring(page, source) {
     const target = button(name);
     pointerTrace = await target.evaluateHandle(element => {
       const events = [], start = performance.now(), name = element.getAttribute('aria-label');
-      const describe = node => node instanceof Element ? {id:node.id,tag:node.localName,name:node.getAttribute('aria-label')?.slice(0,120),button:node.closest('[role="button"]')?.getAttribute('aria-label')?.slice(0,120)} : null;
+      const describe = node => node instanceof Element ? {id:node.id,tag:node.localName,name:node.getAttribute('aria-label')?.slice(0,120),button:node.closest('button,[role="button"]')?.getAttribute('aria-label')?.slice(0,120)} : null;
       const sample = (event = {type:'state'}) => {
         const box = element.getBoundingClientRect(), scroll = [];
         for (let parent = element.parentElement; parent; parent = parent.parentElement)
@@ -29,19 +30,25 @@ export async function verifyDotStructuralAuthoring(page, source) {
       const record = event => { if (events.length === 24) events.shift(); events.push(sample(event)); };
       const types = ['pointerdown','pointerup','pointercancel','gotpointercapture','lostpointercapture','click','focusin','focusout','scroll'];
       for (const type of types) document.addEventListener(type,record,true);
-      return {dump:() => ({events,current:sample(),matching:[...document.querySelectorAll('[role="button"]')].filter(node => node.getAttribute('aria-label') === name).slice(0,4).map(describe)}),
+      return {dump:() => ({events,current:sample(),matching:[...document.querySelectorAll('button,[role="button"]')].filter(node => node.getAttribute('aria-label') === name).slice(0,4).map(describe)}),
         stop:() => { for (const type of types) document.removeEventListener(type,record,true); }};
     });
-    // Playwright checks stability before scrolling. Recheck after the native
-    // scroll and XAML inspector layout have had a turn to settle, then click.
-    await target.scrollIntoViewIfNeeded();
-    await target.hover();
-    await target.click();
+    // The helper scrolls and checks native geometry stability before sending
+    // the pointer through the compositor canvas to this inspector action.
+    await clickControl(page, target);
   };
   const selectedCell = async (row,column,text) => {
-    await page.getByRole('combobox',{name:'Table cell',exact:true})
-      .filter({hasText:`Row ${row}, column ${column}: ${text}`}).waitFor({state:'visible'});
-    await page.waitForFunction(value => document.querySelector('[role="textbox"][aria-label="Table cell text"]')?.value === value,text);
+    const picker = page.getByRole('combobox',{name:'Table cell',exact:true});
+    // Native ComboBox selection is exposed through its selected option and
+    // active descendant, rather than text nodes inside the control proxy.
+    await picker.press('Enter');
+    const selected = page.getByRole('listbox',{name:'Table cell',exact:true})
+      .getByRole('option',{name:`Row ${row}, column ${column}: ${text}`,exact:true,selected:true});
+    await selected.waitFor({state:'visible'});
+    assert.equal(await picker.getAttribute('aria-activedescendant'),await selected.getAttribute('id'));
+    await picker.press('Escape');
+    await selected.waitFor({state:'hidden'});
+    await page.waitForFunction(value => document.querySelector('input[aria-label="Table cell text"],textarea[aria-label="Table cell text"]')?.value === value,text);
     assert.equal(await field('Table cell text').inputValue(),text,'The inspector resolves the selected cell before applying structure');
   };
   const recordText = text => node('a').locator('[data-edit-kind="dot-record-text"]').filter({hasText:new RegExp('^' + text + '$')});
@@ -61,7 +68,7 @@ export async function verifyDotStructuralAuthoring(page, source) {
     } catch (cause) {
       const [actual,selected] = await Promise.all([
         source.inputValue({timeout:1000}).catch(() => '(source unavailable)'),
-        page.getByRole('combobox',{name:'Table cell',exact:true}).textContent({timeout:1000}).catch(() => '(no table cell)')
+        page.getByRole('combobox',{name:'Table cell',exact:true}).getAttribute('aria-activedescendant',{timeout:1000}).catch(() => '(no table cell)')
       ]);
       const pointer = pointerTrace ? await pointerTrace.evaluate(trace => trace.dump()).catch(() => '(pointer trace unavailable)') : null;
       throw new Error(`${message}\nExpected source: ${expected}\nActual source: ${actual}\nSelected cell: ${selected}${pointer ? '\nPointer interaction: ' + JSON.stringify(pointer) : ''}`,{cause});
@@ -75,30 +82,30 @@ export async function verifyDotStructuralAuthoring(page, source) {
   const load = value => change(() => source.fill(value),value,'The fixture renders natively');
   const undo = (value,message) => change(() => surface.press('Control+z'),value,message);
   const choose = async (name,caption) => {
-    await page.getByRole('combobox',{name,exact:true}).click();
+    await clickControl(page, page.getByRole('combobox',{name,exact:true}));
     // Uno popups are hosted outside the inspector's element subtree.
-    await page.locator('.uno-comboboxitem').filter({hasText:caption}).click();
+    await clickControl(page, page.getByRole('listbox',{name,exact:true}).getByRole('option',{name:caption,exact:true}));
   };
 
   const shared = '@startdot\nstrict digraph {\n  rankdir=LR;\n  node [shape=box,color=blue];\n  a[label=Alpha]; b[label=Beta]; c[label=Gamma]; d[label=Destination];\n  a /* keep chain */ -> b -> c [label=Shared,color=red];\n  a -> b [penwidth=2];\n}\n@enddot';
   await load(shared);
-  await edge('a','b').locator('text').filter({hasText:/^Shared$/}).click();
+  await clickControl(page, edge('a','b').locator('text').filter({hasText:/^Shared$/}));
   await button('Reattach target endpoint').waitFor({state:'visible'});
   const removed = shared.replace('a /* keep chain */ -> b -> c [label=Shared,color=red];',
     'a /* keep chain */ ; b ; c ;\n  b -> c [label=Shared, color=red];;').replace('a -> b [penwidth=2];','a ; b ;;');
-  await change(() => button('Delete edge').click(),removed,'Deleting a shared strict edge removes all its declarations and preserves the other chain edge');
+  await change(() => clickControl(page, button('Delete edge')),removed,'Deleting a shared strict edge removes all its declarations and preserves the other chain edge');
   assert.equal(await edge('a','b').count(),0);
   assert.equal(await paper.locator('[data-dot-kind="node"]').count(),4);
   assert.equal(await paper.locator('[data-dot-kind="edge"]').count(),1);
   await edge('b','c').locator('text').filter({hasText:/^Shared$/}).waitFor();
   await undo(shared,'One undo restores the shared chain, strict override, defaults and comments byte for byte');
 
-  await edge('a','b').locator('text').filter({hasText:/^Shared$/}).click();
+  await clickControl(page, edge('a','b').locator('text').filter({hasText:/^Shared$/}));
   await button('Reattach target endpoint').press('Enter');
   const retargeted = shared.replace('a /* keep chain */ -> b -> c [label=Shared,color=red];',
     'a /* keep chain */ ; b ; c ;\n  a -> d [label=Shared, color=red];\n  b -> c [label=Shared, color=red];;')
     .replace('a -> b [penwidth=2];','a ; b ;\n  a -> d [penwidth=2];;');
-  await change(() => node('d').click(),retargeted,'Reattaching a shared strict edge updates every contribution without changing its sibling');
+  await change(() => clickControl(page, node('d')),retargeted,'Reattaching a shared strict edge updates every contribution without changing its sibling');
   assert.equal(await edge('a','b').count(),0);
   assert.equal(await edge('a','d').getAttribute('data-dot-merged'),'true');
   await edge('b','c').locator('text').filter({hasText:/^Shared$/}).waitFor();
@@ -107,66 +114,66 @@ export async function verifyDotStructuralAuthoring(page, source) {
 
   const record = '@startdot\ndigraph {\n  rankdir=LR;\n  a [shape=record,label="<p> First|<q> Second|Third"]; b[label=Target];\n  a:p:e -> b [tailport="p:e"]; // retained port comment\n}\n@enddot';
   await load(record);
-  await recordText('First').click();
+  await clickControl(page, recordText('First'));
   assert.equal(await field('Record field port').inputValue(),'p');
-  await button('Remove record field').click();
+  await clickControl(page, button('Remove record field'));
   await page.getByText('The source changed, or this change would remove a connected port or create an invalid field/table structure.',{exact:true}).waitFor();
   assert.equal(await source.inputValue(),record,'A live port blocks field deletion');
-  await recordText('Second').click();
+  await clickControl(page, recordText('Second'));
   assert.equal(await field('Record field text').inputValue(),'Second','Clicking a rendered field selects its own inspector row');
   const insertedField = record.replace('<p> First|<q> Second','<p> First|Field|<q> Second');
-  await change(() => button('Insert field before').click(),insertedField,'Insert follows the selected record field');
+  await change(() => clickControl(page, button('Insert field before')),insertedField,'Insert follows the selected record field');
   await recordText('Field').waitFor();
   await undo(record,'One undo removes the inserted field; the rejected port deletion added no edit');
 
-  await recordText('First').click();
+  await clickControl(page, recordText('First'));
   const grouped = record.replace('<p> First|<q> Second','{<p> First|<q> Second}');
-  await change(() => button('Group with next field').click(),grouped,'Grouping changes only the chosen sibling fields');
-  await recordText('First').click();
+  await change(() => clickControl(page, button('Group with next field')),grouped,'Grouping changes only the chosen sibling fields');
+  await clickControl(page, recordText('First'));
   await choose('Record field',/^0: Field group$/);
-  await change(() => button('Ungroup record fields').click(),record,'Ungroup restores the original record syntax');
+  await change(() => clickControl(page, button('Ungroup record fields')),record,'Ungroup restores the original record syntax');
   await undo(grouped,'One undo restores the removed group');
   await undo(record,'One undo restores the original grouping operation');
 
-  await recordText('First').click();
+  await clickControl(page, recordText('First'));
   await field('Record field port').fill('renamed');
   const renamedPort = record.replace('<p> First','<renamed> First').replace('a:p:e -> b [tailport="p:e"];',
     'a:renamed:e ; b ;\n  a:renamed:e -> b [tailport="renamed:e"];;');
-  await change(() => button('Apply field port').click(),renamedPort,'Port rename updates both endpoint and tailport syntax in one source transaction');
-  await recordText('First').click();
+  await change(() => clickControl(page, button('Apply field port')),renamedPort,'Port rename updates both endpoint and tailport syntax in one source transaction');
+  await clickControl(page, recordText('First'));
   assert.equal(await field('Record field port').inputValue(),'renamed');
   assert.equal(await edge('a','b').count(),1);
   await undo(record,'One undo restores the field port and every edge reference exactly');
 
   const table = "@startdot\ndigraph {\n  a [shape=plain,label=<<TABLE BORDER='0' CELLBORDER='1'><TR><TD PORT='p'>Alpha</TD><TD>Beta</TD></TR><!-- keep table --><TR><TD>Gamma</TD><TD>Delta</TD></TR></TABLE>>];\n  b; a:p -> b;\n}\n@enddot";
   await load(table);
-  await cellText('Gamma').click();
+  await clickControl(page, cellText('Gamma'));
   await selectedCell(2,1,'Gamma');
   const insertedRow = table.replace('<TR><TD>Gamma','<TR><TD>Cell</TD><TD>Cell</TD></TR><TR><TD>Gamma');
   await change(() => pointerTableAction('Insert row above'),insertedRow,'A new row preserves unrelated markup, comments and attribute quoting');
   assert.equal(await cellText('Cell').count(),2);
-  await cellText('Cell').first().click();
+  await clickControl(page, cellText('Cell').first());
   await selectedCell(2,1,'Cell');
   await change(() => tableAction('Remove table row'),table,'Removing the inserted row restores the original label');
   await undo(insertedRow,'One undo restores the deleted table row');
   await undo(table,'One undo removes the inserted table row');
 
-  await cellText('Alpha').click();
+  await clickControl(page, cellText('Alpha'));
   await selectedCell(1,1,'Alpha');
   const insertedColumn = table.replace('<TD>Beta','<TD>Cell</TD><TD>Beta').replace('<TD>Delta','<TD>Cell</TD><TD>Delta');
   await change(() => pointerTableAction('Insert column after'),insertedColumn,'Column insertion updates each row atomically');
   assert.equal(await cellText('Cell').count(),2);
-  await cellText('Cell').first().click();
+  await clickControl(page, cellText('Cell').first());
   await selectedCell(1,2,'Cell');
   await change(() => tableAction('Remove table column'),table,'Removing the inserted column retains the live port');
   await undo(insertedColumn,'One undo restores the deleted column in every row');
   await undo(table,'One undo removes the inserted column from every row');
 
-  await cellText('Alpha').click();
+  await clickControl(page, cellText('Alpha'));
   await selectedCell(1,1,'Alpha');
   const merged = table.replace("<TD PORT='p'>Alpha</TD><TD>Beta</TD>","<TD PORT='p' COLSPAN=\"2\">Alpha<BR/>Beta</TD>");
   await change(() => tableAction('Merge with next cell'),merged,'Merge keeps the first port and both text values');
-  await cellText('Alpha').click();
+  await clickControl(page, cellText('Alpha'));
   await selectedCell(1,1,'AlphaBeta');
   const split = merged.replace("<TD PORT='p' COLSPAN=\"2\">Alpha<BR/>Beta</TD>","<TD PORT='p' >Alpha<BR/>Beta</TD><TD>Cell</TD>");
   await change(() => tableAction('Split spanning cell'),split,'Split keeps original content and port in the first cell');
@@ -177,10 +184,10 @@ export async function verifyDotStructuralAuthoring(page, source) {
 
   const plainEdge = '@startdot\ndigraph { a->b->c[label=Shared]; }\n@enddot';
   await load(plainEdge);
-  await edge('a','b').locator('text').filter({hasText:/^Shared$/}).click();
+  await clickControl(page, edge('a','b').locator('text').filter({hasText:/^Shared$/}));
   const edgeTable = '<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD>Cell</TD><TD>Cell</TD></TR><TR><TD>Cell</TD><TD>Cell</TD></TR></TABLE>';
   const createdTable = plainEdge.replace('a->b->c[label=Shared];',`a;b;c;\n  a -> b [label=<${edgeTable}>];\n  b -> c [label=Shared];;`);
-  await change(() => button('Create table cells').click(),createdTable,'Creating an edge table isolates the selected edge from its shared label');
+  await change(() => clickControl(page, button('Create table cells')),createdTable,'Creating an edge table isolates the selected edge from its shared label');
   assert.equal(await edge('a','b').locator('[data-edit-kind="dot-html-text"]').count(),4);
   await edge('b','c').locator('text').filter({hasText:/^Shared$/}).waitFor();
   assert.equal(await paper.locator('[data-dot-kind="edge"]').count(),2);

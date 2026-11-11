@@ -1,3 +1,4 @@
+import { clickControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyImportedPageRouting(page, source) {
@@ -79,9 +80,9 @@ export async function verifyImportedPageRouting(page, source) {
         await page.waitForFunction(async expected =>
           (await import(new URL('uml/viewport.js',document.baseURI))).readInclude('multiple.puml') === expected,pending);
         assert.equal(await sourceElement.evaluate(element => element.readOnly),true,'The imported write remains pending behind the held transaction');
-        if (scenario === 'selection') await target.click();
+        if (scenario === 'selection') await clickControl(page, target);
         else {
-          await page.getByText('Edit included source…',{exact:true}).click();
+          await clickControl(page, page.getByRole('button', {name:'Edit included source…',exact:true}));
           dialog = page.getByRole('dialog',{name:'Edit imported include',exact:true});
           await dialog.waitFor({state:'visible'});
         }
@@ -95,7 +96,7 @@ export async function verifyImportedPageRouting(page, source) {
     assert.equal(await page.locator('.canvas-label-editor').count(),0,`A conflict must not reopen the previous editor after a ${scenario} change`);
     if (dialog) {
       await dialog.waitFor({state:'visible'});
-      await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+      await clickControl(page, dialog.getByRole('button',{name:'Cancel',exact:true}));
       await dialog.waitFor({state:'hidden'});
       assert.equal(await editor.count(),0,'Closing the modal does not reveal a stale recovered editor');
     }

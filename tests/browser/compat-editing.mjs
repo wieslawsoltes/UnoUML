@@ -1,3 +1,4 @@
+import { clickControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyCompatibilityEditing(page, source) {
@@ -7,7 +8,7 @@ export async function verifyCompatibilityEditing(page, source) {
   const richClass = '@startuml\nclass Customer\n@enduml';
   await source.fill(richClass);
   await paper.locator('[data-qualified-name="Customer"] text').filter({hasText:/^Customer$/}).dblclick();
-  await page.getByRole('button', {name:'Bold (Ctrl+B)',exact:true}).click();
+  await clickControl(page, page.getByRole('button', {name:'Bold (Ctrl+B)',exact:true}));
   await field.press('Enter');
   assert.equal(await source.inputValue(),'@startuml\nclass "**Customer**" as Customer\n@enduml');
   await paper.locator('[data-qualified-name="Customer"] tspan[font-weight="bold"]').filter({hasText:/^Customer$/}).waitFor();
@@ -32,7 +33,7 @@ export async function verifyCompatibilityEditing(page, source) {
     await source.fill(formula);
     await paper.locator('.math-expression text').filter({hasText:new RegExp('^'+initial[0]+'$')}).first().dblclick();
     assert.equal(await field.inputValue(),initial);
-    await page.getByRole('button',{name:'Insert fraction',exact:true}).click();
+    await clickControl(page, page.getByRole('button',{name:'Insert fraction',exact:true}));
     assert.equal(await field.inputValue(),fraction);
     await field.press('Control+Enter');
     assert.equal(await source.inputValue(),formula.replace(initial,fraction));
@@ -48,7 +49,7 @@ export async function verifyCompatibilityEditing(page, source) {
   await paper.locator('[data-ditaa-shape]').first().dblclick({position:{x:4,y:4}});
   const drawing = '+-------+    +-------+\n| Input +--->| Output|\n+-------+    +-------+';
   await field.fill(drawing);
-  await page.getByRole('button',{name:'Apply diagram content (Ctrl+Enter)',exact:true}).click();
+  await clickControl(page, page.getByRole('button',{name:'Apply diagram content (Ctrl+Enter)',exact:true}));
   assert.equal(await source.inputValue(),'@startditaa\n'+drawing+'\n@endditaa');
   await paper.locator('.ditaa-label text').filter({hasText:/^Output$/}).waitFor();
   await surface.press('Control+z');

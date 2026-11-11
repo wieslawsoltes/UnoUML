@@ -1,9 +1,10 @@
+import { clickControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 // Run against the published .NET/Uno host. These paths must complete with no JVM endpoint.
 export async function verifyPorts(page) {
-  const click = name => page.getByText(name,{exact:true}).last().click();
+  const click = (name, role = 'button') => clickControl(page, page.getByRole(role,{name,exact:true}));
   await page.setViewportSize({width:1390,height:860});
   await click('Split');
   const editor = page.locator('textarea:visible').filter({visible:true});
@@ -20,7 +21,7 @@ export async function verifyPorts(page) {
   assert.doesNotMatch(await paper.textContent(),/Open connection/);
   await click('Export');
   const dl = page.waitForEvent('download');
-  await click('Vector image (.svg)');
+  await click('Vector image (.svg)', 'menuitem');
   const downloaded = await dl;
   assert.match(downloaded.suggestedFilename(),/-sheet-2\.svg$/);
   const exported = await readFile(await downloaded.path(),'utf8');
@@ -28,13 +29,13 @@ export async function verifyPorts(page) {
   assert.doesNotMatch(exported,/Open connection|sheet-picker/);
   await click('Export');
   const pngDownload = page.waitForEvent('download');
-  await click('Raster image (.png)');
+  await click('Raster image (.png)', 'menuitem');
   const png = await pngDownload;
   assert.match(png.suggestedFilename(),/-sheet-2\.png$/);
   assert.equal((await readFile(await png.path())).subarray(1,4).toString(),'PNG');
   await picker.selectOption('0');
   assert.equal(await paper.locator('svg[data-sequence-page]').count(),2);
-  await paper.locator('svg[data-sequence-page="1"] .participant-head[data-qualified-name="Client"]').click();
+  await clickControl(page, paper.locator('svg[data-sequence-page="1"] .participant-head[data-qualified-name="Client"]'));
   await page.waitForFunction(() => {
     const host = [...document.querySelectorAll('[id]')].find(e=>e.shadowRoot?.querySelector('.paper'));
     const root = host.shadowRoot;
@@ -147,7 +148,7 @@ export async function verifyPorts(page) {
   await field.press('Enter');
   updatedC4 = updatedC4.replace('"Calls"','"Invokes"');
   assert.equal(await source.inputValue(),updatedC4);
-  await paper.locator('[data-source-line="9"] text').filter({hasText:/^Invokes$/}).click();
+  await clickControl(page, paper.locator('[data-source-line="9"] text').filter({hasText:/^Invokes$/}));
   const target = await page.getByRole('button',{name:'Reattach target endpoint'}).boundingBox();
   const storage = await paper.locator('[data-c4-alias="data"] text').filter({hasText:/^Storage$/}).boundingBox();
   assert.ok(target && storage);
@@ -209,11 +210,11 @@ export async function verifyPorts(page) {
   assert.equal(await page.evaluate(async () => (await import(new URL('uml/viewport.js',document.baseURI))).readInclude('model.iuml')), changedInclude);
   await surface.press('Control+z');
   await paper.locator('[data-qualified-name="IncludedInvoice"] text').filter({hasText:/^IncludedInvoice$/}).first().waitFor();
-  await invoice.locator('text').filter({hasText:'IncludedInvoice'}).first().click();
-  await page.getByText('Edit included source…',{exact:true}).click();
+  await clickControl(page, invoice.locator('text').filter({hasText:'IncludedInvoice'}).first());
+  await clickControl(page, page.getByRole('button', {name:'Edit included source…',exact:true}));
   assert.equal(await page.getByRole('textbox',{name:'Edit diagram label'}).count(),0);
   assert.equal(await source.inputValue(),input);
-  await page.getByText('Edit imported include',{exact:true}).waitFor();
+  await page.getByRole('dialog',{name:'Edit imported include',exact:true}).waitFor();
   const includeEditor = page.getByRole('textbox',{name:'Imported include source'});
   await includeEditor.waitFor({state:'visible'});
   assert.equal(await includeEditor.inputValue(),originalInclude.replaceAll('\r\n','\n'));
@@ -222,13 +223,13 @@ export async function verifyPorts(page) {
   await click('Apply');
   await paper.locator('[data-qualified-name="IncludedInvoice"] text').filter({hasText:/^Invoice record$/}).first().waitFor();
   assert.equal(await source.inputValue(),input);
-  await paper.locator('[data-qualified-name="IncludedInvoice"] text').filter({hasText:/^Invoice record$/}).first().click();
-  await page.getByText('Edit included source…',{exact:true}).click();
+  await clickControl(page, paper.locator('[data-qualified-name="IncludedInvoice"] text').filter({hasText:/^Invoice record$/}).first());
+  await clickControl(page, page.getByRole('button', {name:'Edit included source…',exact:true}));
   await includeEditor.waitFor({state:'visible'});
   assert.equal(await includeEditor.inputValue(),changedInclude.replaceAll('\r\n','\n'));
   const [includedFile] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByText('Download include',{exact:true}).click()
+    clickControl(page, page.getByRole('button', {name:'Download include',exact:true}))
   ]);
   assert.equal(includedFile.suggestedFilename(),'model.iuml');
   assert.equal(await readFile(await includedFile.path(),'utf8'),changedInclude);

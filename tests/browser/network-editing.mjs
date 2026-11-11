@@ -1,8 +1,9 @@
+import { clickControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyNetworkEditing(page, source) {
   await page.setViewportSize({width:1480,height:960});
-  await page.getByText('Split',{exact:true}).last().click();
+  await clickControl(page, page.getByRole('button', {name:'Split',exact:true}));
   await source.waitFor({state:'visible'});
   const paper = page.locator('.paper').first();
   const fixture = '@startnwdiag\nnwdiag {\n  network dmz {\n    address = "192.0.2.0/24"; // subnet retained\n    shared [address=".1", description="Gateway", color="#112233"];\n    client [address=".2"];\n  }\n  network lan {\n    shared [address="10.0.0.1"];\n    db [shape=database];\n  }\n  network spare {\n  }\n}\n@endnwdiag';
@@ -11,7 +12,7 @@ export async function verifyNetworkEditing(page, source) {
   await source.fill(fixture);
   await paper.locator('g.entity[data-qualified-name="shared"]').waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
-  await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
+  await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
 
   // Author actual geometry before renaming. This catches identity remapping in
   // the production .NET/browser bridge, not only in an isolated source API.
@@ -28,11 +29,11 @@ export async function verifyNetworkEditing(page, source) {
   const authored = geometry(dragged).nodes.find(n=>n.id===oldId);
   assert.ok(authored);
 
-  await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^Gateway$/}).click();
-  await page.getByText('Rename host identifier…',{exact:true}).last().click();
+  await clickControl(page, paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^Gateway$/}));
+  await clickControl(page, page.getByRole('button', {name:'Rename host identifier…',exact:true}));
   let dialog = page.getByRole('dialog',{name:'Rename host identifier',exact:true});
   await dialog.getByRole('textbox',{name:'Host identifier',exact:true}).fill('gateway');
-  await dialog.getByRole('button',{name:'Rename',exact:true}).click();
+  await clickControl(page, dialog.getByRole('button',{name:'Rename',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('g.entity[data-qualified-name="gateway"]').waitFor();
   const renamed = await source.inputValue();
@@ -42,47 +43,47 @@ export async function verifyNetworkEditing(page, source) {
   const renamedNode = geometry(renamed).nodes.find(n=>n.id===newId);
   assert.deepEqual({...renamedNode,id:oldId},authored,'A shared-host rename retains the authored node geometry');
   assert.equal(geometry(renamed).edges.filter(e=>e.target===newId).length,2,'Both interfaces point at the renamed host');
-  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await clickControl(page, page.getByRole('button',{name:'Undo',exact:true}));
   await paper.locator('g.entity[data-qualified-name="shared"]').waitFor();
   assert.equal(await source.inputValue(),dragged,'Undo restores source and all route identities together');
-  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await clickControl(page, page.getByRole('button',{name:'Undo',exact:true}));
   await page.waitForFunction(expected => [...document.querySelectorAll('textarea')].some(e=>e.getAttribute('aria-label')==='PlantUML source' && e.value===expected),fixture);
   assert.equal(await source.inputValue(),fixture);
 
-  await paper.locator('[data-edit-kind="text"]').filter({hasText:/^dmz$/}).click();
-  await page.getByText('Insert network host…',{exact:true}).last().click();
+  await clickControl(page, paper.locator('[data-edit-kind="text"]').filter({hasText:/^dmz$/}));
+  await clickControl(page, page.getByRole('button', {name:'Insert network host…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Insert network host',exact:true});
   await dialog.getByRole('textbox',{name:'Host identifier',exact:true}).fill('cache');
   await dialog.getByRole('textbox',{name:'Host description',exact:true}).fill('Cache');
   await dialog.getByRole('textbox',{name:'Interface address',exact:true}).fill('.5');
-  await dialog.getByRole('button',{name:'Insert',exact:true}).click();
+  await clickControl(page, dialog.getByRole('button',{name:'Insert',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('g.entity[data-qualified-name="cache"]').waitFor();
   assert.ok((await source.inputValue()).includes('cache [address = ".5", description = "Cache"];'));
   assert.ok((await source.inputValue()).includes('// subnet retained'));
-  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await clickControl(page, page.getByRole('button',{name:'Undo',exact:true}));
   await paper.locator('g.entity[data-qualified-name="cache"]').waitFor({state:'detached'});
   assert.equal(await source.inputValue(),fixture);
 
-  await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^Gateway$/}).click();
-  await page.getByText('Attach host to network…',{exact:true}).last().click();
+  await clickControl(page, paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^Gateway$/}));
+  await clickControl(page, page.getByRole('button', {name:'Attach host to network…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Attach host to network',exact:true});
   await dialog.getByRole('textbox',{name:'Interface address',exact:true}).fill('172.16.0.1');
-  await dialog.getByRole('button',{name:'Attach',exact:true}).click();
+  await clickControl(page, dialog.getByRole('button',{name:'Attach',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^172\.16\.0\.1$/}).waitFor();
   assert.equal(await paper.locator('g.entity[data-qualified-name="shared"]').count(),1,'Attaching reuses the shared host');
   assert.equal(await paper.locator('g.interface').count(),5);
   const attached = await source.inputValue();
-  await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^172\.16\.0\.1$/}).click();
-  await page.getByText('Detach from this network',{exact:true}).last().click();
+  await clickControl(page, paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^172\.16\.0\.1$/}));
+  await clickControl(page, page.getByRole('button', {name:'Detach from this network',exact:true}));
   await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^172\.16\.0\.1$/}).waitFor({state:'detached'});
   assert.equal(await paper.locator('g.interface').count(),4);
   assert.equal(await source.inputValue(),fixture,'Detaching removes exactly the added interface');
-  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await clickControl(page, page.getByRole('button',{name:'Undo',exact:true}));
   await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^172\.16\.0\.1$/}).waitFor();
   assert.equal(await source.inputValue(),attached);
-  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await clickControl(page, page.getByRole('button',{name:'Undo',exact:true}));
   await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^172\.16\.0\.1$/}).waitFor({state:'detached'});
   assert.equal(await source.inputValue(),fixture);
 
@@ -92,44 +93,49 @@ export async function verifyNetworkEditing(page, source) {
   await source.fill(compact);
   await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^Direct gateway$/}).waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
-  await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^203\.0\.113\.1$/}).click();
-  await page.getByText('Interface address…',{exact:true}).last().click();
+  await clickControl(page, paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^203\.0\.113\.1$/}));
+  await clickControl(page, page.getByRole('button', {name:'Interface address…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Interface address',exact:true});
   await dialog.getByRole('textbox',{name:'Interface address',exact:true}).fill('203.0.113.2');
-  await dialog.getByRole('button',{name:'Apply',exact:true}).click();
+  await clickControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^203\.0\.113\.2$/}).waitFor();
   assert.equal(await source.inputValue(),compact.replace('203.0.113.1','203.0.113.2'));
-  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await clickControl(page, page.getByRole('button',{name:'Undo',exact:true}));
   await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^203\.0\.113\.1$/}).waitFor();
   assert.equal(await source.inputValue(),compact);
   const sameLine = '@startnwdiag\nnetwork direct { a [description="First"]; b [description="Second"]; }\n@endnwdiag';
   await source.fill(sameLine);
   await paper.locator('g.entity[data-qualified-name="b"]').waitFor();
-  await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
+  await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
   // Both host declarations and the bus header have the same source line. Hit
   // the actual body, outside its exact label token, to exercise object picking.
-  await paper.locator('g.entity[data-qualified-name="b"] > rect').click({position:{x:8,y:8}});
-  await page.getByText('Rename host identifier…',{exact:true}).last().click();
+  await clickControl(page, paper.locator('g.entity[data-qualified-name="b"] > rect'), {position:{x:8,y:8}});
+  await clickControl(page, page.getByRole('button', {name:'Rename host identifier…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Rename host identifier',exact:true});
   assert.equal(await dialog.getByRole('textbox',{name:'Host identifier',exact:true}).inputValue(),'b','Body picking resolves the second host, not the first statement on its line');
   await dialog.getByRole('textbox',{name:'Host identifier',exact:true}).fill('secondHost');
-  await dialog.getByRole('button',{name:'Rename',exact:true}).click();
+  await clickControl(page, dialog.getByRole('button',{name:'Rename',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('g.entity[data-qualified-name="secondHost"]').waitFor();
   assert.equal(await source.inputValue(),sameLine.replace(' b [',' secondHost ['));
-  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await clickControl(page, page.getByRole('button',{name:'Undo',exact:true}));
   await paper.locator('g.entity[data-qualified-name="b"]').waitFor();
   assert.equal(await source.inputValue(),sameLine);
 
   const sourceRow = page.getByRole('button',{name:sameLine.split('\n')[1],exact:true});
-  await sourceRow.click();
+  await clickControl(page, sourceRow);
   const hosts = page.getByRole('combobox',{name:'Shared host',exact:true});
-  await hosts.click();
+  await clickControl(page, hosts);
   const hostChoices = page.getByRole('listbox',{name:'Shared host',exact:true});
-  await hostChoices.getByRole('option',{name:'Second · b',exact:true}).click();
+  await clickControl(page, hostChoices.getByRole('option',{name:'Second · b',exact:true}));
   await hostChoices.waitFor({state:'hidden'});
-  await hosts.filter({hasText:'Second · b'}).waitFor();
+  await hosts.press('Enter');
+  const selectedHost = hostChoices.getByRole('option',{name:'Second · b',exact:true,selected:true});
+  await selectedHost.waitFor({state:'visible'});
+  assert.equal(await hosts.getAttribute('aria-activedescendant'),await selectedHost.getAttribute('id'));
+  await hosts.press('Escape');
+  await hostChoices.waitFor({state:'hidden'});
   // Restore focus to the ambiguous outline button before the shortcut, so a
   // native picker cannot consume Delete as an input gesture.
   await sourceRow.press('Delete');
@@ -138,16 +144,16 @@ export async function verifyNetworkEditing(page, source) {
 
   // The outline highlights the rail. Hit inside its body, clear of the resize
   // grip at the left edge, to test semantic network picking.
-  await paper.locator('g.network[data-qualified-name="direct"] > rect').click({position:{x:30,y:3}});
-  await page.getByText('Rename network identifier…',{exact:true}).last().click();
+  await clickControl(page, paper.locator('g.network[data-qualified-name="direct"] > rect'), {position:{x:30,y:3}});
+  await clickControl(page, page.getByRole('button', {name:'Rename network identifier…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Rename network identifier',exact:true});
   assert.equal(await dialog.getByRole('textbox',{name:'Network identifier',exact:true}).inputValue(),'direct','Rail picking resolves the network that shares a line with its hosts');
   await dialog.getByRole('textbox',{name:'Network identifier',exact:true}).fill('outside');
-  await dialog.getByRole('button',{name:'Rename',exact:true}).click();
+  await clickControl(page, dialog.getByRole('button',{name:'Rename',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('g.network[data-qualified-name="outside"]').waitFor();
   assert.equal(await source.inputValue(),sameLine.replace('network direct','network outside'));
-  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await clickControl(page, page.getByRole('button',{name:'Undo',exact:true}));
   await paper.locator('g.network[data-qualified-name="direct"]').waitFor();
   assert.equal(await source.inputValue(),sameLine);
   console.log('Verified native network structural authoring, shared-host attachment, identity-preserving canvas rename, interface addresses, wrapperless syntax, comment retention and exact atomic undo.');

@@ -1,3 +1,4 @@
+import { clickControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 import {mkdir} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -20,7 +21,7 @@ export async function verifyFilesEditing(page, source) {
     return row&&row.dataset.canvasNode===row.dataset.canvasId;
   },{surface:await surface.elementHandle(),path});
   const input='\uFEFF@startfiles\n/src/A.cs\n/src/nested/B.cs\n/docs/\n@endfiles';
-  await source.fill(input);await row('/src/A.cs').waitFor();await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
+  await source.fill(input);await row('/src/A.cs').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   assert.equal(await paper.locator('[data-files-path]').count(),5,'Implicit directories have distinct selectable rows');
   const oldIds=new Map();
@@ -38,7 +39,7 @@ export async function verifyFilesEditing(page, source) {
 
   // The parent is inferred from two separate declarations. Editing its name
   // must rename both paths and all four descendant geometry identities at once.
-  await row('/src/').click();await surface.press('F2');
+  await clickControl(page, row('/src/'));await surface.press('F2');
   const editor=page.getByRole('textbox',{name:'Edit diagram label',exact:true});
   await editor.waitFor();assert.equal(await editor.inputValue(),'src');
   await editor.fill('library');await editor.press('Enter');
@@ -53,16 +54,16 @@ export async function verifyFilesEditing(page, source) {
 
   // Inspector move changes semantic parentage while retaining the independent
   // geometry of the nested folder and leaf. A conflicting destination is atomic.
-  await row('/src/nested/').click();
-  await page.getByText('Move file or folder…',{exact:true}).last().click();
+  await clickControl(page, row('/src/nested/'));
+  await clickControl(page, page.getByRole('button', {name:'Move file or folder…',exact:true}));
   let dialog=page.getByRole('dialog',{name:'Move file or folder',exact:true});
   await dialog.getByRole('textbox',{name:'Destination path',exact:true}).fill('/docs/');
-  await dialog.getByRole('button',{name:'Move',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  await clickControl(page, dialog.getByRole('button',{name:'Move',exact:true}));await dialog.waitFor({state:'hidden'});
   assert.equal(await source.inputValue(),arrangedSource,'Existing folders are not silently merged');
-  await row('/src/nested/').click();await page.getByText('Move file or folder…',{exact:true}).last().click();
+  await clickControl(page, row('/src/nested/'));await clickControl(page, page.getByRole('button', {name:'Move file or folder…',exact:true}));
   dialog=page.getByRole('dialog',{name:'Move file or folder',exact:true});
   await dialog.getByRole('textbox',{name:'Destination path',exact:true}).fill('/docs/models/');
-  await dialog.getByRole('button',{name:'Move',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  await clickControl(page, dialog.getByRole('button',{name:'Move',exact:true}));await dialog.waitFor({state:'hidden'});
   await row('/docs/models/B.cs').waitFor();
   assert.equal((await snapshot()).body,input.replace('/src/nested/B.cs','/docs/models/B.cs'));
   assert.deepEqual(await node('/docs/models/B.cs'),{...arranged.nodes.find(item=>item.id===oldIds.get('/src/nested/B.cs')),id:await id('/docs/models/B.cs')});
@@ -70,8 +71,8 @@ export async function verifyFilesEditing(page, source) {
 
   // Exercise OS clipboard events using real keyboard shortcuts. The copy is a
   // self-contained subtree; pasting into /docs/ remaps every canvas ID.
-  await row('/src/nested/').click();await surface.press('Control+c');
-  await row('/docs/').click();await surface.press('Control+v');
+  await clickControl(page, row('/src/nested/'));await surface.press('Control+c');
+  await clickControl(page, row('/docs/'));await surface.press('Control+v');
   await row('/docs/nested/B.cs').waitFor();
   const pastedSource=await source.inputValue(),pasted=(await snapshot()).state;
   assert.equal((await snapshot()).body,input.replace('@endfiles','/docs/nested/B.cs\n@endfiles'));
@@ -83,20 +84,20 @@ export async function verifyFilesEditing(page, source) {
   assert.equal(pasted.nodes.length,7);
   await surface.press('Control+z');await waitSource(arrangedSource);await row('/docs/nested/B.cs').waitFor({state:'detached'});
   await surface.press('Control+y');await waitSource(pastedSource);await row('/docs/nested/B.cs').waitFor();
-  await row('/docs/nested/').click();await surface.press('Delete');
+  await clickControl(page, row('/docs/nested/'));await surface.press('Delete');
   await row('/docs/nested/B.cs').waitFor({state:'detached'});
   assert.equal(await source.inputValue(),arrangedSource,'Delete removes the subtree and its geometry');
   await surface.press('Control+z');await waitSource(pastedSource);await row('/docs/nested/').waitFor();
 
-  await row('/docs/nested/').click();await page.getByText('Insert file…',{exact:true}).last().click();
+  await clickControl(page, row('/docs/nested/'));await clickControl(page, page.getByRole('button', {name:'Insert file…',exact:true}));
   dialog=page.getByRole('dialog',{name:'Insert file',exact:true});
   await dialog.getByRole('textbox',{name:'Path',exact:true}).fill('/docs/nested/New.cs');
-  await dialog.getByRole('button',{name:'Insert',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  await clickControl(page, dialog.getByRole('button',{name:'Insert',exact:true}));await dialog.waitFor({state:'hidden'});
   await row('/docs/nested/New.cs').waitFor();
   assert.ok((await snapshot()).body.includes('/docs/nested/New.cs\n@endfiles'));
   await surface.press('Control+z');await waitSource(pastedSource);await row('/docs/nested/New.cs').waitFor({state:'detached'});
 
-  await page.getByRole('button',{name:'Fit diagram',exact:true}).click();
+  await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
   if(process.env.SCREENSHOT_DIR){await mkdir(process.env.SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:resolve(process.env.SCREENSHOT_DIR,'files-authoring.png')});}
   console.log('Verified Files inferred-folder direct editing, atomic path and geometry remapping, collision guards, inspector move/insert, keyboard subtree copy/paste/delete, BOM preservation and exact undo/redo.');
 }

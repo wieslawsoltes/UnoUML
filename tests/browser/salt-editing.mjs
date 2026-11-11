@@ -1,8 +1,9 @@
+import { clickControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifySaltEditing(page, source) {
   await page.setViewportSize({width:1480,height:960});
-  await page.getByText('Split',{exact:true}).last().click();
+  await clickControl(page, page.getByRole('button', {name:'Split',exact:true}));
   await source.waitFor({state:'visible'});
   const paper = page.locator('.paper').first(), surface = page.locator('.surface').first();
   const editor = page.getByRole('textbox',{name:'Edit diagram label'});
@@ -22,14 +23,14 @@ export async function verifySaltEditing(page, source) {
   await surface.press('Control+y');
   assert.equal(await source.inputValue(),checked);
   await paper.locator(`[data-edit-kind="salt-state"][data-edit-start="${markerAt}"][data-edit-length="3"]`).waitFor();
-  await paper.locator('.salt-choice').first().locator('text').first().click();
-  await page.getByText('Choose dropdown value…',{exact:true}).last().click();
+  await clickControl(page, paper.locator('.salt-choice').first().locator('text').first());
+  await clickControl(page, page.getByRole('button', {name:'Choose dropdown value…',exact:true}));
   const dialog = page.getByRole('dialog',{name:'Dropdown value',exact:true});
-  await dialog.getByRole('combobox',{name:'Selected value',exact:true}).click();
+  await clickControl(page, dialog.getByRole('combobox',{name:'Selected value',exact:true}));
   // The rendered Salt form contains the same caption behind the modal. Select
   // the native picker item, whose popup is hosted outside the dialog subtree.
-  await page.locator('.uno-comboboxitem').filter({hasText:/^Professional$/}).click();
-  await dialog.getByRole('button',{name:'Apply',exact:true}).click();
+  await clickControl(page, page.getByRole('listbox',{name:'Selected value',exact:true}).getByRole('option',{name:'Professional',exact:true}));
+  await clickControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));
   const selected = checked.replace('^Basic^^','^Professional^^');
   // The dialog result resumes the managed edit asynchronously. Its new heading
   // proves both the source commit and the subsequent render have completed.

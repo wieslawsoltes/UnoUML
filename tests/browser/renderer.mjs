@@ -1,3 +1,4 @@
+import { clickControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 import { verifyCanvasEvents } from './direct-editing.mjs';
 import { verifyCanvasSceneIdentity } from './canvas-scene.mjs';
@@ -47,7 +48,7 @@ try {
   await render(signature);
   const entity = page.locator('.paper [data-qualified-name="A"]');
   assert.equal(await entity.count(), 1);
-  await entity.click();
+  await clickControl(page, entity);
   assert.deepEqual(await page.evaluate(() => { const {action,id,line} = log.at(-1); return {action,id,line}; }), { action:'select',id:'A',line:1 });
   await entity.dblclick();
   assert.equal(await page.evaluate(() => log.at(-1).action), 'edit');
@@ -66,8 +67,8 @@ try {
   await page.mouse.up();
   assert.deepEqual(await page.evaluate(() => [log.at(-1).action,log.at(-1).direction]),['place','left']);
   await page.evaluate(() => ui.setTool('diagram','connect'));
-  await entity.click();
-  await page.locator('.paper [data-qualified-name="B"]').click();
+  await clickControl(page, entity);
+  await clickControl(page, page.locator('.paper [data-qualified-name="B"]'));
   assert.deepEqual(await page.evaluate(() => { const g=log.at(-1); return [g.action,g.from.id,g.to.id]; }), ['connect','A','B']);
   const before=await page.evaluate(()=>log.filter(x=>x.kind==='zoom').at(-1).zoom);
   await page.evaluate(()=>ui.zoom('diagram',1.5));
@@ -89,11 +90,11 @@ try {
     assert.ok(placed.x + placed.width < anchor.x, 'B is left of A in ' + (rank || 'top-to-bottom'));
   }
   await render('@startuml\n!include <C4/C4_Context>\nPerson(viewer,"Reviewer")\n@enduml');
-  await page.locator('.paper [data-qualified-name="viewer"]').click();
+  await clickControl(page, page.locator('.paper [data-qualified-name="viewer"]'));
   assert.equal(await page.evaluate(()=>log.at(-1).line),2);
   await render('@startuml\nclass Box {\n +draw()\n}\n@enduml');
   await page.evaluate(()=>ui.setTool('diagram','select'));
-  await page.locator('.paper text').filter({hasText:'draw()'}).click();
+  await clickControl(page, page.locator('.paper text').filter({hasText:'draw()'}));
   assert.equal(await page.evaluate(()=>log.at(-1).line),2);
   await render('@startdot\ndigraph G { A -> B; B -> C }\n@enddot');
   assert.equal(await page.locator('.paper g.node').count(),3);
