@@ -1,3 +1,4 @@
+import { publishedPrefix, servePublishedSite } from './published-site.mjs';
 import { graphicsLaunchOptions } from './graphics-options.mjs';
 import { verifyGpuPresentation, verifyGpuFallback } from './gpu-presentation.mjs';
 import assert from 'node:assert/strict';
@@ -19,31 +20,11 @@ import { verifyFilesEditing } from './files-editing.mjs';
 import { verifyNetworkEditing } from './network-editing.mjs';
 import { verifyGanttEditing } from './gantt-editing.mjs';
 import { verifyImportedPageRouting } from './imported-editing.mjs';
-import { createReadStream } from 'node:fs';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:http';
-import { extname, resolve, sep } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 
-const prefix = '/UnoUML/';
-const mime = { '.css': 'text/css', '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.mjs': 'text/javascript',
-  '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.wasm': 'application/wasm', '.txt': 'text/plain' };
-
-async function servePublishedSite(wwwroot) {
-  await stat(resolve(wwwroot, 'index.html'));
-  const server = createServer(async (request, response) => {
-    try {
-      const path = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
-      if (!path.startsWith(prefix)) throw new Error('Outside the GitHub Pages project path');
-      const file = resolve(wwwroot, path.slice(prefix.length) || 'index.html');
-      if (!file.startsWith(wwwroot + sep) || !(await stat(file)).isFile()) throw new Error('Missing asset');
-      response.writeHead(200, { 'Content-Type': mime[extname(file)] || 'application/octet-stream' });
-      createReadStream(file).pipe(response);
-    } catch { response.writeHead(404); response.end(); }
-  });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  return server;
-}
+const prefix = publishedPrefix;
 
 async function verifyIndependentAuthoring(browser, url) {
   const scenarios = [
