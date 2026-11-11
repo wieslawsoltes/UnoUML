@@ -95,12 +95,17 @@ export class GpuPresentationHost {
     return true;
   }
 
+  rejectScene(reason) {
+    if (this.disposed) return;
+    this.renderer?.resetAfterRejection();
+    this.fail(reason);
+  }
+
   fail(error) {
     if (this.disposed) return;
     this.reason = error instanceof Error ? error.message : String(error || 'GPU scene compilation failed.');
     this.pending = false;
-    this.renderer?.dispose();
-    this.renderer = null;
+    // Keep observing scene-local failures so a later edit can recover GPU presentation.
     this.setPaint(false);
     console.warn('UnoUML GPU presentation:', this.reason);
   }

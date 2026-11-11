@@ -57,7 +57,7 @@ export function resolvePaint(ctx,element,value,objectBounds,opacity=1){
  const units=attribute('gradientUnits','objectBoundingBox'),object=units==='objectBoundingBox';
  if(!object&&units!=='userSpaceOnUse')throw new GeometryError('unsupported-gradient-units');
  const svg=element.ownerSVGElement||ctx.svg,view=svg.viewBox?.baseVal;
- const width=object?1:(view?.width||svg.width?.baseVal?.value||1),height=object?1:(view?.height||svg.height?.baseVal?.value||1),diagonal=Math.hypot(width,height)/Math.SQRT2;
+ const width=object?1:(view?.width||(svg===ctx.svg?ctx.viewport?.[2]:0)||svg.width?.baseVal?.value||1),height=object?1:(view?.height||(svg===ctx.svg?ctx.viewport?.[3]:0)||svg.height?.baseVal?.value||1),diagonal=Math.hypot(width,height)/Math.SQRT2;
  let transform=parseTransform(attribute('gradientTransform',''));
  if(object){if(!(objectBounds[2]>0&&objectBounds[3]>0))throw new GeometryError('zero-gradient-bounds');transform=multiply([objectBounds[2],0,0,objectBounds[3],objectBounds[0],objectBounds[1]],transform);}
  const spread=attribute('spreadMethod','pad');if(!['pad','repeat','reflect'].includes(spread))throw new GeometryError('unsupported-gradient-spread');

@@ -2,6 +2,7 @@
 // require an isolated compositing layer. Pixels are straight-alpha RGBA; the
 // shared Uno WebGPU backend owns GPU resources and premultiplied sampling.
 import {GeometryError,identity,multiply,inverse,transformBounds,maxScale,intersectBounds} from './geometry.js';
+import {embedSvgFonts} from './fonts.js';
 const NS='http://www.w3.org/2000/svg';
 const VISUAL_PROPERTIES=[
  'color','color-interpolation','fill','fill-opacity','fill-rule','stroke','stroke-opacity','stroke-width',
@@ -12,6 +13,7 @@ const VISUAL_PROPERTIES=[
  'dominant-baseline','alignment-baseline','baseline-shift','writing-mode','direction','unicode-bidi','white-space',
  'text-rendering','shape-rendering','image-rendering','vector-effect','stop-color','stop-opacity','flood-color','flood-opacity'
 ];
+const GEOMETRY_STYLE={path:['d'],rect:['x','y','width','height','rx','ry'],circle:['cx','cy','r'],ellipse:['cx','cy','rx','ry'],image:['x','y','width','height'],use:['x','y','width','height'],svg:['x','y','width','height']};
 let resourceSequence=0;
 function hash(value){
  let a=2166136261,b=5381;for(let i=0;i<value.length;i++){const c=value.charCodeAt(i);a=Math.imul(a^c,16777619);b=Math.imul(b,33)^c;}
@@ -48,7 +50,10 @@ export function bytesToBase64(bytes){
 }
 function setStyle(source,clone,ctx){
  const style=ctx.style(source);
- for(const property of VISUAL_PROPERTIES){
+ if(ctx.fontFamilies&&['text','tspan','use'].includes(source.localName))ctx.fontFamilies.add(style.fontFamily);
+ const properties=[...VISUAL_PROPERTIES,...(GEOMETRY_STYLE[source.localName]||[])];
+ if(typeof source.getCTM==='function')properties.push('transform','transform-origin','transform-box');
+ for(const property of properties){
   const value=style.getPropertyValue(property);
   if(value)clone.style.setProperty(property,value);
  }
@@ -90,6 +95,7 @@ function definitions(ctx,content){
  return defs;
 }
 function viewport(ctx){
+ if(ctx.viewport)return ctx.viewport.slice();
  const vb=ctx.svg.viewBox?.baseVal;
  if(vb&&vb.width>0&&vb.height>0)return[vb.x,vb.y,vb.width,vb.height];
  const width=ctx.svg.width?.baseVal?.value,height=ctx.svg.height?.baseVal?.value;
@@ -97,6 +103,7 @@ function viewport(ctx){
  return[0,0,width,height];
 }
 export function makeRasterSnapshot(ctx,element,{world=false}={}){
+ ctx={...ctx,fontFamilies:new Set()};
  const rootBounds=viewport(ctx),inner=document.createElementNS(NS,'svg');
  inner.setAttribute('x',rootBounds[0]);inner.setAttribute('y',rootBounds[1]);
  inner.setAttribute('width',rootBounds[2]);inner.setAttribute('height',rootBounds[3]);
@@ -104,7 +111,7 @@ export function makeRasterSnapshot(ctx,element,{world=false}={}){
  inner.setAttribute('overflow','visible');inner.setAttribute('xmlns',NS);
  const clone=element.cloneNode(true);setStyle(element,clone,ctx);
  if(!world){clone.removeAttribute('transform');clone.style.removeProperty('transform');}
- if(element===ctx.svg){clone.setAttribute('x',rootBounds[0]);clone.setAttribute('y',rootBounds[1]);clone.setAttribute('width',rootBounds[2]);clone.setAttribute('height',rootBounds[3]);clone.setAttribute('viewBox',rootBounds.join(' '));clone.style.removeProperty('width');clone.style.removeProperty('height');}
+ if(element===ctx.svg){clone.setAttribute('x',rootBounds[0]);clone.setAttribute('y',rootBounds[1]);clone.setAttribute('width',rootBounds[2]);clone.setAttribute('height',rootBounds[3]);clone.setAttribute('viewBox',rootBounds.join(' '));clone.style.removeProperty('width');clone.style.removeProperty('height');clone.style.removeProperty('x');clone.style.removeProperty('y');clone.removeAttribute('transform');clone.style.removeProperty('transform');}
  let content=clone;
  if(world){
   for(let ancestor=element.parentElement;ancestor&&ancestor!==ctx.svg;ancestor=ancestor.parentElement){
@@ -119,11 +126,12 @@ export function makeRasterSnapshot(ctx,element,{world=false}={}){
  for(const property of ['color','font-family','font-size','font-style','font-weight','font-stretch','letter-spacing','word-spacing','text-anchor','writing-mode','direction']){
   const value=ctx.style(ctx.svg).getPropertyValue(property);if(value)inner.style.setProperty(property,value);
  }
- return{xml:new XMLSerializer().serializeToString(inner),rootBounds};
+ return{xml:new XMLSerializer().serializeToString(inner),rootBounds,fontFamilies:Array.from(ctx.fontFamilies)};
 }
-export function serializeTile(snapshot,tile){
+export function serializeTile(snapshot,tile,includeFonts=true){
  const b=tile.bounds;
- return '<svg xmlns="'+NS+'" width="'+tile.width+'" height="'+tile.height+'" viewBox="'+b.join(' ')+'" preserveAspectRatio="none">'+snapshot.xml+'</svg>';
+ const css=includeFonts&&snapshot.fontCss?'<style type="text/css">'+snapshot.fontCss.replaceAll('&','&amp;').replaceAll('<','&lt;')+'</style>':'';
+ return '<svg xmlns="'+NS+'" width="'+tile.width+'" height="'+tile.height+'" viewBox="'+b.join(' ')+'" preserveAspectRatio="none">'+css+snapshot.xml+'</svg>';
 }
 async function rasterize(xml,width,height){
  const blob=new Blob([xml],{type:'image/svg+xml;charset=utf-8'}),url=URL.createObjectURL(blob),image=new Image();
@@ -146,12 +154,12 @@ export class RasterCache{
  beginFrame(){for(const entry of this.entries.values())entry.pinned=false;}
  async get(snapshot,tile){
   if(this.disposed)throw new GeometryError('raster-cache-disposed');
-  const xml=serializeTile(snapshot,tile),signature=tile.width+'x'+tile.height+':'+xml,key=hash(signature);
+  const signature=tile.width+'x'+tile.height+':'+serializeTile(snapshot,tile,false)+'|fonts:'+(snapshot.fontKey||''),key=hash(signature);
   if(signature.length>2097152)throw new GeometryError('raster-snapshot-budget');
   let entry=this.entries.get(key);
   // Keep the full signature, not only its hash, so a collision cannot substitute
   // a different glyph, gradient, or confidential document fragment.
-  if(entry&&entry.signature===signature){entry.pinned=true;entry.used=++this.clock;this.hits++;return entry.promise;}
+  if(entry&&entry.signature===signature&&entry.fontCss===snapshot.fontCss){entry.pinned=true;entry.used=++this.clock;this.hits++;return entry.promise;}
   const bytes=tile.width*tile.height*4;
   if(bytes>this.maxBytes)throw new GeometryError('raster-cache-budget');
   while(this.bytes+bytes>this.maxBytes||this.entries.size>=this.maxEntries){
@@ -160,8 +168,8 @@ export class RasterCache{
    if(oldestKey===null)throw new GeometryError('raster-cache-budget');this.drop(oldestKey);
   }
   if(entry)this.drop(key);
-  entry={signature,bytes,pinned:true,used:++this.clock,promise:null};this.bytes+=bytes;this.misses++;
-  entry.promise=Promise.resolve().then(()=>this.raster(xml,tile.width,tile.height)).catch(error=>{if(this.entries.get(key)===entry)this.drop(key);throw error;});
+  entry={signature,fontCss:snapshot.fontCss,bytes,pinned:true,used:++this.clock,promise:null};this.bytes+=bytes;this.misses++;
+  entry.promise=Promise.resolve().then(()=>this.raster(serializeTile(snapshot,tile),tile.width,tile.height)).catch(error=>{if(this.entries.get(key)===entry)this.drop(key);throw error;});
   this.entries.set(key,entry);return entry.promise;
  }
  drop(key){const entry=this.entries.get(key);if(entry){this.bytes-=entry.bytes;this.entries.delete(key);}}
@@ -251,15 +259,20 @@ export function worldRasterBounds(ctx,element){
  return[result[0]-pad,result[1]-pad,result[2]+pad*2,result[3]+pad*2];
 }
 export async function rasterCommands(ctx,element,id,reason,matrix){
- const local=reason==='text'||reason==='image';
- const snapshot=makeRasterSnapshot(ctx,element,{world:!local});
+ const local=element!==ctx.svg&&element.localName!=='svg';
+ ctx.fontEmbeddingCache??=new Map();
+ const snapshot=await embedSvgFonts(ctx.svg,makeRasterSnapshot(ctx,element,{world:!local}),ctx.fontEmbeddingCache);
  const scale=qualityBucket(ctx.scale*(local?maxScale(matrix):1));
  let bounds;
- if(local)bounds=localRasterBounds(element,ctx.style(element),scale,ctx,matrix);
+ if(local&&(reason==='text'||reason==='image'))bounds=localRasterBounds(element,ctx.style(element),scale,ctx,matrix);
  else{
   try{bounds=worldRasterBounds(ctx,element);}catch(error){if(!ctx.rootClip)throw error;bounds=ctx.rootClip;}
   if(ctx.rootClip)bounds=intersectBounds(bounds,ctx.rootClip);
+  if(local)bounds=transformBounds(bounds,inverse(matrix));
  }
+ // Suppress CTM cancellation noise during translation, far below one
+ // thousandth of a physical pixel, so unchanged layers retain their texture.
+ const grid=1e-6/Math.max(.001,scale);bounds=bounds.map(v=>Math.round(v/grid)*grid);
  if(!(bounds[2]>0&&bounds[3]>0))return{commands:[],textures:[],reason};
  const tiles=rasterTiles(bounds,scale,ctx.rasterLimits),commands=[],textures=[];
  for(let i=0;i<tiles.length;i++){

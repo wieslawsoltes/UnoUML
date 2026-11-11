@@ -36,13 +36,14 @@ function fixture() {
   let revision = 0;
   const host = new GpuPresentationHost(view, (_view, emit, options) => {
     const compiler = {
-      options, lastRevision: -1, pending: false, disposed: false, scenes: 0, cameras: 0,
+      options, lastRevision: -1, pending: false, disposed: false, scenes: 0, cameras: 0, resets: 0,
       setScene(svg, sourceVersion) {
         this.scenes++; this.svg = svg; this.sourceVersion = sourceVersion;
         this.pending = true; this.lastRevision = ++revision; options.onPending(true);
       },
       finish() { this.pending = false; emit({revision:this.lastRevision}); options.onPending(false); },
       setCamera() { this.cameras++; if (!this.pending) this.lastRevision = ++revision; },
+      resetAfterRejection() { this.resets++; this.pending = true; },
       presented(value) { return !this.disposed && !this.pending && value === this.lastRevision; },
       dispose() { this.disposed = true; }
     };
@@ -134,7 +135,7 @@ test('selection and hover decorations remain outside the suppressed SVG paint', 
   assert.equal(view.svg.isConnected, true);
 });
 
-test('compiler failure restores source rendering and disposal removes all owned listeners', () => {
+test('compiler failure restores SVG, later edits recover, and disposal removes all owned listeners', () => {
   const {host, view, compilers, emitted} = fixture();
   host.setAvailability(true);
   const compiler = compilers[0];
@@ -142,10 +143,12 @@ test('compiler failure restores source rendering and disposal removes all owned 
   const warn = console.warn;
   try { console.warn = () => {}; compiler.options.onError(new Error('Texture budget exceeded')); }
   finally { console.warn = warn; }
-  assert.equal(compiler.disposed, true);
+  assert.equal(compiler.disposed, false, 'scene errors preserve the mutation observer for recovery');
   assert.equal(host.state().backend, 'svg');
   assert.equal(host.state().reason, 'Texture budget exceeded');
   assert.equal(emitted.at(-1).backend, 'svg');
+  compiler.setScene(view.svg, view.version); compiler.finish();
+  assert.equal(host.present(compiler.lastRevision, {}), true, 'a corrected scene returns to GPU');
   host.dispose(); host.dispose();
   assert.equal(view.surface.handlers.size, 0);
   assert.equal(view.surface.children.length, 0);
@@ -153,4 +156,22 @@ test('compiler failure restores source rendering and disposal removes all owned 
   assert.equal(host.present(compiler.lastRevision, {}), false);
   host.setAvailability(true);
   assert.equal(compilers.length, 1);
+});
+
+
+test('atomic backend rejection resets the compiler baseline without discarding device availability', () => {
+  const {host, compilers} = fixture();
+  host.setAvailability(true);
+  const compiler = compilers[0];
+  compiler.finish(); host.present(compiler.lastRevision, {});
+  const warn = console.warn;
+  try { console.warn = () => {}; host.rejectScene('Scene budget exceeded'); }
+  finally { console.warn = warn; }
+  assert.equal(compiler.resets, 1);
+  assert.equal(compiler.disposed, false);
+  assert.equal(host.available, true);
+  assert.equal(host.state().backend, 'svg');
+  assert.equal(host.state().reason, 'Scene budget exceeded');
+  assert.equal(host.present(compiler.lastRevision, {}), false);
+  host.dispose();
 });

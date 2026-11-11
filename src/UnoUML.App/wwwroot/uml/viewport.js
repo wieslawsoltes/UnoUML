@@ -44,7 +44,12 @@ class Viewport {
     this.renderManaged = renderManaged;
     this.localMode = 'auto';
     this.host = host;
-    this.emit = (kind, value) => emit(JSON.stringify({ kind, ...value }));
+    this.emit = (kind, value) => {
+      const json = JSON.stringify({ kind, ...value });
+      if (kind === 'gpuScene' && json.length > 48 * 1024 * 1024)
+        throw new Error('The GPU scene exceeds the bounded bridge transport budget.');
+      emit(json);
+    };
     this.z = 1; this.x = 0; this.y = 0; this.autoFit = true;
     this.version = 0; this.cache = new Map(); this.budget = 0; this.pointers = new Map();
     const root = host.shadowRoot || host.attachShadow({ mode: 'open' });
@@ -543,3 +548,5 @@ export function presentGpuFrame(id, revision, statisticsJson) {
   catch { view.gpu.fail(new Error('Invalid GPU frame statistics.')); return false; }
   return view.gpu.present(revision, statistics);
 }
+
+export function rejectGpuScene(id, reason) { views.get(id)?.gpu.rejectScene(reason); }

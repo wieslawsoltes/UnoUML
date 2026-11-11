@@ -13,10 +13,15 @@ const ownerId=element=>{let id=ownerIds.get(element);if(!id){id='svg-owner-'+(++
 const arrayMatrix=m=>{if(!m)throw new GeometryError('detached-svg-transform');const result=[m.a,m.b,m.c,m.d,m.e,m.f];if(!result.every(Number.isFinite))throw new GeometryError('invalid-svg-transform');return result;};
 const opacity=value=>{const result=Number(value===''||value===undefined?1:value);if(!Number.isFinite(result))throw new GeometryError('invalid-opacity');return Math.max(0,Math.min(1,result));};
 const axisAligned=m=>(Math.abs(m[1])<1e-8&&Math.abs(m[2])<1e-8)||(Math.abs(m[0])<1e-8&&Math.abs(m[3])<1e-8);
-function viewportBounds(svg){
+function cssViewportLength(svg,style,property){
+ const text=style?.getPropertyValue(property)||'';
+ if(/^[+]?(?:\d+\.?\d*|\.\d+)(?:px)?$/.test(text)){const value=parseFloat(text);if(value>0)return value;}
+ return(property==='width'?svg.clientWidth:svg.clientHeight)||svg[property]?.baseVal?.value||0;
+}
+function viewportBounds(svg,style){
  const b=svg.viewBox?.baseVal;
  if(b&&b.width>0&&b.height>0)return[b.x,b.y,b.width,b.height];
- const width=svg.width?.baseVal?.value,height=svg.height?.baseVal?.value;
+ const width=cssViewportLength(svg,style,'width'),height=cssViewportLength(svg,style,'height');
  if(!(width>0&&height>0))throw new GeometryError('unresolved-svg-viewport');return[0,0,width,height];
 }
 function lengthValue(value,base=1){
@@ -76,18 +81,36 @@ function effectReason(style,element){
  if(element.localName==='svg'&&element!==element.ownerSVGElement&&element.ownerSVGElement)return'nested-svg';
  return null;
 }
+const GEOMETRY_PROPERTIES={path:['d'],rect:['x','y','width','height','rx','ry'],circle:['cx','cy','r'],ellipse:['cx','cy','rx','ry'],line:['x1','y1','x2','y2']};
+function verifyCssGeometry(ctx,element,style,contours,tolerance){
+ for(const property of GEOMETRY_PROPERTIES[element.localName]||[]){
+  const value=style.getPropertyValue(property);if(!value)continue;
+  if(property==='d'){
+   if(value==='none'){if((element.getAttribute('d')||'').trim())throw new GeometryError('css-geometry');continue;}
+   const path=/^path\(\s*(["'])([^"']*)\1\s*\)$/.exec(value);if(!path)throw new GeometryError('css-geometry');
+   if(JSON.stringify(flattenPath(path[2],tolerance))!==JSON.stringify(contours))throw new GeometryError('css-geometry');continue;
+  }
+  if(value==='auto'){if(element.hasAttribute(property))throw new GeometryError('css-geometry');continue;}
+  const horizontal=['x','x1','x2','cx','width','rx'].includes(property);
+  const vertical=['y','y1','y2','cy','height','ry'].includes(property);
+  const base=horizontal?ctx.viewport[2]:vertical?ctx.viewport[3]:Math.hypot(ctx.viewport[2],ctx.viewport[3])/Math.SQRT2;
+  const actual=lengthValue(value,base),attribute=attrLength(element,property);
+  if(Math.abs(actual-attribute)>1e-8*Math.max(1,Math.abs(actual),Math.abs(attribute)))throw new GeometryError('css-geometry');
+ }
+}
 function geometryFor(ctx,element,style,matrix){
  const scale=qualityBucket(ctx.scale*maxScale(matrix)),tolerance=.2/Math.max(.001,scale);
  const attributes=Array.from(element.attributes).filter(a=>!a.name.startsWith('data-')&&!['id','class','transform','fill','stroke','opacity','fill-opacity','stroke-opacity'].includes(a.name)).map(a=>a.name+'='+a.value).join('|');
  const nonScaling=style.vectorEffect==='non-scaling-stroke';
  if(style.vectorEffect&&style.vectorEffect!=='none'&&!nonScaling)throw new GeometryError('unsupported-vector-effect');
  const host=multiply(ctx.rootMatrix,matrix),hostLinear=[host[0],host[1],host[2],host[3],0,0];
- const signature=element.localName+'|'+attributes+'|'+scale+'|'+STROKE_PROPERTIES.map(p=>style[p]).join('|')+'|'+style.fillRule+'|'+(style.fill==='none')+'|'+(style.stroke==='none')+(nonScaling?'|'+hostLinear.join(','):'');
+ const signature=element.localName+'|'+attributes+'|'+scale+'|'+STROKE_PROPERTIES.map(p=>style[p]).join('|')+'|'+(GEOMETRY_PROPERTIES[element.localName]||[]).map(p=>style.getPropertyValue(p)).join('|')+'|'+style.fillRule+'|'+(style.fill==='none')+'|'+(style.stroke==='none')+(nonScaling?'|'+hostLinear.join(','):'');
  let item=ctx.geometryCache.get(element);
  if(item?.signature===signature){ctx.stats.geometryCacheHits++;return{...item,strokeMatrix:nonScaling?multiply(ctx.rootInverse,[1,0,0,1,host[4],host[5]]):matrix};}
  if(element.style.getPropertyValue('d')||element.style.getPropertyValue('r')||element.style.getPropertyValue('rx')||element.style.getPropertyValue('width'))throw new GeometryError('css-geometry');
  if(element.hasAttribute('pathLength'))throw new GeometryError('path-length-normalization');
  const contours=primitiveContours(element,tolerance),objectBounds=bbox(element);
+ verifyCssGeometry(ctx,element,style,contours,tolerance);
  const rule=style.fillRule==='evenodd'?'evenodd':'nonzero';
  const fill=element.localName==='line'||style.fill==='none'?[]:fillTriangles(contours,rule);
  const diagonal=Math.hypot(ctx.viewport[2],ctx.viewport[3])/Math.SQRT2;
@@ -120,12 +143,13 @@ function shapeCommands(ctx,element,style,matrix,clip){
  return order.map(name=>commands[name]).filter(Boolean);
 }
 export async function compileScene(svg,{scale=1,rasterCache=new RasterCache(),geometryCache=new WeakMap(),rasterLimits}={}){
+ if(globalThis.document?.fonts?.status==='loading')await document.fonts.ready;
  const started=performance.now(),styles=new WeakMap(),style=el=>{let value=styles.get(el);if(!value){value=getComputedStyle(el);styles.set(el,value);}return value;};
- const rootMatrix=arrayMatrix(svg.getCTM()),rootInverse=inverse(rootMatrix),viewport=viewportBounds(svg),byId=new Map();
+ const rootMatrix=arrayMatrix(svg.getCTM()),rootInverse=inverse(rootMatrix),viewport=viewportBounds(svg,style(svg)),byId=new Map();
  for(const el of svg.querySelectorAll('[id]'))byId.set(el.id,el);if(svg.id)byId.set(svg.id,svg);
  const stats={vectorCommands:0,rasterCommands:0,vertices:0,geometryBuilds:0,geometryCacheHits:0,rasterReasons:{},textureBytes:0,resolutionBucket:scale};
  const rootStyle=style(svg),overflow=rootStyle.overflow||'hidden';
- const width=svg.width?.baseVal?.value||viewport[2],height=svg.height?.baseVal?.value||viewport[3];
+ const width=cssViewportLength(svg,rootStyle,'width')||viewport[2],height=cssViewportLength(svg,rootStyle,'height')||viewport[3];
  const rootClip=overflow==='visible'?null:axisAligned(rootInverse)?transformBounds([0,0,width,height],rootInverse):null;
  const ctx={svg,style,byId,scale,rootMatrix,rootInverse,viewport,rootClip,rasterCache,geometryCache,rasterLimits,stats};
  const commands=[],textures=new Map();rasterCache.beginFrame();
@@ -250,7 +274,18 @@ export class ScenePresentation{
    if(!this.disposed&&this.dirty&&!this.frame)this.frame=requestAnimationFrame(()=>{this.frame=0;void this.flush();});
   }
  }
- emit(update){if(this.disposed)return;this._lastRevision=++transactionSequence;this.emitUpdate({...update,revision:this._lastRevision});}
+ resetAfterRejection(){
+  if(this.disposed)return;
+  // The backend rejected an atomic transaction. Its retained state still
+  // precedes our local delta baseline; rebuild that baseline on the next real
+  // scene change without retrying an unchanged invalid payload in a loop.
+  this.reset=true;this.commands=[];this.uploadedTextures.clear();this.pendingScene=true;this.onPending(true);
+ }
+ emit(update){
+  if(this.disposed)return;this._lastRevision=++transactionSequence;
+  try{this.emitUpdate({...update,revision:this._lastRevision});}
+  catch(error){this.resetAfterRejection();this.onError(error instanceof Error?error.message:String(error));}
+ }
  presented(revision){
   const current=!this.disposed&&!this.pendingScene&&!this.dirty&&revision===this._lastRevision&&revision>0;
   if(current)this.onPending(false);return current;
