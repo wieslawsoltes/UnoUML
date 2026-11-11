@@ -1,3 +1,4 @@
+import { verifyGpuScene } from './gpu-scene.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -21,12 +22,22 @@ try {
   const url = external || 'http://127.0.0.1:' + server.address().port + publishedPrefix;
   await page.goto(url,{waitUntil:'domcontentloaded'});
   await page.locator('.paper svg').first().waitFor({state:'visible',timeout:120000});
+  await verifyGpuScene(page);
   await verifyGpuPresentation(page);
   await verifyAccessibility(page);
   await verifyGpuFallback(browser,url);
   assert.deepEqual(errors,[]);
   console.log('Passed independent published Uno WebGPU, source input, accessibility and fallback smoke checks.');
 } finally {
+  if (page) {
+    const current = await page.locator('.surface').first().evaluate(async surface => {
+      const module = await import(new URL('uml/viewport.js', document.baseURI).href);
+      return module.rendererState(surface.getRootNode().host.id);
+    }).catch(error => ({diagnosticError:error.message}));
+    console.log('Final GPU presentation diagnostics:', JSON.stringify(current));
+    for (const line of logs.filter(line => /error:|warning:|UnoUML|backend|WebGPU/i.test(line)).slice(-100))
+      console.log('Browser ' + line);
+  }
   if (page && process.env.SCREENSHOT_DIR) {
     await mkdir(process.env.SCREENSHOT_DIR,{recursive:true});
     await writeFile(resolve(process.env.SCREENSHOT_DIR,'gpu-browser-console.txt'),logs.join('\n'));

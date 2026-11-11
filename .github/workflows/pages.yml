@@ -24,7 +24,9 @@ jobs:
       - name: Validate production WGSL and offscreen pixel output
         env:
           SCREENSHOT_DIR: ${{ runner.temp }}/gpu-checks
-        run: CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/gpu-shaders.mjs
+        run: |
+          CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/gpu-shaders.mjs
+          CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/gpu-scene.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -90,6 +92,7 @@ jobs:
           node --test tests/gpu-geometry.mjs
           node --test tests/gpu-host.mjs
           node --test tests/gpu-paint.mjs
+          node --test tests/gpu-fonts.mjs
           node --test tests/gantt-geometry.mjs
           node --test tests/source-text.mjs
           dotnet run --project tests/UnoUML.Gpu.Tests -c Release

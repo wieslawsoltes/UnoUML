@@ -280,7 +280,8 @@ internal static class BuiltinCases
         ("week_fa-IR_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: ۲۰۲۲-۰۱-۰۱ ۲۰۲۲-۰۱ ۱", "fa-IR", "UTC", 1640995200000L),
         ("week_fa-IR_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: ۲۰۲۴-۱۲-۳۱ ۲۰۲۵-۰۱ ۵", "fa-IR", "UTC", 1735603200000L),
         ("week_fa-IR_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: ۲۰۲۳-۰۱-۰۱ ۲۰۲۳-۰۱ ۱", "fa-IR", "UTC", 1672531200000L),
-        ("locale_th-TH", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: พ.ศ. พ.ศ. พุทธศักราช | 2566 2566 11 พ.ย. พฤศจิกายน 11 พ.ย. พฤศจิกายน | อ. วันอังคาร " + CultureInfo.GetCultureInfo("th-TH").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "th-TH", "UTC", 1700000000000L),
+        // Thai abbreviated weekdays changed between CLDR versions; validate the selected provider.
+        ("locale_th-TH", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: พ.ศ. พ.ศ. พุทธศักราช | 2566 2566 11 พ.ย. พฤศจิกายน 11 พ.ย. พฤศจิกายน | " + CultureInfo.GetCultureInfo("th-TH").DateTimeFormat.GetAbbreviatedDayName(DayOfWeek.Tuesday) + " วันอังคาร " + CultureInfo.GetCultureInfo("th-TH").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "th-TH", "UTC", 1700000000000L),
         ("locale_context_th-TH", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 พฤศจิกายน 2566 | 14 พฤศจิกายน 2566 | พฤศจิกายน", "th-TH", "UTC", 1700000000000L),
         ("week_th-TH_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2559-01-01 2559-01 1", "th-TH", "UTC", 1451606400000L),
         ("week_th-TH_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2564-01-01 2564-01 1", "th-TH", "UTC", 1609459200000L),

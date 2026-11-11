@@ -10,14 +10,22 @@ async function state(page) {
 }
 
 async function presented(page) {
-  await page.waitForFunction(async () => {
-    const host = [...document.querySelectorAll('*')].find(element => element.shadowRoot?.querySelector('.surface'));
-    if (!host) return false;
+  // Playwright's polling predicate is synchronous: an async predicate returns a
+  // truthy Promise before its boolean result is available. Own the bounded async
+  // poll and return the same snapshot that satisfied readiness.
+  return page.locator('.surface').first().evaluate(async surface => {
     const module = await import(new URL('uml/viewport.js', document.baseURI).href);
-    const value = module.rendererState(host.id);
-    return value?.backend === 'webgpu' && !value.pending && value.presentedRevision === value.revision;
-  }, null, {timeout:60000});
-  return state(page);
+    const id = surface.getRootNode().host.id, deadline = performance.now() + 60000;
+    while (true) {
+      const value = module.rendererState(id);
+      if (value?.backend === 'webgpu' && !value.pending && value.revision > 0 &&
+          value.presentedRevision === value.revision && value.statistics?.revision === value.revision)
+        return value;
+      if (performance.now() > deadline)
+        throw new Error('No validated GPU frame reached presentation: ' + JSON.stringify(value));
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+  });
 }
 
 async function save(name, value) {

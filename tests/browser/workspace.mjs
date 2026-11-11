@@ -1,3 +1,4 @@
+import { verifyGpuScene } from './gpu-scene.mjs';
 import { publishedPrefix, servePublishedSite } from './published-site.mjs';
 import { graphicsLaunchOptions } from './graphics-options.mjs';
 import { verifyGpuPresentation, verifyGpuFallback } from './gpu-presentation.mjs';
@@ -99,6 +100,7 @@ try {
   await paper.waitFor({ state: 'visible', timeout: 120000 });
   assert.equal(await page.locator('.paper').first().getAttribute('data-renderer'), 'managed', 'The starter diagram must render in C#');
   assert.equal(page.frames().filter(f => f.url().includes('/uml/engine.html')).length, 0, 'The managed path must leave the JS engine unloaded');
+  await verifyGpuScene(page);
   await verifyGpuPresentation(page);
   await screenshot('unouml-desktop');
   const textbox = await verifyAccessibility(page);

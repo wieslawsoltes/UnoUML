@@ -87,9 +87,9 @@ try {
           data[6] = specification.paint === 'linear' ? 1 : specification.paint === 'radial' ? 2 : 0;
           data.set(specification.bounds || [0,0,64,64],8);
           data.set(specification.color || [1,0,0,1],12);
-          data.set([1,0,0,1],16); data[22] = specification.opacity ?? 1;
+          data.set(specification.paintTransform || [1,0,0,1],16); data[22] = specification.opacity ?? 1;
           data.set(specification.gradient || [0,0,64,0],24);
-          data.set(specification.radial || [32,32,32,32],28);data[32]=32;
+          data.set(specification.radial || [32,32,32,32],28);data[32]=specification.radius ?? 32;
           const stops = specification.stops || [[0,[1,0,0,1]],[1,[0,0,1,1]]];
           data[34] = stops.length;
           if (specification.clip) data.set(specification.clip,36); else data[38]=-1;
@@ -169,6 +169,10 @@ try {
       pixel('Linear gradient shader',sample(16,32),[189,0,66,255],4);
       sample = await draw([{paint:'radial'}]);
       pixel('Radial gradient shader center',sample(32,32),[249,0,6,255],4);
+      sample = await draw([{paint:'linear',paintTransform:[1e-9,0,0,1e-9],gradient:[0,0,64e-9,0]}]);
+      pixel('Linear gradient remains scale invariant in tiny paint coordinates',sample(16,32),[189,0,66,255],4);
+      sample = await draw([{paint:'radial',paintTransform:[1e-9,0,0,1e-9],radial:[32e-9,32e-9,32e-9,32e-9],radius:32e-9}]);
+      pixel('Radial gradient remains scale invariant in tiny paint coordinates',sample(32,32),[249,0,6,255],4);
       sample = await draw([{kind:'image',pixels:[0,255,0,255,0,0,0,0]}]);
       pixel('Premultiplied image filtering avoids dark fringes',sample(32,32),[131,255,131,255],4);
       sample = await draw([{clip:[8,8,16,16]},{color:[0,1,0,1],bounds:[40,40,16,16],vertices:rect(40,40,16,16)}]);
@@ -194,7 +198,7 @@ try {
     }
   }, shader);
   assert.equal(report.pipelines,6);
-  assert.ok(report.checks.length >= 15);
+  assert.ok(report.checks.length >= 17);
   assert.ok(report.checks.every(check=>check.pass));
   console.log(JSON.stringify(report,null,2));
   if (process.env.SCREENSHOT_DIR) {
