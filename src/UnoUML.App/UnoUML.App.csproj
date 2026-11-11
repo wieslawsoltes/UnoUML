@@ -5,7 +5,8 @@
     <RootNamespace>UnoUML.App</RootNamespace>
     <UnoSingleProject>true</UnoSingleProject>
     <UnoDisableHotDesign>true</UnoDisableHotDesign>
-    <UnoFeatures>NativeRenderer</UnoFeatures>
+    <!-- Explicit preference is selected in Program; retain Skia for unsupported adapters. -->
+    <UnoFeatures>Skia;WebGpu</UnoFeatures>
     <WindowsCompatibilityVersion>10.0.14</WindowsCompatibilityVersion>
     <ApplicationTitle>UnoUML</ApplicationTitle>
     <ApplicationId>io.github.wieslawsoltes.unouml</ApplicationId>
