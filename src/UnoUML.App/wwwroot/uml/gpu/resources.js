@@ -1,7 +1,7 @@
 // Browser text shaping and bounded compatibility tiles for SVG features that
 // require an isolated compositing layer. Pixels are straight-alpha RGBA; the
 // shared Uno WebGPU backend owns GPU resources and premultiplied sampling.
-import {GeometryError,identity,transformBounds,maxScale} from './geometry.js';
+import {GeometryError,identity,multiply,inverse,transformBounds,maxScale,intersectBounds} from './geometry.js';
 const NS='http://www.w3.org/2000/svg';
 const VISUAL_PROPERTIES=[
  'color','color-interpolation','fill','fill-opacity','fill-rule','stroke','stroke-opacity','stroke-width',
@@ -19,7 +19,9 @@ function hash(value){
 }
 export function qualityBucket(scale){
  if(!Number.isFinite(scale)||scale<=0)return 1;
- return Math.pow(2,Math.ceil(Math.log2(scale)*2)/2);
+ const power=Math.log2(scale)*2,nearest=Math.round(power);
+ const stable=Math.abs(power-nearest)<=Number.EPSILON*Math.max(1,Math.abs(power))*8?nearest:Math.ceil(power);
+ return Math.pow(2,stable/2);
 }
 export function rasterTiles(bounds,scale,{tileSize=2048,maxPixels=16777216,maxTiles=64}={}){
  if(bounds.length!==4||!bounds.every(Number.isFinite)||!(bounds[2]>0&&bounds[3]>0)||!Number.isFinite(scale)||!(scale>0))throw new GeometryError('invalid-raster-bounds');
@@ -49,6 +51,16 @@ function setStyle(source,clone,ctx){
  for(const property of VISUAL_PROPERTIES){
   const value=style.getPropertyValue(property);
   if(value)clone.style.setProperty(property,value);
+ }
+ if(style.vectorEffect==='non-scaling-stroke'&&style.stroke&&style.stroke!=='none'){
+  const m=source.getCTM(),sx=m?Math.hypot(m.a,m.b):0,sy=m?Math.hypot(m.c,m.d):0;
+  if(!(sx>0)||Math.abs(sx-sy)>1e-7*Math.max(sx,sy)||Math.abs(m.a*m.c+m.b*m.d)>1e-7*sx*sy)throw new GeometryError('nonuniform-nonscaling-raster');
+  if(['markerStart','markerMid','markerEnd'].some(p=>style[p]&&style[p]!=='none'))throw new GeometryError('nonscaling-marker-raster');
+  const vb=ctx.viewport||viewport(ctx),base=Math.hypot(vb[2],vb[3])/Math.SQRT2;
+  clone.style.setProperty('vector-effect','none');
+  clone.style.setProperty('stroke-width',String(scalar(style.strokeWidth||1,base)/sx));
+  if(style.strokeDasharray&&style.strokeDasharray!=='none')clone.style.setProperty('stroke-dasharray',style.strokeDasharray.split(/[\s,]+/).filter(Boolean).map(n=>scalar(n,base)/sx).join(' '));
+  clone.style.setProperty('stroke-dashoffset',String(scalar(style.strokeDashoffset||0,base)/sx));
  }
  // A CSS URL resolved by the browser includes the document URL. Serialized
  // SVGs must reference their own copied definitions instead of that document.
@@ -156,17 +168,99 @@ export class RasterCache{
  clear(){this.entries.clear();this.bytes=0;}
  dispose(){this.disposed=true;this.clear();}
 }
-export function localRasterBounds(element,style,scale){
+export function localRasterBounds(element,style,scale,ctx=null,matrix=null){
+ if(ctx&&matrix&&element.localName==='text')return transformBounds(worldRasterBounds(ctx,element),inverse(matrix));
  const b=element.getBBox(),width=Number.parseFloat(style.strokeWidth)||0,miter=Math.max(1,Number.parseFloat(style.strokeMiterlimit)||4);
  const pad=Math.max(1/scale,style.stroke!=='none'?width*miter*.5:0);
  if(![b.x,b.y,b.width,b.height,pad].every(Number.isFinite))throw new GeometryError('invalid-raster-bounds');
  return[b.x-pad,b.y-pad,Math.max(b.width,0)+2*pad,Math.max(b.height,0)+2*pad];
 }
+function unionBounds(a,b){
+ if(!a)return b;if(!b)return a;const x=Math.min(a[0],b[0]),y=Math.min(a[1],b[1]);
+ return[x,y,Math.max(a[0]+a[2],b[0]+b[2])-x,Math.max(a[1]+a[3],b[1]+b[3])-y];
+}
+function scalar(value,base=1){
+ const text=String(value??0).trim();
+ if(!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?(?:%|px)?$/i.test(text))throw new GeometryError('unbounded-effect-length');
+ const result=parseFloat(text)*(text.endsWith('%')?base/100:1);
+ if(!Number.isFinite(result)||Math.abs(result)>1e9)throw new GeometryError('unbounded-effect-length');return result;
+}
+function localBox(element){const b=element.getBBox();return[b.x,b.y,b.width,b.height];}
+function worldMatrix(ctx,element){
+ if(element===ctx.svg)return identity();
+ const m=element.getCTM();if(!m)throw new GeometryError('detached-raster-transform');
+ return multiply(ctx.rootInverse,[m.a,m.b,m.c,m.d,m.e,m.f]);
+}
+function filterBounds(ctx,element,style,matrix){
+ const filter=style.filter;if(!filter||filter==='none')return null;
+ const reference=/^url\(\s*["']?[^"'()]*#([^"'()]+)["']?\s*\)$/.exec(filter);
+ if(!reference)throw new GeometryError('unbounded-css-filter');
+ const definition=ctx.byId.get(reference[1]);if(definition?.localName!=='filter')throw new GeometryError('missing-filter');
+ const units=definition.getAttribute('filterUnits')||'objectBoundingBox';
+ if(!['objectBoundingBox','userSpaceOnUse'].includes(units))throw new GeometryError('unbounded-filter-units');
+ const object=units==='objectBoundingBox',box=localBox(element);
+ const b=object?box:ctx.viewport;
+ const x=scalar(definition.getAttribute('x')??'-10%',object?1:b[2]),y=scalar(definition.getAttribute('y')??'-10%',object?1:b[3]);
+ const w=scalar(definition.getAttribute('width')??'120%',object?1:b[2]),h=scalar(definition.getAttribute('height')??'120%',object?1:b[3]);
+ const region=object?[box[0]+x*box[2],box[1]+y*box[3],w*box[2],h*box[3]]:[x,y,w,h];
+ if(!(region[2]>0&&region[3]>0))return[0,0,0,0];
+ return transformBounds(region,matrix);
+}
+export function worldRasterBounds(ctx,element){
+ const ignored=new Set(['defs','title','desc','metadata','style','linearGradient','radialGradient','stop','pattern','marker','symbol','clipPath','mask','filter']);
+ function visit(node){
+  if(ignored.has(node.localName))return null;
+  const style=ctx.style(node);if(style.display==='none'||Number(style.opacity)===0)return null;
+  const matrix=worldMatrix(ctx,node),filtered=filterBounds(ctx,node,style,matrix);
+  // SVG filter regions are explicit clipping regions, including when their
+  // outputs extend beyond the source geometry and the outer SVG viewport.
+  if(filtered)return filtered;
+  if(['g','a','svg'].includes(node.localName)){
+   let result=null;for(const child of node.children)result=unionBounds(result,visit(child));return result;
+  }
+  if(style.visibility==='hidden'||style.visibility==='collapse')return null;
+  if(typeof node.getBBox!=='function')throw new GeometryError('unbounded-raster-element');
+  for(const property of ['markerStart','markerMid','markerEnd'])if(style[property]&&style[property]!=='none')throw new GeometryError('unbounded-marker');
+  if(node.localName==='use'){
+   const href=node.getAttribute('href')||node.getAttributeNS('http://www.w3.org/1999/xlink','href')||'';
+   const target=href.startsWith('#')?ctx.byId.get(href.slice(1)):null;
+   if(!target)throw new GeometryError('unbounded-use');
+   // getBBox includes the instantiated geometry, but browser stroke-inclusive
+   // getBBox support is inconsistent for use shadow trees. Never guess a bound
+   // for a referenced stroked tree until its instance CTMs can be measured.
+   if([target,...target.querySelectorAll('*')].some(el=>{const st=ctx.style(el);return el!==target&&el.localName==='use'||st.stroke&&st.stroke!=='none'||st.filter&&st.filter!=='none'||['markerStart','markerMid','markerEnd'].some(p=>st[p]&&st[p]!=='none');}))throw new GeometryError('unbounded-use-paint');
+  }
+  const box=localBox(node),stroke=style.stroke&&style.stroke!=='none';
+  let pad=0;
+  if(stroke){
+   const width=scalar(style.strokeWidth||1,Math.hypot(ctx.viewport[2],ctx.viewport[3])/Math.SQRT2);
+   const limit=Math.max(Math.SQRT2,Number(style.strokeMiterlimit)||4);pad=Math.abs(width)*limit*.5;
+  }
+  let result;
+  if(style.vectorEffect==='non-scaling-stroke'){
+   result=transformBounds(box,matrix);pad*=maxScale(ctx.rootInverse);result=[result[0]-pad,result[1]-pad,result[2]+2*pad,result[3]+2*pad];
+  }else result=transformBounds([box[0]-pad,box[1]-pad,box[2]+2*pad,box[3]+2*pad],matrix);
+  // Individual text spans can override stroke width while the <text> bbox
+  // includes only glyph geometry. Union their own painted bounds as well.
+  if(node.localName==='text'||node.localName==='tspan')for(const child of node.children)result=unionBounds(result,visit(child));
+  return result;
+ }
+ const result=visit(element);
+ if(!result)return[0,0,0,0];
+ const pad=1/Math.max(.001,ctx.scale);
+ return[result[0]-pad,result[1]-pad,result[2]+pad*2,result[3]+pad*2];
+}
 export async function rasterCommands(ctx,element,id,reason,matrix){
  const local=reason==='text'||reason==='image';
  const snapshot=makeRasterSnapshot(ctx,element,{world:!local});
  const scale=qualityBucket(ctx.scale*(local?maxScale(matrix):1));
- const bounds=local?localRasterBounds(element,ctx.style(element),scale):(ctx.rootClip||snapshot.rootBounds);
+ let bounds;
+ if(local)bounds=localRasterBounds(element,ctx.style(element),scale,ctx,matrix);
+ else{
+  try{bounds=worldRasterBounds(ctx,element);}catch(error){if(!ctx.rootClip)throw error;bounds=ctx.rootClip;}
+  if(ctx.rootClip)bounds=intersectBounds(bounds,ctx.rootClip);
+ }
+ if(!(bounds[2]>0&&bounds[3]>0))return{commands:[],textures:[],reason};
  const tiles=rasterTiles(bounds,scale,ctx.rasterLimits),commands=[],textures=[];
  for(let i=0;i<tiles.length;i++){
   const tile=tiles[i],resource=await ctx.rasterCache.get(snapshot,tile);textures.push(resource);

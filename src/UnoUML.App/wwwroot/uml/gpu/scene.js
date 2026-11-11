@@ -130,7 +130,6 @@ export async function compileScene(svg,{scale=1,rasterCache=new RasterCache(),ge
  const ctx={svg,style,byId,scale,rootMatrix,rootInverse,viewport,rootClip,rasterCache,geometryCache,rasterLimits,stats};
  const commands=[],textures=new Map();rasterCache.beginFrame();
  async function raster(element,reason,matrix,clip){
-  if(!rootClip&&reason!=='text'&&reason!=='image')throw new GeometryError('unbounded-raster-'+reason);
   const result=await rasterCommands(ctx,element,ownerId(element),reason,matrix);
   for(const command of result.commands){if(clip)command.clip=clip;commands.push(command);}
   for(const texture of result.textures)textures.set(texture.id,texture);
