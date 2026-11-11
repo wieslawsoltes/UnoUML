@@ -21,7 +21,7 @@
     <ProjectReference Include="../UnoUML.Core/UnoUML.Core.csproj" />
     <ProjectReference Include="../UnoUML.PlantUml/UnoUML.PlantUml.csproj" />
     <UnoIcon Include="Assets/mark.svg" />
-    <UnoSplashScreen Include="Assets/launch.svg" Color="#F8F8FC" BaseSize="64,64" />
+    <UnoSplashScreen Include="Assets/launch.svg" BackgroundColor="#F8F8FC" BaseSize="64,64" />
   </ItemGroup>
   <Target Name="PublishPlantUmlAssets" AfterTargets="Publish">
     <ItemGroup>
