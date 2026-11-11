@@ -7,6 +7,7 @@ import { graphicsLaunchOptions } from './graphics-options.mjs';
 import { publishedPrefix, servePublishedSite } from './published-site.mjs';
 import { verifyGpuPresentation, verifyGpuFallback } from './gpu-presentation.mjs';
 import { verifyAccessibility } from './accessibility.mjs';
+import { diagnoseNativeAccessibility } from './native-accessibility-diagnostics.mjs';
 
 const external = process.env.WORKSPACE_URL;
 if (!external && !process.argv[2]) throw new Error('Pass the published site directory or set WORKSPACE_URL.');
@@ -24,7 +25,8 @@ try {
   await page.locator('.paper svg').first().waitFor({state:'visible',timeout:120000});
   await verifyGpuPresentation(page);
   await verifyGpuScene(page);
-  await verifyAccessibility(page);
+  try { await verifyAccessibility(page); }
+  catch (error) { await diagnoseNativeAccessibility(page); throw error; }
   await verifyGpuFallback(browser,url);
   assert.deepEqual(errors,[]);
   console.log('Passed independent published Uno WebGPU, source input, accessibility and fallback smoke checks.');
