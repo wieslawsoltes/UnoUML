@@ -128,7 +128,7 @@ async function rasterize(xml,width,height){
  }finally{image.onload=image.onerror=null;image.src='';URL.revokeObjectURL(url);}
 }
 export class RasterCache{
- constructor({maxBytes=67108864,maxEntries=256,raster=rasterize}={}){
+ constructor({maxBytes=67108864,maxEntries=8192,raster=rasterize}={}){
   this.maxBytes=maxBytes;this.maxEntries=maxEntries;this.raster=raster;this.entries=new Map();this.bytes=0;this.clock=0;this.disposed=false;this.hits=0;this.misses=0;
  }
  beginFrame(){for(const entry of this.entries.values())entry.pinned=false;}
@@ -166,7 +166,7 @@ export async function rasterCommands(ctx,element,id,reason,matrix){
  const local=reason==='text'||reason==='image';
  const snapshot=makeRasterSnapshot(ctx,element,{world:!local});
  const scale=qualityBucket(ctx.scale*(local?maxScale(matrix):1));
- const bounds=local?localRasterBounds(element,ctx.style(element),scale):snapshot.rootBounds;
+ const bounds=local?localRasterBounds(element,ctx.style(element),scale):(ctx.rootClip||snapshot.rootBounds);
  const tiles=rasterTiles(bounds,scale,ctx.rasterLimits),commands=[],textures=[];
  for(let i=0;i<tiles.length;i++){
   const tile=tiles[i],resource=await ctx.rasterCache.get(snapshot,tile);textures.push(resource);

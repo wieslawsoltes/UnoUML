@@ -71,7 +71,9 @@ export function resolvePaint(ctx,element,value,objectBounds,opacity=1){
   if(result.radius<0||result.focalRadius<0)throw new GeometryError('invalid-radial-gradient');
   if(result.radius===0)return{kind:'solid',color:stops.at(-1).color,opacity};
   // SVG clamps focal circles that extend beyond the outer circle.
+  if(result.focalRadius>=result.radius)throw new GeometryError('radial-gradient-edge');
   result.focalRadius=Math.min(result.radius,result.focalRadius);const dx=result.focal[0]-result.center[0],dy=result.focal[1]-result.center[1],distance=Math.hypot(dx,dy),allowed=Math.max(0,result.radius-result.focalRadius);
+  if(distance>=allowed&&distance>0)throw new GeometryError('radial-gradient-edge');
   if(distance>allowed&&distance>0){result.focal=[result.center[0]+dx*allowed/distance,result.center[1]+dy*allowed/distance];}
  }
  return result;
