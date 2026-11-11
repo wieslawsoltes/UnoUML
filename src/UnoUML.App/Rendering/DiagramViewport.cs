@@ -104,7 +104,7 @@ public sealed partial class DiagramViewport : ContentControl
     {
         if (json.Length > Gpu.GpuSceneModel.MaxJsonCharacters)
         {
-            OnGpuUnavailable("The GPU bridge payload exceeds the bounded transport budget.");
+            OnGpuSceneRejected("The GPU bridge payload exceeds the bounded transport budget.");
             return;
         }
         using var payload = JsonDocument.Parse(json);

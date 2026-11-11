@@ -31,6 +31,7 @@ public sealed partial class DiagramViewport
         });
         gpuCanvas.Available += OnGpuAvailable;
         gpuCanvas.Unavailable += OnGpuUnavailable;
+        gpuCanvas.SceneRejected += OnGpuSceneRejected;
         gpuCanvas.FramePresented += OnGpuFramePresented;
         return layers;
     }
@@ -51,6 +52,12 @@ public sealed partial class DiagramViewport
     {
         PresentationFallbackReason = reason;
         if (mounted) BrowserBridge.SetGpuAvailability(HostId, false, reason);
+        SetPresentation("SVG", reason);
+    }
+
+    private void OnGpuSceneRejected(string reason)
+    {
+        if (mounted) BrowserBridge.RejectGpuScene(HostId, reason);
         SetPresentation("SVG", reason);
     }
 
@@ -77,6 +84,9 @@ internal static partial class BrowserBridge
 {
     [JSImport("setGpuAvailability", Module)]
     internal static partial void SetGpuAvailability(string id, bool available, string reason);
+
+    [JSImport("rejectGpuScene", Module)]
+    internal static partial void RejectGpuScene(string id, string reason);
 
     [JSImport("presentGpuFrame", Module)]
     internal static partial void PresentGpuFrame(string id, double revision, string statisticsJson);

@@ -33,6 +33,7 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
     public event Action? Available;
     public event Action<long>? FramePresented;
     public event Action<string>? Unavailable;
+    public event Action<string>? SceneRejected;
 
     public bool IsAvailable { get { lock (_gate) return _available && !_faulted; } }
     public long SceneRevision { get { lock (_gate) return _scene.Revision; } }
@@ -42,7 +43,7 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
     {
         if (string.IsNullOrWhiteSpace(json) || json.Length > GpuSceneModel.MaxJsonCharacters)
         {
-            ReportFailure("The GPU scene exceeds the bounded JSON transport budget.");
+            RejectScene("The GPU scene exceeds the bounded JSON transport budget.");
             return false;
         }
         try
@@ -52,7 +53,7 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
         }
         catch (JsonException exception)
         {
-            ReportFailure("Invalid GPU scene JSON: " + exception.Message);
+            RejectScene("Invalid GPU scene JSON: " + exception.Message);
             return false;
         }
     }
@@ -66,7 +67,7 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
             changed = _scene.TryApply(update, out error);
             if (changed) _presentationVersion++;
         }
-        if (error is not null) ReportFailure("GPU scene rejected: " + error);
+        if (error is not null) RejectScene("GPU scene rejected: " + error);
         else if (changed) Invalidate();
         return changed;
     }
@@ -171,6 +172,24 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
 
     protected override void OnWebGpuUnavailable()
         => ReportFailure("Uno selected a backend without WebGPU canvas interop. The SVG renderer remains active.");
+
+    private void RejectScene(string reason)
+    {
+        long generation, revision;
+        lock (_gate)
+        {
+            if (_faulted) return;
+            generation = _generation; revision = _scene.Revision;
+        }
+        Dispatch(() =>
+        {
+            lock (_gate)
+                if (generation != _generation || revision != _scene.Revision || _faulted) return;
+            // A source/transport problem leaves the device and last valid display list usable.
+            // The producer can recover with a complete reset transaction after the next edit.
+            SceneRejected?.Invoke(reason);
+        });
+    }
 
     private void ReportFailure(string reason)
     {

@@ -112,7 +112,7 @@ fn stop_color(parameter: f32) -> vec4<f32> {
     for (var index = 1u; index < count; index = index + 1u) {
         let next = stops[start + index];
         if parameter < next.offset.x {
-            let weight = clamp((parameter - previous.offset.x) / max(next.offset.x - previous.offset.x, 1e-12), 0.0, 1.0);
+            let weight = clamp((parameter - previous.offset.x) / (next.offset.x - previous.offset.x), 0.0, 1.0);
             // SVG interpolates stop color and alpha separately (SVG 2, paint servers).
             return mix(previous.color, next.color, weight);
         }
@@ -129,8 +129,10 @@ fn radial_parameter(p: vec2<f32>) -> f32 {
     let a = dot(direction, direction) - radiusDelta * radiusDelta;
     let b = -2.0 * (dot(point, direction) + focalRadius * radiusDelta);
     let c = dot(point, point) - focalRadius * focalRadius;
-    if abs(a) < 1e-10 {
-        if abs(b) < 1e-10 { return 1.0; }
+    let geometryScale = max(dot(direction, direction), radiusDelta * radiusDelta);
+    if abs(a) <= geometryScale * 1e-7 {
+        let linearScale = max(abs(dot(point, direction)), abs(focalRadius * radiusDelta));
+        if abs(b) <= linearScale * 1e-7 { return 1.0; }
         return -c / b;
     }
     let discriminant = b * b - 4.0 * a * c;
@@ -146,7 +148,7 @@ fn radial_parameter(p: vec2<f32>) -> f32 {
     return 1.0;
 }
 fn clip_coverage(world: vec2<f32>) -> f32 {
-    let footprint = max(fwidth(world), vec2<f32>(1e-6));
+    let footprint = max(fwidth(world), vec2<f32>(1e-20));
     if draw.clip.z < 0.0 { return 1.0; }
     let distances = min(world - draw.clip.xy, draw.clip.xy + draw.clip.zw - world);
     return clamp(min(distances.x / footprint.x, distances.y / footprint.y) + 0.5, 0.0, 1.0);
@@ -159,7 +161,7 @@ fn clip_coverage(world: vec2<f32>) -> f32 {
         if draw.matrix1.z < 1.5 {
             let direction = draw.gradient0.zw - draw.gradient0.xy;
             let lengthSquared = dot(direction, direction);
-            if lengthSquared > 1e-12 { parameter = dot(p - draw.gradient0.xy, direction) / lengthSquared; }
+            if lengthSquared > 0.0 { parameter = dot(p - draw.gradient0.xy, direction) / lengthSquared; }
         } else {
             parameter = radial_parameter(p);
         }
