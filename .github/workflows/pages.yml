@@ -23,6 +23,8 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Install the .NET WebAssembly native tools
+        run: dotnet workload install wasm-tools --skip-manifest-update
       - name: Build the Uno 7 browser host
         run: |
           dotnet build src/UnoUML.App -f net10.0-browserwasm -c Release
