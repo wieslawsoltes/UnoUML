@@ -88,6 +88,10 @@ export async function verifyNativeModal(page, { artifactDir } = {}) {
     await frame.evaluate(() => {
       document.body.innerHTML = '<div id="uno-semantics-root"><button id="native-command" aria-label="Native command">Native command</button></div>';
       const state = globalThis.activationFixture = { activations: 0, upstreamKeys: 0, forwarded: [] };
+      // Program.Main installs the boundary before host construction registers
+      // native document input. Keep that real ordering in this regression.
+      state.dispose = modalModule.installAccessibilityKeyboardBoundary();
+      state.idempotent = state.dispose === modalModule.installAccessibilityKeyboardBoundary();
       for (const type of ['keydown', 'keyup']) document.addEventListener(type, event => {
         state.forwarded.push([event.type, event.key, event.target.id]);
       });
@@ -111,8 +115,6 @@ export async function verifyNativeModal(page, { artifactDir } = {}) {
         });
         document.body.prepend(control);
       };
-      state.dispose = modalModule.installAccessibilityActivationBoundary();
-      state.idempotent = state.dispose === modalModule.installAccessibilityActivationBoundary();
     });
     equal(await frame.evaluate(() => activationFixture.idempotent), true, 'Repeated initialization installs one boundary');
     for (const key of ['Enter', 'Space']) {
@@ -136,6 +138,82 @@ export async function verifyNativeModal(page, { artifactDir } = {}) {
     equal(await frame.evaluate(() => activationFixture.forwarded.map(event => event.slice(0, 2))),
       [['keydown', 'Enter'], ['keyup', 'Enter']], 'Ordinary native control keys continue to reach the framework');
     report.cases.push('held key suppression and ordinary native input');
+
+    await frame.evaluate(() => {
+      const state = activationFixture;
+      state.forwarded = []; state.comboActions = 0; state.menuActions = 0; state.menuNavigation = 0;
+      const root = document.getElementById('uno-semantics-root');
+      root.insertAdjacentHTML('beforeend', '<div id="combo" role="combobox" tabindex="0" aria-label="Starting diagram" aria-expanded="false"></div><div role="listbox"><div id="choice" role="option" tabindex="-1" aria-label="Choice">Choice</div></div><input id="sink" aria-label="New dialog field">');
+      const combo = document.getElementById('combo'), choice = document.getElementById('choice'), sink = document.getElementById('sink');
+      combo.addEventListener('keydown', event => {
+        const expanded = combo.getAttribute('aria-expanded') === 'true';
+        if (event.key === 'Enter' || event.key === ' ' || (event.key === 'ArrowDown' && event.altKey) || (event.key === 'Escape' && expanded)) {
+          event.preventDefault(); state.comboActions++;
+          combo.setAttribute('aria-expanded', String(!expanded));
+          (expanded ? combo : choice).focus();
+        }
+      });
+      // These paths intentionally still require native keyboard dispatch.
+      sink.addEventListener('keydown', event => event.preventDefault());
+      choice.addEventListener('keydown', event => event.preventDefault());
+      globalThis.addMenu = () => {
+        document.getElementById('menu')?.remove();
+        const menu = document.createElement('div'); menu.id = 'menu'; menu.setAttribute('role', 'menu'); menu.tabIndex = -1;
+        for (const name of ['First action', 'Second action']) {
+          const item = document.createElement('div'); item.setAttribute('role', 'menuitem'); item.setAttribute('aria-label', name); item.tabIndex = -1;
+          item.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault(); state.menuActions++; item.remove(); sink.focus();
+            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              event.preventDefault(); state.menuNavigation++;
+              [...menu.children].find(candidate => candidate !== item)?.focus();
+            } else if (event.key === 'Escape') {
+              event.preventDefault(); menu.focus(); // Native dispatch must still close.
+            }
+          });
+          menu.append(item);
+        }
+        root.append(menu);
+      };
+    });
+    const combo = frame.getByRole('combobox', { name: 'Starting diagram', exact: true });
+    for (const key of ['Enter', 'Space', 'Alt+ArrowDown', 'Escape']) await combo.press(key);
+    equal(await frame.evaluate(() => [activationFixture.comboActions, activationFixture.forwarded.filter(event => event[1] !== 'Alt')]),
+      [4, []], 'Handled combo actions execute once across same-event focus transfer to a popup option');
+    await frame.evaluate(() => activationFixture.forwarded = []);
+    for (const key of ['Escape', 'ArrowDown']) await combo.press(key);
+    equal(await frame.evaluate(() => activationFixture.forwarded.map(event => event.slice(0, 2))),
+      [['keydown', 'Escape'], ['keyup', 'Escape'], ['keydown', 'ArrowDown'], ['keyup', 'ArrowDown']],
+      'Closed Escape and unmodified ArrowDown retain native combo behavior');
+    report.cases.push('handled and unhandled combobox keys with popup focus transfer');
+
+    await frame.evaluate(() => activationFixture.forwarded = []);
+    for (const key of ['Enter', 'Space']) {
+      await frame.evaluate(() => addMenu());
+      await frame.getByRole('menuitem', { name: 'First action', exact: true }).press(key);
+    }
+    equal(await frame.evaluate(() => [activationFixture.menuActions, activationFixture.forwarded]), [2, []],
+      'Invoked menu targets may detach without forwarding activation into the new dialog field');
+    await frame.evaluate(() => addMenu());
+    await frame.getByRole('menuitem', { name: 'First action', exact: true }).focus();
+    try {
+      await page.keyboard.down('ArrowDown');
+      await page.keyboard.down('ArrowDown');
+      await frame.getByRole('textbox', { name: 'New dialog field', exact: true }).focus();
+      await page.keyboard.down('ArrowDown');
+    } finally { await page.keyboard.up('ArrowDown'); }
+    equal(await frame.evaluate(() => [activationFixture.menuNavigation, activationFixture.forwarded]), [2, []],
+      'Held menu arrows navigate once per repeat, then stay contained if focus leaves the menu');
+    report.cases.push('detached menu invocation and repeated menu navigation');
+
+    await frame.evaluate(() => addMenu());
+    await frame.getByRole('menuitem', { name: 'First action', exact: true }).press('Escape');
+    await frame.getByRole('textbox', { name: 'New dialog field', exact: true }).press('a');
+    await frame.getByRole('option', { name: 'Choice', exact: true }).press('Enter');
+    equal(await frame.evaluate(() => activationFixture.forwarded.map(event => event.slice(0, 2))),
+      [['keydown', 'Escape'], ['keyup', 'Escape'], ['keydown', 'a'], ['keyup', 'a'], ['keydown', 'Enter'], ['keyup', 'Enter']],
+      'Menu Escape, managed text input and option keys keep native dispatch even when prevented at the target');
+    report.cases.push('preserved menu closing, text and option keyboard paths');
 
     await frame.evaluate(() => {
       activationFixture.dispose();

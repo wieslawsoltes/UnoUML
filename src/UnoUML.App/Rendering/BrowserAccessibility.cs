@@ -23,7 +23,7 @@ internal static partial class BrowserAccessibility
             import = JSHost.ImportAsync(Module, url.AbsoluteUri);
         }
         await import;
-        InstallActivationBoundary();
+        InstallKeyboardBoundary();
     }
 
     internal static void SetName(FrameworkElement element, string name) =>
@@ -81,8 +81,8 @@ internal static partial class BrowserAccessibility
             AttachTree(VisualTreeHelper.GetChild(root, i));
     }
 
-    [JSImport("installAccessibilityActivationBoundary", Module)]
-    private static partial void InstallActivationBoundary();
+    [JSImport("installAccessibilityKeyboardBoundary", Module)]
+    private static partial void InstallKeyboardBoundary();
 
     [JSImport("restoreDialogAncestry", Module)]
     private static partial void RestoreDialogAncestry(string automationId);
