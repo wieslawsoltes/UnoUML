@@ -341,6 +341,14 @@ export async function verifyGpuScene(page,{artifactDir=process.env.SCREENSHOT_DI
 
     return {results,assertions,browser:navigator.userAgent,remainingFixtures:document.querySelectorAll('[data-gpu-compiler-fixture]').length};
   });
+  report.nonScalingStroke=await measureNonScalingStroke(page,artifactDir);
+  report.results.push({
+    name:'non-scaling strokes match native CSS/viewBox zoom and retained camera coverage',
+    pass:report.nonScalingStroke.pass,
+    ...(!report.nonScalingStroke.pass?{error:JSON.stringify(report.nonScalingStroke.samples.map(s=>({
+      phase:s.phase,native:s.nativeStrokeCssWidth,fresh:s.freshMeshCssWidth,retained:s.retainedMeshCssWidth
+    })))}:{})
+  });
   if(artifactDir){
     const {mkdir,writeFile}=await import('node:fs/promises');
     await mkdir(artifactDir,{recursive:true});
@@ -354,6 +362,99 @@ export async function verifyGpuScene(page,{artifactDir=process.env.SCREENSHOT_DI
   return report;
 }
 
+
+// Measure the native page itself: serializing the SVG would remove the parent
+// CSS transform and could incorrectly claim equivalence for non-scaling stroke.
+async function measureNonScalingStroke(page,artifactDir) {
+  await page.evaluate(async()=>{
+    const {compileScene}=await import(new URL('uml/gpu/scene.js',document.baseURI).href);
+    const {RasterCache,qualityBucket}=await import(new URL('uml/gpu/resources.js',document.baseURI).href);
+    const host=document.createElement('div'),wrapper=document.createElement('div');
+    host.id='unouml-stroke-probe';
+    host.style.cssText='position:fixed;left:0;top:0;width:300px;height:140px;z-index:2147483647;background:#fff;pointer-events:none;contain:layout style;isolation:isolate;opacity:1;';
+    wrapper.style.cssText='width:260px;height:100px;transform-origin:0 0;';
+    wrapper.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="260" height="100" viewBox="0 0 260 100" style="width:260px;height:100px;max-width:none;max-height:none;overflow:visible">'+
+      '<line x1="20" y1="50" x2="220" y2="50" stroke="#000" stroke-width="4" fill="none" vector-effect="non-scaling-stroke"/></svg>';
+    host.append(wrapper);document.body.append(host);
+    globalThis.__unoumlStrokeProbe={host,wrapper,svg:wrapper.firstElementChild,compileScene,qualityBucket,rasterCache:new RasterCache(),geometryCache:new WeakMap(),scenes:new Map()};
+  });
+  const samples=[];
+  try{
+    const phases=[
+      {phase:'baseline',cssScale:1,viewBoxScale:1},
+      {phase:'css-scale-1.1',cssScale:1.1,viewBoxScale:1},
+      {phase:'same-bucket-base-1.05',cssScale:1.05,viewBoxScale:1},
+      {phase:'same-bucket-scale-1.1',cssScale:1.1,viewBoxScale:1,retained:'same-bucket-base-1.05'},
+      {phase:'same-bucket-translation',cssScale:1.1,viewBoxScale:1,x:9,y:7,retained:'same-bucket-scale-1.1'},
+      {phase:'internal-viewBox-scale-1.1',cssScale:1,viewBoxScale:1.1}
+    ];
+    for(const phase of phases){
+      const state=await page.evaluate(async options=>{
+        const p=globalThis.__unoumlStrokeProbe;
+        p.wrapper.style.transform='translate('+(options.x||0)+'px,'+(options.y||0)+'px) scale('+options.cssScale+')';
+        p.svg.setAttribute('viewBox','0 0 '+260/options.viewBoxScale+' '+100/options.viewBoxScale);
+        const values=m=>[m.a,m.b,m.c,m.d,m.e,m.f],screen=p.svg.getScreenCTM();
+        const bucket=p.qualityBucket(Math.hypot(screen.a,screen.b)*(devicePixelRatio||1));
+        const fresh=await p.compileScene(p.svg,{scale:bucket,rasterCache:p.rasterCache,geometryCache:p.geometryCache});
+        function projectedWidth(scene){
+          let low=Infinity,high=-Infinity;
+          for(const command of scene.commands){
+            if(command.kind!=='mesh')throw new Error('Non-scaling stroke unexpectedly rasterized');
+            const m=command.matrix;
+            for(let i=0;i<command.vertices.length;i+=2){
+              const x=command.vertices[i],y=command.vertices[i+1];
+              const rootX=m[0]*x+m[2]*y+m[4],rootY=m[1]*x+m[3]*y+m[5];
+              const py=screen.b*rootX+screen.d*rootY+screen.f;
+              low=Math.min(low,py);high=Math.max(high,py);
+            }
+          }return high-low;
+        }
+        const retained=options.retained?p.scenes.get(options.retained):null;
+        p.scenes.set(options.phase,fresh);
+        await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+        return {phase:options.phase,cssScale:options.cssScale,viewBoxScale:options.viewBoxScale,
+          bucket,rootCTM:values(p.svg.getCTM()),rootScreenCTM:values(p.svg.getScreenCTM()),
+          lineCTM:values(p.svg.firstElementChild.getCTM()),lineScreenCTM:values(p.svg.firstElementChild.getScreenCTM()),
+          freshMeshCssWidth:projectedWidth(fresh),retainedMeshCssWidth:retained?projectedWidth(retained):null,
+          geometryBuilds:fresh.stats.geometryBuilds};
+      },phase);
+      const png=await page.locator('#unouml-stroke-probe').screenshot({animations:'disabled'});
+      const native=await page.evaluate(async bytes=>{
+        const bitmap=await createImageBitmap(new Blob([new Uint8Array(bytes)],{type:'image/png'}));
+        const canvas=new OffscreenCanvas(bitmap.width,bitmap.height),context=canvas.getContext('2d',{willReadFrequently:true});
+        context.drawImage(bitmap,0,0);bitmap.close();
+        const pixels=context.getImageData(0,0,canvas.width,canvas.height).data,ratio=canvas.width/300;
+        const from=Math.ceil(80*ratio),to=Math.floor(140*ratio);let coverage=0;
+        for(let x=from;x<to;x++)for(let y=0;y<canvas.height;y++){
+          const at=(y*canvas.width+x)*4;
+          coverage+=1-(pixels[at]+pixels[at+1]+pixels[at+2])/(3*255);
+        }
+        return {nativeStrokeCssWidth:coverage/(to-from)/ratio,pixelRatio:ratio,width:canvas.width,height:canvas.height};
+      },Array.from(png));
+      samples.push({...state,...native});
+      if(artifactDir){
+        const {mkdir,writeFile}=await import('node:fs/promises');
+        await mkdir(artifactDir,{recursive:true});
+        await writeFile(resolve(artifactDir,'gpu-non-scaling-'+phase.phase+'.png'),png);
+      }
+    }
+    const pass=samples.every(s=>Number.isFinite(s.nativeStrokeCssWidth)&&s.nativeStrokeCssWidth>0&&
+      Math.abs(s.nativeStrokeCssWidth-s.freshMeshCssWidth)<.18&&
+      (s.retainedMeshCssWidth===null||Math.abs(s.nativeStrokeCssWidth-s.retainedMeshCssWidth)<.18));
+    const result={pass,method:'Native Chromium screenshot coverage averaged across 60 CSS pixels; mesh vertices projected through the actual root screen CTM.',samples};
+    console.log('Non-scaling stroke measurement:',JSON.stringify(result));
+    if(artifactDir){
+      const {mkdir,writeFile}=await import('node:fs/promises');
+      await mkdir(artifactDir,{recursive:true});
+      await writeFile(resolve(artifactDir,'gpu-non-scaling-stroke.json'),JSON.stringify(result,null,2));
+    }
+    return result;
+  }finally{
+    await page.evaluate(()=>{
+      const p=globalThis.__unoumlStrokeProbe;p?.rasterCache.dispose();p?.host.remove();delete globalThis.__unoumlStrokeProbe;
+    });
+  }
+}
 
 // The same contract suite can run before a WASM publish, using the production
 // browser modules and a real Chromium document without requiring app startup.
