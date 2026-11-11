@@ -2,11 +2,13 @@ name: Test and publish UnoUML
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: unouml-pages
+  group: unouml-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   browser:
@@ -70,9 +72,11 @@ jobs:
           path: ${{ runner.temp }}/workspace-checks/
           if-no-files-found: ignore
       - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           path: ${{ runner.temp }}/pages
   deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: browser
     runs-on: ubuntu-latest
     permissions:
