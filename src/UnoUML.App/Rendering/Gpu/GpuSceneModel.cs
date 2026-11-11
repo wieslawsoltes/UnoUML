@@ -9,6 +9,7 @@ public sealed class GpuSceneModel
     public const int MaxCommands = 32768;
     public const int MaxVertexFloats = 8 * 1024 * 1024;
     public const int MaxTextureSide = 8192;
+    public const int MaxGradientStops = 262144;
     public const long MaxTextureBytes = 96L * 1024 * 1024;
     public const int MaxJsonCharacters = 48 * 1024 * 1024;
 
@@ -40,6 +41,8 @@ public sealed class GpuSceneModel
 
             if (value.TryGetProperty("remove", out var remove))
                 foreach (var id in Array(remove, MaxCommands)) commands.Remove(Id(id));
+            long vertexFloats = commands.Values.Sum(command => (long)command.Vertices.Length);
+            long gradientStops = commands.Values.Sum(command => (long)command.Paint.Stops.Length);
             if (value.TryGetProperty("commands", out var additions))
             {
                 var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -48,7 +51,12 @@ public sealed class GpuSceneModel
                     string id = Id(item.GetProperty("id"));
                     if (!seen.Add(id)) throw Invalid("Duplicate command update.");
                     commands.TryGetValue(id, out var existing);
-                    commands[id] = ReadCommand(item, existing);
+                    var command = ReadCommand(item, existing);
+                    vertexFloats += command.Vertices.Length - (existing?.Vertices.Length ?? 0);
+                    gradientStops += command.Paint.Stops.Length - (existing?.Paint.Stops.Length ?? 0);
+                    if (vertexFloats > MaxVertexFloats || gradientStops > MaxGradientStops)
+                        throw Invalid("GPU geometry or gradient budget exceeded.");
+                    commands[id] = command;
                 }
             }
             if (commands.Count > MaxCommands) throw Invalid("GPU command budget exceeded.");
@@ -62,6 +70,10 @@ public sealed class GpuSceneModel
             if (commands.Values.Sum(command => (long)command.Vertices.Length) > MaxVertexFloats)
                 throw Invalid("GPU geometry budget exceeded.");
 
+            var usedImages = commands.Values.Where(command => command.Kind == GpuCommandKind.Image)
+                .Select(command => command.Image!).ToHashSet(StringComparer.Ordinal);
+            images = images.Where(pair => usedImages.Contains(pair.Key)).ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+            long textureBytes = images.Values.Sum(image => (long)image.Rgba.Length);
             if (value.TryGetProperty("textures", out var textures))
             {
                 var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -75,13 +87,13 @@ public sealed class GpuSceneModel
                         throw Invalid("Invalid or excessive texture dimensions.");
                     string encoded = item.GetProperty("rgba").GetString() ?? "";
                     if (encoded.Length != ((length + 2) / 3) * 4) throw Invalid("Invalid RGBA payload length.");
+                    textureBytes += length - (images.TryGetValue(id, out var previousImage) ? previousImage.Rgba.LongLength : 0);
+                    if (textureBytes > MaxTextureBytes) throw Invalid("GPU texture budget exceeded.");
                     var rgba = Convert.FromBase64String(encoded);
                     if (rgba.LongLength != length) throw Invalid("RGBA payload does not match its dimensions.");
                     images[id] = new(id, width, height, rgba);
                 }
             }
-            var usedImages = commands.Values.Where(command => command.Kind == GpuCommandKind.Image)
-                .Select(command => command.Image!).ToHashSet(StringComparer.Ordinal);
             if (usedImages.Any(id => !images.ContainsKey(id))) throw Invalid("A command references an unavailable texture.");
             images = images.Where(pair => usedImages.Contains(pair.Key)).ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
             if (images.Values.Sum(image => (long)image.Rgba.Length) > MaxTextureBytes) throw Invalid("GPU texture budget exceeded.");
@@ -102,7 +114,7 @@ public sealed class GpuSceneModel
 
     public bool TrySetCamera(double[] matrix, double width, double height)
     {
-        if (matrix.Length != 6 || matrix.Any(number => !double.IsFinite(number) || Math.Abs(number) > 1e9) ||
+        if (matrix is null || matrix.Length != 6 || matrix.Any(number => !double.IsFinite(number) || Math.Abs(number) > 1e9) ||
             !double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0 || width > 1e6 || height > 1e6)
             return false;
         Camera = new((float)matrix[0], (float)matrix[1], (float)matrix[2], (float)matrix[3], (float)matrix[4], (float)matrix[5]);
