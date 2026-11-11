@@ -22,9 +22,10 @@ internal static class Program
         Uno.Extensions.LogExtensionPoint.AmbientLoggerFactory = Logging;
         Uno.UI.Adapter.Microsoft.Extensions.Logging.LoggingAdapter.Initialize();
 
-        // Uno 7 renders XAML through composition. Its semantic DOM supplies
-        // accessible controls and automation without the removed native renderer.
-        Uno.UI.FeatureConfiguration.AutomationPeer.AutoEnableAccessibility = true;
+        // Use Uno's supported on-demand semantic tree. Screen readers and
+        // keyboard users activate its "Enable accessibility" entry after the
+        // window is ready; this also avoids the early-startup retry race.
+        Uno.UI.FeatureConfiguration.AutomationPeer.AutoEnableAccessibility = false;
         Logging.CreateLogger("UnoUML.Rendering").LogInformation(
             "Graphics preference: WebGPU, then Skia. Uno.UI.Composition.Drawing reports the selected backend.");
 
