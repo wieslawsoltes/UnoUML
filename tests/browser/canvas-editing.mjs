@@ -213,12 +213,12 @@ export async function verifyCanvasEditing(page,source) {
   const caretProjection=await page.evaluate(async()=>{
     const {syncSourceText,removeSourceText}=await import(new URL('uml/source-text.js',document.baseURI));
     const root=document.createElement('div'),input=document.createElement('textarea');
-    root.id='unouml-source-text-projection-check';root.hidden=true;root.append(input);document.body.append(root);
+    root.id='unouml-source-text-projection-check';root.hidden=true;input.setAttribute('xamlautomationid',root.id);root.append(input);document.body.append(root);
     try {
       const results=[];
-      for(const [start,end,direction] of [[4,4,'forward'],[1,3,'backward']]) {
+      for(const [start,end,direction,managedStart,managedLength] of [[4,4,'forward',6,0],[1,3,'backward',2,3]]) {
         input.value='a\nbc';input.setSelectionRange(start,end,direction);
-        syncSourceText(root.id,JSON.stringify('\uFEFFa\r\nbc'));
+        syncSourceText(root.id,JSON.stringify('\uFEFFa\r\nbc'),false,managedStart,managedLength);
         results.push([input.value,input.selectionStart,input.selectionEnd,input.selectionDirection]);
       }
       return results;

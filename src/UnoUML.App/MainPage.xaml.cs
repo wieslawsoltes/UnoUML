@@ -31,11 +31,7 @@ public sealed partial class MainPage : Page
     public MainPage()
     {
         InitializeComponent();
-        BrowserAccessibility.Attach(SourceEditor);
         BrowserSourceText.Attach(SourceEditor);
-        BrowserAccessibility.Attach(SearchBox);
-        BrowserAccessibility.Attach(PagePicker);
-        BrowserScrollSynchronization.Attach(InspectorScrollViewer);
         BuildCommands();
         ViewportHost.Children.Add(viewport);
         SourceEditor.SelectionChanged += (_, _) => OnSourceSelection();
