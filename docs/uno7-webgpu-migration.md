@@ -45,6 +45,34 @@ accessibility entry with Enter. Keyboard checks use native role-based controls;
 mouse checks validate semantic bounds and click the actual canvas. SVG and HTML
 editor controls retain ordinary browser hit testing.
 
+Two narrowly scoped compatibility repairs cover native accessibility defects
+observed in Uno 7.0.32:
+
+- The public accessibility activation button handles Enter/Space, removes itself
+  and changes managed focus before the same key reaches Uno's document keyboard
+  listener. The bridge routes that activation through the button's normal click
+  handler and consumes only its matching key sequence, including repeats and
+  release. This prevents activation from also invoking the newly focused XAML
+  command. ComboBox/menu semantic actions have a related duplicate-forwarding
+  path; only their explicitly handled keys are consumed after the existing
+  semantic handler runs. Unhandled keys and ordinary buttons/options retain
+  native dispatch. Text inputs deliberately suppress browser insertion before
+  managed editing, so their `defaultPrevented` events must continue to reach Uno.
+- The modal focus trap sets `aria-hidden=true` on the dialog's own Popup and
+  application ancestors. After `ContentDialog.Opened`, a public AutomationId
+  resolves the active dialog and the bridge removes that attribute only from its
+  semantic ancestors. Background controls, nested dialogs, focus trapping and
+  Uno's original-state restoration remain under framework control. Generation
+  checks prevent a late callback from repairing a closed dialog.
+
+The bridge does not invoke private framework callbacks or replace its focus trap.
+Its small module is installed before the native host starts, so keyboard
+activation is protected even before the larger viewport modules have loaded.
+Isolated browser fixtures reproduce these event and ancestry contracts, while the
+published application gate checks keyboard activation, reopening, popup selection,
+modal background isolation and focus restoration. These compatibility repairs
+should be re-evaluated when upgrading the pinned Uno packages.
+
 Source text uses public automation identity and managed focus ownership.
 A string-only JSON envelope preserves a leading U+FEFF. Repair is limited to the
 known missing-leading-BOM projection, preserves UTF-16 selection and scroll
@@ -195,6 +223,10 @@ with `navigator.gpu` unavailable.
 CI uploads graphics metrics, paired screenshots and browser console diagnostics.
 Pull requests run these gates without deploying the production Pages site.
 Deployment on main depends on the application, shader and independent GPU workspace jobs.
+The six isolated authoring suites run even when the primary desktop/mobile flow
+fails, and report all failures before browser cleanup. The independent GPU job
+also collects compiler and unsupported-adapter results after an accessibility
+failure, so an early native-control regression cannot conceal those checks.
 
 ## Diagnostics and evidence
 
@@ -244,6 +276,10 @@ guarantee or completed “AAA” hardware qualification is claimed without measu
 
 - [Uno 7 migration guide](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/migrating-to-uno-7.md)
 - [Uno native screen-reader activation](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/features/accessibility/testing-with-screen-readers.md)
+- [Uno 7.0.32 accessibility activation](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/Accessibility.ts)
+- [Uno 7.0.32 native keyboard forwarding](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/BrowserKeyboardInputSource.ts)
+- [Uno 7.0.32 semantic control actions](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/SemanticElements.ts)
+- [Uno 7.0.32 modal focus isolation](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/FocusTrap.ts)
 - [Uno WebGPU backend](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/features/using-webgpu-rendering.md)
 - [Custom WebGpuCanvasElement](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/controls/WebGpuCanvasElement.md)
 - [Uno 7.0.32 release](https://github.com/unoplatform/uno/releases/tag/7.0.32)
