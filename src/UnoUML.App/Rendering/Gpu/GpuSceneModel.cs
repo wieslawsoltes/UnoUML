@@ -36,6 +36,17 @@ public sealed class GpuSceneModel
             if (revision < 0) throw Invalid("Invalid scene revision.");
             if (revision <= Revision) return false;
             bool reset = value.TryGetProperty("reset", out var resetValue) && resetValue.GetBoolean();
+            // Camera transactions are the interaction hot path. Validate first and publish without
+            // cloning dictionaries, walking vertices, decoding textures, or allocating graph state.
+            if (!reset && !value.TryGetProperty("order", out _) &&
+                IsEmptyUpdateArray(value, "commands") && IsEmptyUpdateArray(value, "remove") && IsEmptyUpdateArray(value, "textures"))
+            {
+                Matrix3x2 nextCamera = value.TryGetProperty("camera", out var cameraOnly) ? Matrix(cameraOnly) : Camera;
+                double nextWidth = value.TryGetProperty("width", out var widthOnly) ? Dimension(widthOnly) : Width;
+                double nextHeight = value.TryGetProperty("height", out var heightOnly) ? Dimension(heightOnly) : Height;
+                Camera = nextCamera; Width = nextWidth; Height = nextHeight; Revision = revision;
+                return true;
+            }
             var commands = reset ? new Dictionary<string, GpuCommand>(StringComparer.Ordinal) : new Dictionary<string, GpuCommand>(Commands, StringComparer.Ordinal);
             var images = reset ? new Dictionary<string, GpuImage>(StringComparer.Ordinal) : new Dictionary<string, GpuImage>(Images, StringComparer.Ordinal);
 
@@ -186,6 +197,13 @@ public sealed class GpuSceneModel
         return new(kind, color, opacity, transform, start, end, center, focal, radius, focalRadius, spread, stops);
     }
 
+    private static bool IsEmptyUpdateArray(JsonElement value, string name)
+    {
+        if (!value.TryGetProperty(name, out var array)) return true;
+        if (array.ValueKind != JsonValueKind.Array) throw Invalid("Invalid update array.");
+        return array.GetArrayLength() == 0;
+    }
+
     private static JsonElement[] Array(JsonElement value, int max)
     {
         if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() > max) throw Invalid("Invalid or excessive array.");
@@ -231,8 +249,10 @@ public sealed class GpuSceneModel
     }
     private static Matrix3x2 Matrix(JsonElement value)
     {
-        float[] numbers = Numbers(value, 6);
-        return new(numbers[0], numbers[1], numbers[2], numbers[3], numbers[4], numbers[5]);
+        if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() != 6)
+            throw Invalid("Invalid affine matrix.");
+        return new(Number(value[0]), Number(value[1]), Number(value[2]),
+            Number(value[3]), Number(value[4]), Number(value[5]));
     }
     private static GpuRect Rect(JsonElement value)
     {

@@ -85,7 +85,7 @@ fn output_color(straight: vec4<f32>) -> vec4<f32> {
 @fragment fn background_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let css = position.xy * globals.camera1.zw / globals.viewport.xy;
     let cell = fract(css / 16.0) * 16.0;
-    let delta = min(cell, vec2<f32>(16.0) - cell);
+    let delta = cell - vec2<f32>(8.0);
     let distanceToDot = length(delta);
     let pixelWidth = max(globals.camera1.z / globals.viewport.x, globals.camera1.w / globals.viewport.y);
     let coverage = 1.0 - smoothstep(1.0 - pixelWidth * 0.5, 1.0 + pixelWidth * 0.5, distanceToDot);

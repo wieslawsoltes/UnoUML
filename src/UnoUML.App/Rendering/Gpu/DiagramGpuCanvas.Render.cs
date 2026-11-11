@@ -91,6 +91,8 @@ public sealed unsafe partial class DiagramGpuCanvas
 
     private void SynchronizeResources()
     {
+        if (ReferenceEquals(_uploadedCommands, _scene.Commands) && ReferenceEquals(_uploadedOrder, _scene.Order))
+            return; // Camera-only transaction: no graph allocation, buffer upload, or bind-group churn.
         bool orderChanged = !_uploadedOrder.SequenceEqual(_scene.Order, StringComparer.Ordinal);
         bool stopsChanged = orderChanged || _scene.Commands.Any(pair =>
             !_uploadedCommands.TryGetValue(pair.Key, out var previous) || !ReferenceEquals(pair.Value.Paint, previous.Paint));
@@ -153,7 +155,7 @@ public sealed unsafe partial class DiagramGpuCanvas
                 !_uploadedCommands.TryGetValue(command.Id, out var previous) || !ReferenceEquals(previous, command))
                 WriteDraw(command, checked((ulong)index * _drawStride));
         }
-        _uploadedCommands = new(_scene.Commands, StringComparer.Ordinal);
+        _uploadedCommands = _scene.Commands;
         _uploadedOrder = _scene.Order;
     }
 

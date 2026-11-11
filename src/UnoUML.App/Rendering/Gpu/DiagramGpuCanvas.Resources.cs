@@ -304,7 +304,7 @@ public sealed unsafe partial class DiagramGpuCanvas
         if (_sampler != null) { _api.SamplerRelease(_sampler); _sampler = null; }
         if (_pipelineLayout != null) { _api.PipelineLayoutRelease(_pipelineLayout); _pipelineLayout = null; }
         if (_bindingLayout != null) { _api.BindGroupLayoutRelease(_bindingLayout); _bindingLayout = null; }
-        _uploadedCommands.Clear(); _uploadedOrder = []; _stopOffsets.Clear();
+        _uploadedCommands = new(StringComparer.Ordinal); _uploadedOrder = []; _stopOffsets.Clear();
         _drawCapacity = _stopCapacity = 0;
         _device = null; _queue = null; _api = null;
     }

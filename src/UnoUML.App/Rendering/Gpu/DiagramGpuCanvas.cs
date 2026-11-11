@@ -20,6 +20,9 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
     private static readonly ConcurrentDictionary<nint, ValidationBatch> PendingScopes = new();
     private static int _nextScopeToken;
     private long _generation;
+    private long _presentationVersion;
+    private int _observedPixelWidth;
+    private int _observedPixelHeight;
     private bool _available;
     private bool _faulted;
     private bool _frameValidationPending;
@@ -58,7 +61,11 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
     {
         string? error;
         bool changed;
-        lock (_gate) changed = _scene.TryApply(update, out error);
+        lock (_gate)
+        {
+            changed = _scene.TryApply(update, out error);
+            if (changed) _presentationVersion++;
+        }
         if (error is not null) ReportFailure("GPU scene rejected: " + error);
         else if (changed) Invalidate();
         return changed;
@@ -67,7 +74,11 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
     public bool SetCamera(double[] matrix, double width, double height)
     {
         bool changed;
-        lock (_gate) changed = _scene.TrySetCamera(matrix, width, height);
+        lock (_gate)
+        {
+            changed = _scene.TrySetCamera(matrix, width, height);
+            if (changed) _presentationVersion++;
+        }
         if (changed) Invalidate();
         return changed;
     }
@@ -77,6 +88,8 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
         lock (_gate)
         {
             _generation++;
+            _presentationVersion++;
+            _observedPixelWidth = _observedPixelHeight = 0;
             _available = false; _faulted = false;
             _frameValidationPending = false; _renderAgain = false;
             var validation = BeginValidation(context, initialization: true, revision: -1);
@@ -103,6 +116,13 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
         lock (_gate)
         {
             if (_faulted) return;
+            // Uno can replace the output target while an older frame's validation is pending.
+            // A matching scene revision alone is insufficient after a DPR/physical-size change.
+            if (_observedPixelWidth != context.PixelWidth || _observedPixelHeight != context.PixelHeight)
+            {
+                _observedPixelWidth = context.PixelWidth; _observedPixelHeight = context.PixelHeight;
+                _presentationVersion++;
+            }
             if (!_available || _frameValidationPending)
             {
                 _renderAgain = true;
@@ -122,7 +142,6 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
             {
                 validation.Failure = exception.Message;
                 ReportFailure("WebGPU frame failed: " + exception.Message);
-                throw;
             }
             finally
             {
@@ -176,7 +195,7 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
         // Scopes belong to these operations only; never replace Uno's shared device callbacks.
         context.Api.DevicePushErrorScope(context.Device, ErrorFilter.OutOfMemory);
         context.Api.DevicePushErrorScope(context.Device, ErrorFilter.Validation);
-        return new(this, _generation, revision, initialization);
+        return new(this, _generation, revision, initialization, _presentationVersion);
     }
 
     private void EndValidation(WebGpuCanvasContext context, ValidationBatch batch)
@@ -234,11 +253,15 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
                 else
                 {
                     _frameValidationPending = false;
-                    _presentedFrames++;
-                    if (batch.Statistics is { } statistics)
-                        _statistics = statistics with { PresentedFrames = _presentedFrames };
-                    presented = batch.Revision >= 0 && batch.Revision == _scene.Revision;
-                    invalidate = _renderAgain || batch.Revision != _scene.Revision;
+                    bool current = batch.Revision == _scene.Revision && batch.PresentationVersion == _presentationVersion;
+                    if (current)
+                    {
+                        _presentedFrames++;
+                        if (batch.Statistics is { } statistics)
+                            _statistics = statistics with { PresentedFrames = _presentedFrames };
+                    }
+                    presented = current && batch.Revision >= 0;
+                    invalidate = _renderAgain || !current;
                 }
             }
             if (available) Available?.Invoke();
@@ -247,11 +270,12 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
         });
     }
 
-    private sealed class ValidationBatch(DiagramGpuCanvas owner, long generation, long revision, bool initialization)
+    private sealed class ValidationBatch(DiagramGpuCanvas owner, long generation, long revision, bool initialization, long presentationVersion)
     {
         internal readonly WeakReference<DiagramGpuCanvas> Owner = new(owner);
         internal readonly long Generation = generation;
         internal readonly long Revision = revision;
+        internal readonly long PresentationVersion = presentationVersion;
         internal readonly bool Initialization = initialization;
         internal int Remaining = 2;
         internal string? Failure;
