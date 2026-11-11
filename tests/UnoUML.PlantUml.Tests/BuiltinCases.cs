@@ -259,7 +259,8 @@ internal static class BuiltinCases
         ("week_zh-CN_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2022-01 1", "zh-CN", "UTC", 1640995200000L),
         ("week_zh-CN_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "zh-CN", "UTC", 1735603200000L),
         ("week_zh-CN_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2023-01 1", "zh-CN", "UTC", 1672531200000L),
-        ("locale_ko-KR", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: AD AD AD | 2023 2023 11 11월 11월 11 11월 11월 | 화 화요일 오후 | 318 2 2 46 3", "ko-KR", "UTC", 1700000000000L),
+        // Korean day-period labels also depend on the installed ICU/CLDR data.
+        ("locale_ko-KR", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: AD AD AD | 2023 2023 11 11월 11월 11 11월 11월 | 화 화요일 " + CultureInfo.GetCultureInfo("ko-KR").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "ko-KR", "UTC", 1700000000000L),
         ("locale_context_ko-KR", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 11월 2023 | 14 11월 2023 | 11월", "ko-KR", "UTC", 1700000000000L),
         ("week_ko-KR_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2016-01 1", "ko-KR", "UTC", 1451606400000L),
         ("week_ko-KR_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2021-01-01 2021-01 1", "ko-KR", "UTC", 1609459200000L),

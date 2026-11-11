@@ -24,6 +24,7 @@ internal static partial class BrowserSourceText
         private readonly string automationId;
         private int generation;
         private bool mounted;
+        private bool updateQueued;
 
         internal Registration(TextBox owner)
         {
@@ -35,16 +36,26 @@ internal static partial class BrowserSourceText
                 AutomationProperties.SetAutomationId(owner, automationId);
             }
 
-            owner.Loaded += (_, _) => Update();
-            owner.GotFocus += (_, _) => Update();
-            owner.LostFocus += (_, _) => Update();
+            owner.Loaded += (_, _) => QueueUpdate();
+            owner.GotFocus += (_, _) => QueueUpdate();
+            owner.LostFocus += (_, _) => QueueUpdate();
             owner.Unloaded += (_, _) =>
             {
                 generation++;
                 if (mounted) { Remove(automationId); mounted = false; }
             };
-            owner.RegisterPropertyChangedCallback(TextBox.TextProperty, (_, _) => Update());
-            if (owner.IsLoaded) Update();
+            owner.RegisterPropertyChangedCallback(TextBox.TextProperty, (_, _) => QueueUpdate());
+            if (owner.IsLoaded) QueueUpdate();
+        }
+
+        private void QueueUpdate()
+        {
+            if (updateQueued || !owner.IsLoaded) return;
+            updateQueued = true;
+            // Text/selection/focus can change in the same managed operation.
+            // Project their final state once that operation has completed.
+            if (!owner.DispatcherQueue.TryEnqueue(() => { updateQueued = false; Update(); }))
+                updateQueued = false;
         }
 
         private async void Update()
@@ -65,7 +76,7 @@ internal static partial class BrowserSourceText
                 // JSON starts with a quote, so string marshalling cannot consume
                 // the document's leading U+FEFF. AutomationId is a public XAML
                 // contract; UIElement.Handle no longer represents a DOM element.
-                Sync(automationId, JsonSerializer.Serialize(source),
+                Sync(automationId, "\"" + JsonEncodedText.Encode(source).ToString() + "\"",
                     owner.FocusState != FocusState.Unfocused, owner.SelectionStart, owner.SelectionLength);
                 mounted = true;
             }
