@@ -54,8 +54,8 @@ try {
       device.pushErrorScope('validation');
       for (const [name, vertex, fragment, mesh, mode] of definitions) {
         const stencilOnly = mode >= 1 && mode <= 3;
-        const front = {compare:mode === 4 ? 'not-equal' : 'always', failOp:'keep', depthFailOp:'keep',
-          passOp:mode === 1 ? 'increment-wrap' : mode === 2 ? 'invert' : mode === 3 ? 'replace' : mode === 4 ? 'zero' : 'keep'};
+        const front = {compare:mode === 4 ? 'not-equal' : mode === 3 ? 'equal' : 'always', failOp:'keep', depthFailOp:'keep',
+          passOp:mode === 1 ? 'increment-wrap' : mode === 2 ? 'invert' : mode === 3 ? 'increment-clamp' : mode === 4 ? 'zero' : 'keep'};
         const back = {...front, passOp:mode === 1 ? 'decrement-wrap' : front.passOp};
         pipelines.set(name, await device.createRenderPipelineAsync({
           layout:pipelineLayout,
@@ -118,13 +118,22 @@ try {
         });
         if (background) {
           pass.setBindGroup(0,commands[0].bindings,[0]);pass.setPipeline(pipelines.get('background'));pass.draw(3);
-        } else for (const command of commands) {
-          pass.setBindGroup(0,command.bindings,[0]);
-          if (command.kind === 'image') { pass.setPipeline(pipelines.get('image'));pass.draw(6);continue; }
-          pass.setVertexBuffer(0,command.vertexBuffer);
-          pass.setPipeline(pipelines.get(command.kind || 'nonzero'));
-          pass.setStencilReference(command.kind === 'mesh' ? 1 : 0);pass.draw(command.vertexCount);
-          pass.setPipeline(pipelines.get('paint'));pass.setStencilReference(0);pass.draw(6);
+        } else {
+          pass.setStencilReference(0);
+          const bundles = commands.map(command => {
+            const bundle = device.createRenderBundleEncoder({
+              colorFormats:['rgba8unorm'],depthStencilFormat:'depth24plus-stencil8',sampleCount:4
+            });
+            bundle.setBindGroup(0,command.bindings,[0]);
+            if (command.kind === 'image') { bundle.setPipeline(pipelines.get('image'));bundle.draw(6); }
+            else {
+              bundle.setVertexBuffer(0,command.vertexBuffer);
+              bundle.setPipeline(pipelines.get(command.kind || 'nonzero'));bundle.draw(command.vertexCount);
+              bundle.setPipeline(pipelines.get('paint'));bundle.draw(6);
+            }
+            return bundle.finish();
+          });
+          pass.executeBundles(bundles);
         }
         pass.end();
         encoder.copyTextureToBuffer({texture:target},{buffer:readback,bytesPerRow:256},[64,64]);
@@ -175,7 +184,7 @@ try {
       if (failures.length) throw new Error(failures.join('\n'));
       const adapterInfo = adapter.info;
       return {
-        shaderBytes:shader.length,pipelines:pipelines.size,samples:4,checks,
+        shaderBytes:shader.length,pipelines:pipelines.size,samples:4,retainedBundles:true,checks,
         adapter:{vendor:adapterInfo.vendor,architecture:adapterInfo.architecture,device:adapterInfo.device,description:adapterInfo.description},
         browser:navigator.userAgent,purpose:'Actual production WGSL and offscreen pixel correctness; not a hardware benchmark.'
       };

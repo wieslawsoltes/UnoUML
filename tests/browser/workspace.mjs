@@ -1,3 +1,5 @@
+import { graphicsLaunchOptions } from './graphics-options.mjs';
+import { verifyGpuPresentation, verifyGpuFallback } from './gpu-presentation.mjs';
 import assert from 'node:assert/strict';
 import { verifyAccessibility } from './accessibility.mjs';
 import { verifyPorts } from './ports.mjs';
@@ -90,13 +92,17 @@ async function verifyIndependentAuthoring(browser, url) {
 const external = process.env.WORKSPACE_URL;
 if (!external && !process.argv[2]) throw new Error('Pass the published wwwroot directory or set WORKSPACE_URL');
 const server = external ? null : await servePublishedSite(resolve(process.argv[2]));
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, headless: true });
+const browser = await chromium.launch(graphicsLaunchOptions());
 let page;
+const graphicsLog = [];
 try {
   page = await browser.newPage({ viewport: { width: 1390, height: 860 }, colorScheme: 'light', acceptDownloads: true });
   const errors = [];
   page.setDefaultTimeout(35000);
   page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => {
+    if (graphicsLog.length < 1000) graphicsLog.push(message.type() + ': ' + message.text());
+  });
   const url = external || `http://127.0.0.1:${server.address().port}${prefix}`;
   const click = name => page.getByText(name, { exact: true }).last().click();
   const paper = page.locator('.paper svg').first();
@@ -112,6 +118,7 @@ try {
   await paper.waitFor({ state: 'visible', timeout: 120000 });
   assert.equal(await page.locator('.paper').first().getAttribute('data-renderer'), 'managed', 'The starter diagram must render in C#');
   assert.equal(page.frames().filter(f => f.url().includes('/uml/engine.html')).length, 0, 'The managed path must leave the JS engine unloaded');
+  await verifyGpuPresentation(page);
   await screenshot('unouml-desktop');
   const textbox = await verifyAccessibility(page);
   // Normal pointer clicks exercise the Uno native-host presenter and hit testing in the shadow SVG.
@@ -181,6 +188,7 @@ try {
   await verifySaltEditing(page, textbox);
   await verifyYamlEditing(page, textbox);
   await verifyDotEditing(page, textbox);
+  await verifyGpuFallback(browser, url);
   await verifyIndependentAuthoring(browser, url);
   await verifyArchiveImport(page, textbox);
   await verifyArchiveAliasEditing(page, textbox);
@@ -201,6 +209,10 @@ try {
   }
   throw error;
 } finally {
+  if (process.env.SCREENSHOT_DIR) {
+    await mkdir(process.env.SCREENSHOT_DIR, {recursive:true});
+    await writeFile(resolve(process.env.SCREENSHOT_DIR, 'browser-console.txt'), graphicsLog.join('\n'));
+  }
   await browser.close();
   if (server) await new Promise(resolve => server.close(resolve));
 }
