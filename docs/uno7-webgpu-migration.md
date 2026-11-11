@@ -31,10 +31,19 @@ selects `Skia;WebGpu` instead of `NativeRenderer`. Both application composition
 and the custom diagram canvas use Uno's device; the scene compiler never calls
 `navigator.gpu.requestDevice()`.
 
-Native Uno accessibility is enabled before host startup. XAML names and dialog
-helpers remain in the application, while the old accessibility DOM adapter and
-scroll synchronization workaround have been removed. The source bridge no longer
-uses `UIElement.Handle` or private control implementation details.
+The application uses Uno's native on-demand accessibility entry point. Screen
+readers and keyboard users activate **Enable accessibility** after the window is
+ready. This avoids the unsuccessful early automatic activation observed with
+7.0.32 during this migration. XAML names and dialog helpers remain in the
+application, while the old accessibility DOM adapter and scroll synchronization
+workaround have been removed. The source bridge no longer uses `UIElement.Handle`
+or private control implementation details.
+
+Native semantic controls carry accessible roles and names, while pointer events
+pass through to Uno's composition canvas. Browser tests activate the public
+accessibility entry with Enter. Keyboard checks use native role-based controls;
+mouse checks validate semantic bounds and click the actual canvas. SVG and HTML
+editor controls retain ordinary browser hit testing.
 
 Source text uses public automation identity and managed focus ownership.
 A string-only JSON envelope preserves a leading U+FEFF. Repair is limited to the
@@ -42,6 +51,14 @@ known missing-leading-BOM projection, preserves UTF-16 selection and scroll
 position, accounts for DOM CRLF normalization, and never rewrites active IME
 composition or an intentional user deletion. Lifecycle/text changes are coalesced
 onto the dispatcher so the browser receives final text, selection and focus state.
+
+Uno's multiline text box normalizes CRLF and LF to CR and delivers text changes
+asynchronously. The document therefore has a separate text projection: framework
+normalization is a no-op for source and history, real edits replace the smallest
+changed source interval, and UTF-16 selections map across collapsed CRLF pairs.
+Unchanged mixed line endings and BOMs remain verbatim. Imported-source editors use
+the same projection. Unchanged source-statement dialogs are no-ops; an explicit
+semantic statement replacement retains the existing document newline policy.
 
 ## Presentation architecture
 
@@ -93,6 +110,8 @@ Text resources preserve browser shaping instead of rebuilding a second incomplet
 font, bidi, ligature and baseline engine. Common diagram geometry and paint are
 shader-native; text and complex SVG compositing can use cached raster resources.
 This is not a claim that every SVG filter has an independent WGSL implementation.
+Paths exceeding the conservative nonzero winding budget use a bounded raster
+resource, preserving their pixels without overflowing the eight-bit stencil.
 
 Painter-order-sensitive commands use retained WebGPU render bundles. These record
 vertex buffers, pipeline changes, bindings and offsets once. Pan/zoom updates reuse
@@ -116,6 +135,8 @@ replace Uno's shared-device callbacks.
 | Gradient stops | 262,144 |
 | Retained GPU image payloads | 96 MiB |
 | Browser raster cache | 64 MiB, up to 8,192 entries |
+| Embedded font | 4 MiB per fetched face; 64 matching faces per snapshot |
+| Embedded font cache | 24 Mi characters of encoded data, up to 64 entries |
 | Individual texture side | 8,192 pixels and the adapter's limit |
 | Rasterized owner | 16,777,216 pixels, at most 64 tiles |
 | Raster tile | 2,048 pixels per side |
@@ -146,11 +167,12 @@ npm ci --ignore-scripts
 npm run prepare:renderer
 dotnet build src/UnoUML.App -f net10.0-browserwasm -c Release
 node scripts/verify-uno7-assets.mjs src/UnoUML.App/obj/project.assets.json
-node --test tests/source-text.mjs tests/gpu-geometry.mjs tests/gpu-host.mjs
+node --test tests/source-text.mjs tests/gpu-geometry.mjs tests/gpu-host.mjs tests/gpu-paint.mjs tests/gpu-fonts.mjs
 dotnet run --project tests/UnoUML.Gpu.Tests -c Release
 dotnet run --project tests/UnoUML.Core.Tests -c Release
 dotnet run --project tests/UnoUML.PlantUml.Tests -c Release
 node tests/browser/gpu-shaders.mjs
+node tests/browser/gpu-scene.mjs
 dotnet publish src/UnoUML.App -f net10.0-browserwasm -c Release -o artifacts/site
 UNOUML_REQUIRE_WEBGPU=1 SCREENSHOT_DIR=artifacts/graphics node tests/browser/workspace.mjs artifacts/site/wwwroot
 ~~~
@@ -172,7 +194,7 @@ with `navigator.gpu` unavailable.
 
 CI uploads graphics metrics, paired screenshots and browser console diagnostics.
 Pull requests run these gates without deploying the production Pages site.
-Deployment on main depends on both the application and shader jobs.
+Deployment on main depends on the application, shader and independent GPU workspace jobs.
 
 ## Diagnostics and evidence
 
@@ -187,13 +209,31 @@ time, target dimensions, sample count and frame count. GPU-frame time is not
 inferred from CPU encoding time. Browser camera wall-time measurements include
 scheduling and software-driver costs.
 
-Verified before live viewport integration:
+Verified rendering gates:
 
 - Release Uno browser build and native graphics link succeeded.
 - Restored Uno framework packages are 7.0.32; Silk.NET.WebGPU is 2.23.0.
-- GPU model tests passed 687 assertions in 11 cases.
-- Geometry tests passed 16 cases; source projection passed nine cases.
-- Production WGSL passed six pipeline creations and 15 offscreen pixel checks.
+- GPU model tests passed 738 assertions in 12 cases.
+- Geometry tests passed 16 cases; source projection passed nine cases; presentation-host tests passed eight cases.
+- The Core suite passed 4,065 assertions, including 103 new source-projection checks and unchanged startup history for all 33 starter templates.
+- Production WGSL passed six pipeline creations and 17 offscreen pixel checks.
+- The attached Chromium compiler suite passed 159 assertions and a native non-scaling-stroke measurement, across 14 scenarios.
+- The published Uno application presented through its shared WebGPU device and completed 24 camera updates without additional geometry, texture, paint or gradient uploads, or render-bundle rebuilds.
+
+The starter sequence comparison at 928 × 614 pixels measured a mean absolute RGB
+channel error of 0.7336 on the 0–255 scale. A maximum channel difference above 64
+occurred in 0.2425% of pixels. Its visible-ink counts were 11,537 GPU pixels and
+11,748 SVG reference pixels. The comparison uses the actual composed viewport and
+the same attached SVG, camera, fonts and browser. These figures characterize this
+fixture and configuration; they do not establish universal SVG pixel equivalence.
+
+The scene retained 35 geometry buffers, 17 image textures and 52 ordered render
+bundles. Across the 24 camera updates, geometry uploads remained 25,008 bytes,
+texture uploads remained 247,372 bytes, draw-uniform uploads remained 13,312 bytes,
+gradient uploads remained 32 bytes and bundle builds remained 52. The only changing
+upload counter was the camera buffer: 128 to 1,664 bytes, exactly 24 × 64 bytes.
+Resolution-bucket changes can legitimately recompile curves and text at a higher
+quality level; this retention check stays within one bucket.
 
 The final PR validation section records subsequent integrated browser results.
 Earlier layout benchmark numbers in README are historical source-layout timings,
@@ -203,6 +243,7 @@ guarantee or completed “AAA” hardware qualification is claimed without measu
 ## Primary references
 
 - [Uno 7 migration guide](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/migrating-to-uno-7.md)
+- [Uno native screen-reader activation](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/features/accessibility/testing-with-screen-readers.md)
 - [Uno WebGPU backend](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/features/using-webgpu-rendering.md)
 - [Custom WebGpuCanvasElement](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/controls/WebGpuCanvasElement.md)
 - [Uno 7.0.32 release](https://github.com/unoplatform/uno/releases/tag/7.0.32)
