@@ -158,6 +158,7 @@ SequenceEditCases.Run(Check);
 BlockEditCases.Run(Check);
 assertions += ArchiveEditCases.Run();
 assertions += SourceFieldCases.Run();
+assertions += SourceTextProjectionCases.Run();
 assertions += SaltEditCases.Run();
 assertions += YamlFieldCases.Run();
 assertions += CanvasLayoutCases.Run();

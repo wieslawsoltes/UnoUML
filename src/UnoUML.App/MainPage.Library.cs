@@ -285,14 +285,17 @@ public sealed partial class MainPage
         var field = new TextBox { AcceptsReturn = true, Text = text, PlaceholderText = hint,
             TextWrapping = TextWrapping.Wrap, MinHeight = 100, MaxHeight = 250, IsSpellCheckEnabled = false, FontFamily = new FontFamily("monospace"), FontSize = 13 };
         BrowserAccessibility.SetName(field, hint);
+        BrowserSourceText.Attach(field);
         return field;
     }
 
     async Task EditStatementAsync(DiagramObject item)
     {
-        var field = StatementField(item.Statement, "PlantUML statement");
-        if (await AskAsync("Edit PlantUML statement", field, "Apply") == ContentDialogResult.Primary)
-            Edit(() => doc.Replace(item, field.Text));
+        var projection = new SourceTextProjection(item.Statement);
+        var field = StatementField(projection.EditorText, "PlantUML statement");
+        if (await AskAsync("Edit PlantUML statement", field, "Apply") != ContentDialogResult.Primary) return;
+        string statement = projection.ApplyEditorText(field.Text);
+        if (statement != item.Statement) Edit(() => doc.Replace(item, statement));
     }
 
     async Task InsertCustomAsync()

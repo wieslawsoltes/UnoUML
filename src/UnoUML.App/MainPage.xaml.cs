@@ -13,6 +13,7 @@ public sealed partial class MainPage : Page
     const string DraftKey = "unouml.document.v1";
     const string LibraryKey = "unouml.snippets.v1";
     StudioDocument doc = new(StudioCatalog.Templates[0].Source);
+    SourceTextProjection? sourceProjection;
     string fileName = "Checkout flow.puml";
     readonly DiagramViewport viewport = new();
     readonly DispatcherTimer changeTimer = new() { Interval = TimeSpan.FromMilliseconds(220) };
@@ -228,8 +229,9 @@ public sealed partial class MainPage : Page
     void OnSourceChanged(object sender, TextChangedEventArgs e)
     {
         if (!ready || syncing) return;
-        if (SourceEditor.Text == doc.Source) return;
-        doc.SetSource(SourceEditor.Text);
+        string source = SourceProjection.ApplyEditorText(SourceEditor.Text);
+        if (source == doc.Source) return;
+        doc.SetSource(source);
         DiscardResourceRedo();
         revision++; dirty = true; additionalSelection.Clear(); selected = null;
         undoButton.IsEnabled = doc.CanUndo || resourceCursor > 0; redoButton.IsEnabled = doc.CanRedo || resourceCursor < resourceHistory.Count;
@@ -240,8 +242,10 @@ public sealed partial class MainPage : Page
     void OnSourceSelection()
     {
         if (!ready || syncing || mode == "Design" || SourceEditor.FocusState == FocusState.Unfocused ||
-            changeTimer.IsEnabled || SourceEditor.Text != doc.Source) return;
-        var item = doc.FindAtOffset(SourceEditor.SelectionStart, out int page);
+            changeTimer.IsEnabled) return;
+        var projection = SourceProjection;
+        if (SourceEditor.Text != projection.EditorText) return;
+        var item = doc.FindAtOffset(projection.ToSourceOffset(SourceEditor.SelectionStart), out int page);
         if (page < 0) return;
         if (page != doc.ActivePage)
         {
@@ -271,7 +275,8 @@ public sealed partial class MainPage : Page
         syncing = true;
         try
         {
-            if (SourceEditor.Text != doc.Source) SourceEditor.Text = doc.Source;
+            string editorText = SourceProjection.EditorText;
+            if (SourceEditor.Text != editorText) SourceEditor.Text = editorText;
             if (lastSource != doc.Source || PagePicker.Items.Count == 0)
             {
                 PagePicker.Items.Clear();
@@ -391,9 +396,9 @@ public sealed partial class MainPage : Page
         additionalSelection.Clear();
         selected = DotSelection == null ? Resolve(hit) : null;
         ShowInspector(); SyncCanvasSelection(hit);
-        if (mode == "Split" && JsonSelection is { } json) SourceEditor.Select(json.Offset, json.Length);
-        else if (mode == "Split" && FieldSelection is { } field) SourceEditor.Select(field.Offset, field.Length);
-        else if (mode == "Split" && DotSelection is { } dot) SourceEditor.Select(dot.Offset, dot.Location.Length);
+        if (mode == "Split" && JsonSelection is { } json) SelectSourceRange(json.Offset, json.Length);
+        else if (mode == "Split" && FieldSelection is { } field) SelectSourceRange(field.Offset, field.Length);
+        else if (mode == "Split" && DotSelection is { } dot) SelectSourceRange(dot.Offset, dot.Location.Length);
         else if (mode == "Split" && selected != null) SelectSource(selected);
         if (hit.Kind == "edit") BeginCanvasEdit(selected);
     }
@@ -455,6 +460,21 @@ public sealed partial class MainPage : Page
         if (mode != "Design") SelectSource(item);
     }
 
-    void SelectSource(DiagramObject item) =>
-        SourceEditor.Select(item.Offset, item.End - item.Offset);
+    SourceTextProjection SourceProjection
+    {
+        get
+        {
+            if (sourceProjection == null || !ReferenceEquals(sourceProjection.Source, doc.Source))
+                sourceProjection = new(doc.Source);
+            return sourceProjection;
+        }
+    }
+
+    void SelectSource(DiagramObject item) => SelectSourceRange(item.Offset, item.End - item.Offset);
+
+    void SelectSourceRange(int start, int length)
+    {
+        var range = SourceProjection.ToEditorRange(start, length);
+        SourceEditor.Select(range.Start, range.Length);
+    }
 }

@@ -36,12 +36,8 @@ public sealed partial class MainPage
             var origin = new ImportedSource(path, archive);
             var document = includeHistory.TryGetValue(origin.Key, out var previous) && previous.Source == original ? previous.Fork() : new StudioDocument(original);
             var initial = document.Fork();
-            string text = original.ReplaceLineEndings("\n");
-            string newline = "\n";
-            int newlineAt = original.IndexOfAny(['\r', '\n']);
-            if (newlineAt >= 0 && original[newlineAt] == '\r')
-                newline = newlineAt + 1 < original.Length && original[newlineAt + 1] == '\n' ? "\r\n" : "\r";
-            var field = StatementField(text, "Imported PlantUML source");
+            var projection = new SourceTextProjection(document.Source);
+            var field = StatementField(projection.EditorText, "Imported PlantUML source");
             field.Header = origin.ToString();
             field.MinHeight = 220; field.MaxHeight = 420;
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(field, "Imported include source");
@@ -56,8 +52,13 @@ public sealed partial class MainPage
             {
                 undo!.IsEnabled = document.CanUndo; redo!.IsEnabled = document.CanRedo;
             }
-            void Undo() { if (document.Undo()) field.Text = document.Source.ReplaceLineEndings("\n"); UpdateHistory(); }
-            void Redo() { if (document.Redo()) field.Text = document.Source.ReplaceLineEndings("\n"); UpdateHistory(); }
+            void RefreshField()
+            {
+                projection = new(document.Source);
+                field.Text = projection.EditorText;
+            }
+            void Undo() { if (document.Undo()) RefreshField(); UpdateHistory(); }
+            void Redo() { if (document.Redo()) RefreshField(); UpdateHistory(); }
             undo = Command("Undo include edit", "undo", Undo);
             redo = Command("Redo include edit", "redo", Redo);
             actions.Children.Add(undo); actions.Children.Add(redo);
@@ -78,17 +79,25 @@ public sealed partial class MainPage
             Shortcut(VirtualKey.Y, VirtualKeyModifiers.Control, Redo);
             Shortcut(VirtualKey.Z, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, Redo);
             Shortcut(VirtualKey.S, VirtualKeyModifiers.Control, () => _ = DownloadAsync());
-            field.TextChanged += (_, _) => { document.SetSource(field.Text.ReplaceLineEndings(newline)); UpdateHistory(); };
+            field.TextChanged += (_, _) =>
+            {
+                string source = projection.ApplyEditorText(field.Text);
+                if (source == document.Source) return;
+                document.SetSource(source);
+                projection = new(document.Source);
+                UpdateHistory();
+            };
             UpdateHistory();
             field.Loaded += (_, _) =>
             {
+                string text = projection.EditorText;
                 int start = 0;
                 for (int line = 0; line < sourceLine && start < text.Length; line++)
                 {
-                    int end = text.IndexOf('\n', start);
+                    int end = text.IndexOf('\r', start);
                     start = end < 0 ? text.Length : end + 1;
                 }
-                int stop = text.IndexOf('\n', start);
+                int stop = text.IndexOf('\r', start);
                 field.Select(start, (stop < 0 ? text.Length : stop) - start);
             };
             var content = new StackPanel { Spacing = 8 };
