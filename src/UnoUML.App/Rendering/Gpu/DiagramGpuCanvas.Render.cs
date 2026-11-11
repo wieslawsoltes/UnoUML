@@ -40,37 +40,28 @@ public sealed unsafe partial class DiagramGpuCanvas
             api.RenderPassEncoderSetPipeline(pass, _backgroundPipeline);
             api.RenderPassEncoderDraw(pass, 3, 1, 0, 0);
 
-            for (int index = 0; index < _scene.Order.Length; index++)
+            // Each bundle retains its own pipelines, binding offsets and geometry. Camera-only
+            // frames submit all visible commands in one interop call, in exact painter order.
+            for (int index = 0; index < _renderItems.Length; index++)
             {
-                GpuCommand command = _scene.Commands[_scene.Order[index]];
+                ref readonly RenderItem item = ref _renderItems[index];
+                GpuCommand command = item.Command;
                 Matrix3x2 combined = command.Matrix * _scene.Camera;
                 if (!command.Bounds.Transform(combined).Intersects((float)_scene.Width, (float)_scene.Height))
                     continue;
                 if (command.Clip is { } clip && !clip.Transform(_scene.Camera).Intersects((float)_scene.Width, (float)_scene.Height))
                     continue;
                 if (command.Paint.Opacity <= 0) continue;
-                visible++;
-                offset = checked((uint)index * _drawStride);
-                if (command.Kind == GpuCommandKind.Image)
-                {
-                    api.RenderPassEncoderSetBindGroup(pass, 0, GetBindings(_textures[command.Image!]), 1, &offset);
-                    api.RenderPassEncoderSetPipeline(pass, _imagePipeline);
-                    api.RenderPassEncoderDraw(pass, 6, 1, 0, 0);
-                    draws++;
-                    continue;
-                }
-                MeshResource mesh = _meshes[command.Id];
-                api.RenderPassEncoderSetBindGroup(pass, 0, GetBindings(_whiteTexture!), 1, &offset);
-                api.RenderPassEncoderSetVertexBuffer(pass, 0, mesh.Buffer, 0, (ulong)mesh.Vertices.Length * sizeof(float));
-                RenderPipeline* pipeline = command.Kind == GpuCommandKind.Mesh ? _unionPipeline
-                    : command.Rule == "evenodd" ? _evenoddPipeline : _nonzeroPipeline;
-                api.RenderPassEncoderSetPipeline(pass, pipeline);
-                api.RenderPassEncoderSetStencilReference(pass, command.Kind == GpuCommandKind.Mesh ? 1u : 0u);
-                api.RenderPassEncoderDraw(pass, (uint)mesh.Vertices.Length / 2, 1, 0, 0);
-                api.RenderPassEncoderSetPipeline(pass, _paintPipeline);
+                _visibleBundles[visible++] = item.Bundle;
+                draws += item.Draws;
+            }
+            if (visible > 0)
+            {
+                // All pipelines use reference zero. Stroke union tests Equal before incrementing
+                // from zero to one, so overlapping triangles cannot apply opacity repeatedly.
                 api.RenderPassEncoderSetStencilReference(pass, 0);
-                api.RenderPassEncoderDraw(pass, 6, 1, 0, 0);
-                draws += 2;
+                fixed (nint* handles = _visibleBundles)
+                    api.RenderPassEncoderExecuteBundles(pass, (nuint)visible, (RenderBundle**)handles);
             }
             api.RenderPassEncoderEnd(pass);
             api.RenderPassEncoderRelease(pass); pass = null;
@@ -79,7 +70,14 @@ public sealed unsafe partial class DiagramGpuCanvas
             api.QueueSubmit(context.Queue, 1, &commands);
             return new(_scene.Revision, _presentedFrames, draws, _scene.CommandCount, visible,
                 _scene.CommandCount - visible, _scene.VertexBytes, _scene.TextureBytes, 0,
-                context.PixelWidth, context.PixelHeight, (int)Samples);
+                context.PixelWidth, context.PixelHeight, (int)Samples)
+            {
+                PipelineCount = 6, GeometryBuffers = _meshes.Count, ImageTextures = _textures.Count,
+                RenderBundles = _commandBundles.Count, UniformAndStopBytes = (long)(_drawCapacity + _stopCapacity + GlobalUniformBytes),
+                GeometryUploadBytes = _geometryUploadBytes, TextureUploadBytes = _textureUploadBytes,
+                CameraUploadBytes = _cameraUploadBytes, DrawUniformUploadBytes = _drawUniformUploadBytes,
+                GradientUploadBytes = _gradientUploadBytes, BundleBuilds = _bundleBuilds
+            };
         }
         finally
         {
@@ -155,6 +153,7 @@ public sealed unsafe partial class DiagramGpuCanvas
                 !_uploadedCommands.TryGetValue(command.Id, out var previous) || !ReferenceEquals(previous, command))
                 WriteDraw(command, checked((ulong)index * _drawStride));
         }
+        SynchronizeBundles();
         _uploadedCommands = _scene.Commands;
         _uploadedOrder = _scene.Order;
     }
@@ -209,6 +208,11 @@ public sealed unsafe partial class DiagramGpuCanvas
     {
         fixed (float* values = data)
             _api!.QueueWriteBuffer(_queue, buffer, offset, values, checked((nuint)data.Length * sizeof(float)));
+        long bytes = (long)data.Length * sizeof(float);
+        if (buffer == _globalBuffer) _cameraUploadBytes += bytes;
+        else if (buffer == _drawBuffer) _drawUniformUploadBytes += bytes;
+        else if (buffer == _stopBuffer) _gradientUploadBytes += bytes;
+        else _geometryUploadBytes += bytes;
     }
     private static void PutMatrix(Span<float> data, int offset, Matrix3x2 matrix)
     {

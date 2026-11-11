@@ -16,6 +16,12 @@ public sealed unsafe partial class DiagramGpuCanvas
     private Limits _limits;
     private TextureFormat _targetFormat;
     private uint _drawStride = 256;
+    private long _geometryUploadBytes;
+    private long _textureUploadBytes;
+    private long _cameraUploadBytes;
+    private long _drawUniformUploadBytes;
+    private long _gradientUploadBytes;
+    private long _bundleBuilds;
     private BindGroupLayout* _bindingLayout;
     private PipelineLayout* _pipelineLayout;
     private RenderPipeline* _backgroundPipeline;
@@ -46,6 +52,8 @@ public sealed unsafe partial class DiagramGpuCanvas
     private void CreateDeviceResources(WebGpuCanvasContext context)
     {
         _api = context.Api; _device = context.Device; _queue = context.Queue; _targetFormat = context.TargetFormat;
+        _geometryUploadBytes = _textureUploadBytes = _cameraUploadBytes = 0;
+        _drawUniformUploadBytes = _gradientUploadBytes = _bundleBuilds = 0;
         SupportedLimits supported = default;
         if (!_api.DeviceGetLimits(_device, &supported))
             throw new InvalidOperationException("WebGPU device limits are unavailable.");
@@ -141,11 +149,11 @@ public sealed unsafe partial class DiagramGpuCanvas
             };
             var fragment = new FragmentState { Module = shader, EntryPoint = fragmentName, TargetCount = 1, Targets = &color };
             var front = new StencilFaceState {
-                Compare = stencilMode == 4 ? CompareFunction.NotEqual : CompareFunction.Always,
+                Compare = stencilMode == 4 ? CompareFunction.NotEqual : stencilMode == 3 ? CompareFunction.Equal : CompareFunction.Always,
                 FailOp = StencilOperation.Keep, DepthFailOp = StencilOperation.Keep,
                 PassOp = stencilMode switch {
                     1 => StencilOperation.IncrementWrap, 2 => StencilOperation.Invert,
-                    3 => StencilOperation.Replace, 4 => StencilOperation.Zero, _ => StencilOperation.Keep
+                    3 => StencilOperation.IncrementClamp, 4 => StencilOperation.Zero, _ => StencilOperation.Keep
                 }
             };
             var back = front;
@@ -206,6 +214,7 @@ public sealed unsafe partial class DiagramGpuCanvas
             var extent = descriptor.Size;
             fixed (byte* pixels = image.Rgba)
                 _api.QueueWriteTexture(_queue, &destination, pixels, (nuint)image.Rgba.Length, &layout, &extent);
+            _textureUploadBytes += image.Rgba.LongLength;
             return resource;
         }
         catch { ReleaseTexture(resource); throw; }
@@ -252,6 +261,7 @@ public sealed unsafe partial class DiagramGpuCanvas
 
     private void ReleaseBindings()
     {
+        ReleaseBundles();
         if (_whiteTexture is { } white) ReleaseBinding(white);
         foreach (var texture in _textures.Values) ReleaseBinding(texture);
     }
@@ -305,6 +315,7 @@ public sealed unsafe partial class DiagramGpuCanvas
         if (_pipelineLayout != null) { _api.PipelineLayoutRelease(_pipelineLayout); _pipelineLayout = null; }
         if (_bindingLayout != null) { _api.BindGroupLayoutRelease(_bindingLayout); _bindingLayout = null; }
         _uploadedCommands = new(StringComparer.Ordinal); _uploadedOrder = []; _stopOffsets.Clear();
+        _renderItems = []; _visibleBundles = [];
         _drawCapacity = _stopCapacity = 0;
         _device = null; _queue = null; _api = null;
     }

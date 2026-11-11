@@ -300,4 +300,18 @@ internal readonly record struct GpuRect(float X, float Y, float Width, float Hei
 
 public sealed record DiagramGpuStatistics(long Revision, long PresentedFrames, int DrawCalls, int Commands,
     int VisibleCommands, int CulledCommands, long VertexBytes, long TextureBytes, double CpuEncodeMilliseconds,
-    int PixelWidth, int PixelHeight, int SampleCount);
+    int PixelWidth, int PixelHeight, int SampleCount)
+{
+    public string Backend { get; init; } = "Uno shared WebGPU";
+    public int PipelineCount { get; init; }
+    public int GeometryBuffers { get; init; }
+    public int ImageTextures { get; init; }
+    public int RenderBundles { get; init; }
+    public long UniformAndStopBytes { get; init; }
+    public long GeometryUploadBytes { get; init; }
+    public long TextureUploadBytes { get; init; }
+    public long CameraUploadBytes { get; init; }
+    public long DrawUniformUploadBytes { get; init; }
+    public long GradientUploadBytes { get; init; }
+    public long BundleBuilds { get; init; }
+}
