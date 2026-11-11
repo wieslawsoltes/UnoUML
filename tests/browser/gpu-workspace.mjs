@@ -24,9 +24,9 @@ try {
   await page.goto(url,{waitUntil:'domcontentloaded'});
   await page.locator('.paper svg').first().waitFor({state:'visible',timeout:120000});
   await verifyGpuPresentation(page);
-  await verifyGpuScene(page);
   try { await verifyAccessibility(page); }
   catch (error) { await diagnoseNativeAccessibility(page); throw error; }
+  await verifyGpuScene(page);
   await verifyGpuFallback(browser,url);
   assert.deepEqual(errors,[]);
   console.log('Passed independent published Uno WebGPU, source input, accessibility and fallback smoke checks.');

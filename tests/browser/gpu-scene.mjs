@@ -373,8 +373,10 @@ async function measureNonScalingStroke(page,artifactDir) {
     host.id='unouml-stroke-probe';
     host.style.cssText='position:fixed;left:0;top:0;width:300px;height:140px;z-index:2147483647;background:#fff;pointer-events:none;contain:layout style;isolation:isolate;opacity:1;';
     wrapper.style.cssText='width:260px;height:100px;transform-origin:0 0;';
+    // Whole 20/21/22 CSS-pixel coverage at the chosen scales separates camera
+    // semantics from Chromium's fractional-pixel antialiasing quantization.
     wrapper.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="260" height="100" viewBox="0 0 260 100" style="width:260px;height:100px;max-width:none;max-height:none;overflow:visible">'+
-      '<line x1="20" y1="50" x2="220" y2="50" stroke="#000" stroke-width="4" fill="none" vector-effect="non-scaling-stroke"/></svg>';
+      '<line x1="20" y1="50" x2="220" y2="50" stroke="#000" stroke-width="20" fill="none" vector-effect="non-scaling-stroke"/></svg>';
     host.append(wrapper);document.body.append(host);
     globalThis.__unoumlStrokeProbe={host,wrapper,svg:wrapper.firstElementChild,compileScene,qualityBucket,rasterCache:new RasterCache(),geometryCache:new WeakMap(),scenes:new Map()};
   });
