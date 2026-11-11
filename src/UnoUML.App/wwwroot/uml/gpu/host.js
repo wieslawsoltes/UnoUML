@@ -132,7 +132,9 @@ export class GpuPresentationHost {
       this.selections.append(box);
     }
     selected.forEach((element, index) => this.view.outline(this.selections.children[index], element));
-    this.view.outline(this.hover, active && this.hovered?.isConnected ? this.hovered : null);
+    // Native SVG hover filters stay suppressed while the device is available,
+    // including temporary SVG fallback after a recoverable scene error.
+    this.view.outline(this.hover, this.available && this.hovered?.isConnected ? this.hovered : null);
   }
 
   state() {

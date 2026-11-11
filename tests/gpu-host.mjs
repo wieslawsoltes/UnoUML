@@ -158,6 +158,31 @@ test('compiler failure restores SVG, later edits recover, and disposal removes a
   assert.equal(compilers.length, 1);
 });
 
+test('hover remains visible during recoverable SVG fallback without duplicating selection outlines', () => {
+  const {host, view, compilers, Element} = fixture();
+  const selected = new Element(), hovered = new Element();
+  view.additional = [selected];
+  host.setAvailability(true);
+  compilers[0].finish(); host.present(compilers[0].lastRevision, {});
+  view.surface.handlers.get('pointerover')({target:hovered});
+  const warn = console.warn;
+  try { console.warn = () => {}; compilers[0].options.onError(new Error('Texture budget exceeded')); }
+  finally { console.warn = warn; }
+  assert.equal(host.state().backend, 'svg');
+  assert.equal(view.surface.classList.contains('gpu-enabled'), true, 'native hover filters remain suppressed');
+  assert.equal(host.hover.hidden, false, 'replacement hover survives the scene-local fallback');
+  assert.equal(host.hover.element, hovered);
+  assert.equal(host.selections.children.length, 0, 'native SVG selection outlines are not duplicated');
+  view.surface.handlers.get('pointerleave')();
+  assert.equal(host.hover.hidden, true);
+  view.surface.handlers.get('pointerover')({target:hovered});
+  assert.equal(host.hover.hidden, false, 'hover continues to respond while SVG is visible');
+  host.setAvailability(false, 'Device unavailable');
+  assert.equal(host.hover.hidden, true, 'native hover resumes when GPU availability is removed');
+  assert.equal(view.surface.classList.contains('gpu-enabled'), false);
+  host.dispose();
+});
+
 
 test('atomic backend rejection resets the compiler baseline without discarding device availability', () => {
   const {host, compilers} = fixture();
