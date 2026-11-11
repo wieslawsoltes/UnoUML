@@ -76,10 +76,19 @@ async function verifyIndependentAuthoring(browser, url) {
 const external = process.env.WORKSPACE_URL;
 if (!external && !process.argv[2]) throw new Error('Pass the published wwwroot directory or set WORKSPACE_URL');
 const server = external ? null : await servePublishedSite(resolve(process.argv[2]));
-const browser = await chromium.launch(graphicsLaunchOptions());
-let page;
+const url = external || `http://127.0.0.1:${server.address().port}${prefix}`;
+let browser, page;
 const graphicsLog = [];
+const failures = [];
+const collectFailure = async (message, action) => {
+  try { await action(); }
+  catch (error) {
+    console.error(message, error);
+    failures.push(new Error(message, {cause:error}));
+  }
+};
 try {
+  browser = await chromium.launch(graphicsLaunchOptions());
   page = await browser.newPage({ viewport: { width: 1390, height: 860 }, colorScheme: 'light', acceptDownloads: true });
   const errors = [];
   page.setDefaultTimeout(35000);
@@ -87,7 +96,6 @@ try {
   page.on('console', message => {
     if (graphicsLog.length < 1000) graphicsLog.push(message.type() + ': ' + message.text());
   });
-  const url = external || `http://127.0.0.1:${server.address().port}${prefix}`;
   const click = name => clickControl(page, page.getByRole('button', {name,exact:true}));
   const paper = page.locator('.paper svg').first();
   const store = page.locator('.paper text').filter({ hasText: /^Storefront$/ }).first();
@@ -176,7 +184,6 @@ try {
   await verifyYamlEditing(page, textbox);
   await verifyDotEditing(page, textbox);
   await verifyGpuFallback(browser, url);
-  await verifyIndependentAuthoring(browser, url);
   await verifyArchiveImport(page, textbox);
   await verifyArchiveAliasEditing(page, textbox);
   await verifyImportedPageRouting(page, textbox);
@@ -194,12 +201,24 @@ try {
       if (await source.count()) await writeFile(resolve(process.env.SCREENSHOT_DIR, 'unouml-failure.puml'), await source.inputValue());
     } catch (captureError) { console.error('Could not capture workspace failure:', captureError); }
   }
-  throw error;
+  console.error('Failed primary desktop/mobile workspace checks:', error);
+  failures.push(new Error('Primary desktop/mobile workspace checks failed', {cause:error}));
 } finally {
-  if (process.env.SCREENSHOT_DIR) {
-    await mkdir(process.env.SCREENSHOT_DIR, {recursive:true});
-    await writeFile(resolve(process.env.SCREENSHOT_DIR, 'browser-console.txt'), graphicsLog.join('\n'));
+  // Capture the primary failure before releasing its GPU context. Run every
+  // isolated authoring scenario once after the primary flow has finished.
+  if (page) await collectFailure('Could not close primary workspace page', () => page.close());
+  if (browser) {
+    await collectFailure('Independent authoring workspace checks failed', () => verifyIndependentAuthoring(browser, url));
   }
-  await browser.close();
-  if (server) await new Promise(resolve => server.close(resolve));
+  await collectFailure('Could not save browser console diagnostics', async () => {
+    if (process.env.SCREENSHOT_DIR) {
+      await mkdir(process.env.SCREENSHOT_DIR, {recursive:true});
+      await writeFile(resolve(process.env.SCREENSHOT_DIR, 'browser-console.txt'), graphicsLog.join('\n'));
+    }
+  });
+  if (browser) await collectFailure('Could not close workspace browser', () => browser.close());
+  if (server) await collectFailure('Could not close workspace server', () => new Promise((resolve, reject) => {
+    server.close(error => error ? reject(error) : resolve());
+  }));
 }
+if (failures.length) throw new AggregateError(failures, 'Published workspace checks failed');

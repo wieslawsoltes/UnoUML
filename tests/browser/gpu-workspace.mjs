@@ -24,11 +24,21 @@ try {
   await page.goto(url,{waitUntil:'domcontentloaded'});
   await page.locator('.paper svg').first().waitFor({state:'visible',timeout:120000});
   await verifyGpuPresentation(page);
+  const failures = [];
   try { await verifyAccessibility(page); }
-  catch (error) { await diagnoseNativeAccessibility(page); throw error; }
-  await verifyGpuScene(page);
-  await verifyGpuFallback(browser,url);
-  assert.deepEqual(errors,[]);
+  catch (error) {
+    failures.push(new Error('Native accessibility checks failed', {cause:error}));
+    await diagnoseNativeAccessibility(page).catch(diagnosticError => console.error('Accessibility diagnostics failed:', diagnosticError));
+  }
+  // These use isolated frames/contexts and remain useful after a modal failure.
+  // Collect every result without allowing a failed accessibility gate to pass.
+  try { await verifyGpuScene(page); }
+  catch (error) { failures.push(new Error('Attached compiler checks failed', {cause:error})); }
+  try { await verifyGpuFallback(browser,url); }
+  catch (error) { failures.push(new Error('Unsupported-adapter startup checks failed', {cause:error})); }
+  try { assert.deepEqual(errors,[]); }
+  catch (error) { failures.push(new Error('Workspace emitted browser errors', {cause:error})); }
+  if (failures.length) throw new AggregateError(failures, 'Published WebGPU workspace checks failed');
   console.log('Passed independent published Uno WebGPU, source input, accessibility and fallback smoke checks.');
 } finally {
   if (page) {
