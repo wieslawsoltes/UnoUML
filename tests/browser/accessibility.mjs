@@ -3,6 +3,8 @@ import { activateAccessibility } from './native-controls.mjs';
 
 export async function verifyAccessibility(page) {
   await activateAccessibility(page);
+  assert.equal(await page.getByRole('dialog', { includeHidden: true }).count(), 0,
+    'Keyboard accessibility activation must not invoke a native application command');
   const button = name => page.getByRole('button', { name, exact: true });
   await button('Split').press('Enter');
   const source = page.getByRole('textbox', { name: 'PlantUML source', exact: true });

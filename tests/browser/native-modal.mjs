@@ -82,6 +82,71 @@ export async function verifyNativeModal(page, { artifactDir } = {}) {
     equal(await repair('current'), 0, 'A callback arriving after native dialog close is a no-op');
     equal(await frame.locator('#uno-semantics-application').getAttribute('aria-hidden'), 'true', 'Closed callbacks cannot undo a later modal scope');
     report.cases.push('closed and stale callbacks');
+
+    // Model the tagged Uno event ordering: the public enable handler removes
+    // its element and focuses a native control before document key forwarding.
+    await frame.evaluate(() => {
+      document.body.innerHTML = '<div id="uno-semantics-root"><button id="native-command" aria-label="Native command">Native command</button></div>';
+      const state = globalThis.activationFixture = { activations: 0, upstreamKeys: 0, forwarded: [] };
+      for (const type of ['keydown', 'keyup']) document.addEventListener(type, event => {
+        state.forwarded.push([event.type, event.key, event.target.id]);
+      });
+      globalThis.addEnableControl = () => {
+        const control = document.createElement('div');
+        control.id = 'uno-enable-accessibility';
+        control.setAttribute('role', 'button');
+        control.setAttribute('aria-label', 'Enable accessibility');
+        control.tabIndex = 0;
+        control.addEventListener('click', () => {
+          state.activations++;
+          control.remove();
+          document.getElementById('native-command').focus();
+        });
+        control.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            state.upstreamKeys++;
+            event.preventDefault();
+            control.click();
+          }
+        });
+        document.body.prepend(control);
+      };
+      state.dispose = modalModule.installAccessibilityActivationBoundary();
+      state.idempotent = state.dispose === modalModule.installAccessibilityActivationBoundary();
+    });
+    equal(await frame.evaluate(() => activationFixture.idempotent), true, 'Repeated initialization installs one boundary');
+    for (const key of ['Enter', 'Space']) {
+      await frame.evaluate(() => addEnableControl());
+      await frame.getByRole('button', { name: 'Enable accessibility', exact: true }).press(key);
+    }
+    equal(await frame.evaluate(() => [activationFixture.activations, activationFixture.upstreamKeys, activationFixture.forwarded]),
+      [2, 0, []], 'Enter and Space use the existing public click handler without reaching document key forwarding');
+    equal(await frame.evaluate(() => document.activeElement.id), 'native-command', 'Native activation focus is preserved');
+    report.cases.push('public Enter/Space activation and recreated enable control');
+
+    await frame.evaluate(() => addEnableControl());
+    await frame.getByRole('button', { name: 'Enable accessibility', exact: true }).focus();
+    try {
+      await page.keyboard.down('Enter');
+      await page.keyboard.down('Enter');
+    } finally { await page.keyboard.up('Enter'); }
+    equal(await frame.evaluate(() => [activationFixture.activations, activationFixture.forwarded]), [3, []],
+      'A held activation key and its release never invoke the newly focused native command');
+    await frame.getByRole('button', { name: 'Native command', exact: true }).press('Enter');
+    equal(await frame.evaluate(() => activationFixture.forwarded.map(event => event.slice(0, 2))),
+      [['keydown', 'Enter'], ['keyup', 'Enter']], 'Ordinary native control keys continue to reach the framework');
+    report.cases.push('held key suppression and ordinary native input');
+
+    await frame.evaluate(() => {
+      activationFixture.dispose();
+      activationFixture.forwarded = [];
+      addEnableControl();
+    });
+    await frame.getByRole('button', { name: 'Enable accessibility', exact: true }).press('Enter');
+    equal(await frame.evaluate(() => [activationFixture.upstreamKeys, activationFixture.forwarded.map(event => event.slice(0, 2))]),
+      [1, [['keydown', 'Enter'], ['keyup', 'Enter']]],
+      'The unguarded tagged event ordering reproduces the forwarding defect');
+    report.cases.push('unguarded event-routing regression control');
     report.pass = true;
   } catch (error) {
     report.pass = false;

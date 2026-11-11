@@ -17,7 +17,7 @@ internal static class Program
         builder.AddFilter("UnoUML.Rendering", LogLevel.Information);
     });
 
-    public static Task Main()
+    public static async Task Main()
     {
         Uno.Extensions.LogExtensionPoint.AmbientLoggerFactory = Logging;
         Uno.UI.Adapter.Microsoft.Extensions.Logging.LoggingAdapter.Initialize();
@@ -29,7 +29,10 @@ internal static class Program
         Logging.CreateLogger("UnoUML.Rendering").LogInformation(
             "Graphics preference: WebGPU, then Skia. Uno.UI.Composition.Drawing reports the selected backend.");
 
-        return UnoPlatformHostBuilder.Create()
+        // Install the small public-DOM keyboard boundary before Uno creates its
+        // accessibility activation control or exposes an interactive window.
+        await Rendering.BrowserAccessibility.InitializeAsync();
+        await UnoPlatformHostBuilder.Create()
             .App(() => new App())
             .GraphicsBackend(WebGpuBackend.CreateGraphicsProvider())
             .GraphicsBackend(SkiaBackend.CreateGraphicsProvider())

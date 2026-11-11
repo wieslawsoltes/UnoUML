@@ -10,6 +10,22 @@ namespace UnoUML.App.Rendering;
 /// <summary>Assigns XAML names consumed by Uno 7's semantic accessibility tree.</summary>
 internal static partial class BrowserAccessibility
 {
+    private const string Module = "UnoUML.NativeAccessibility";
+    private static Task<JSObject>? import;
+
+    internal static async Task InitializeAsync()
+    {
+        if (!OperatingSystem.IsBrowser()) return;
+        if (import is null)
+        {
+            using var document = JSHost.GlobalThis.GetPropertyAsJSObject("document")!;
+            var url = new Uri(new Uri(document.GetPropertyAsString("baseURI")!), "uml/native-accessibility.js");
+            import = JSHost.ImportAsync(Module, url.AbsoluteUri);
+        }
+        await import;
+        InstallActivationBoundary();
+    }
+
     internal static void SetName(FrameworkElement element, string name) =>
         AutomationProperties.SetName(element, name);
 
@@ -33,11 +49,10 @@ internal static partial class BrowserAccessibility
             // Uno 7.0.32's modal scope hides its own semantic ancestors. Run
             // after every Opened handler so its native focus/background state
             // is installed before repairing only the active dialog's ancestry.
-            dialog.DispatcherQueue.TryEnqueue(async () =>
+            dialog.DispatcherQueue.TryEnqueue(() =>
             {
                 try
                 {
-                    await BrowserBridge.ReadyAsync();
                     if (generation == current) RestoreDialogAncestry(automationId);
                 }
                 catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
@@ -66,6 +81,9 @@ internal static partial class BrowserAccessibility
             AttachTree(VisualTreeHelper.GetChild(root, i));
     }
 
-    [JSImport("restoreDialogAncestry", "UnoUML.Viewport")]
+    [JSImport("installAccessibilityActivationBoundary", Module)]
+    private static partial void InstallActivationBoundary();
+
+    [JSImport("restoreDialogAncestry", Module)]
     private static partial void RestoreDialogAncestry(string automationId);
 }
