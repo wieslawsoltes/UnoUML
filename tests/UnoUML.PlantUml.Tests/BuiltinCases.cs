@@ -229,7 +229,9 @@ internal static class BuiltinCases
         ("week_cs-CZ_1640995200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1640995200,\"UTC\")", "A -> B: 2022-01-01 2021-52 0", "cs-CZ", "UTC", 1640995200000L),
         ("week_cs-CZ_1735603200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1735603200,\"UTC\")", "A -> B: 2024-12-31 2025-01 5", "cs-CZ", "UTC", 1735603200000L),
         ("week_cs-CZ_1672531200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1672531200,\"UTC\")", "A -> B: 2023-01-01 2022-52 0", "cs-CZ", "UTC", 1672531200000L),
-        ("locale_es-ES", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: d. C. d. C. d. C. | 2023 2023 11 nov noviembre 11 nov noviembre | mar martes p. m. | 318 2 2 46 3", "es-ES", "UTC", 1700000000000L),
+        // ICU/CLDR versions differ in the no-break space within the Spanish day period.
+        // Keep all date fields exact and require the configured culture's actual PM designator.
+        ("locale_es-ES", "A -> B: %date(\"G GG GGGG | y yyyy M MMM MMMM L LLL LLLL | E EEEE a | D F u w W\",1700000000,\"UTC\")", "A -> B: d. C. d. C. d. C. | 2023 2023 11 nov noviembre 11 nov noviembre | mar martes " + CultureInfo.GetCultureInfo("es-ES").DateTimeFormat.PMDesignator + " | 318 2 2 46 3", "es-ES", "UTC", 1700000000000L),
         ("locale_context_es-ES", "A -> B: %date(\"d MMMM yyyy | d LLLL yyyy | MMMM\",1700000000,\"UTC\")", "A -> B: 14 noviembre 2023 | 14 noviembre 2023 | noviembre", "es-ES", "UTC", 1700000000000L),
         ("week_es-ES_1451606400000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1451606400,\"UTC\")", "A -> B: 2016-01-01 2015-53 0", "es-ES", "UTC", 1451606400000L),
         ("week_es-ES_1609459200000", "A -> B: %date(\"yyyy-MM-dd YYYY-ww W\",1609459200,\"UTC\")", "A -> B: 2021-01-01 2020-53 0", "es-ES", "UTC", 1609459200000L),
