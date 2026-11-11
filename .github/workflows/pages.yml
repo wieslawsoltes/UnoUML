@@ -11,6 +11,26 @@ concurrency:
   group: unouml-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  gpu-shaders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Validate production WGSL and offscreen pixel output
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/gpu-checks
+        run: CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/gpu-shaders.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gpu-checks
+          path: ${{ runner.temp }}/gpu-checks/
+          if-no-files-found: ignore
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -36,6 +56,7 @@ jobs:
           node --test tests/gpu-geometry.mjs
           node --test tests/gantt-geometry.mjs
           node --test tests/source-text.mjs
+          dotnet run --project tests/UnoUML.Gpu.Tests -c Release
           dotnet run --project tests/UnoUML.Core.Tests -c Release
           dotnet run --project tests/UnoUML.PlantUml.Tests -c Release
       - name: Pack the portable C# library
@@ -84,7 +105,7 @@ jobs:
           path: ${{ runner.temp }}/pages
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: browser
+    needs: [browser, gpu-shaders]
     runs-on: ubuntu-latest
     permissions:
       pages: write
