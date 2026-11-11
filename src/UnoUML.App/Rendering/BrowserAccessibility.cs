@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices.JavaScript;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -7,7 +8,7 @@ using Microsoft.UI.Xaml.Media;
 namespace UnoUML.App.Rendering;
 
 /// <summary>Assigns XAML names consumed by Uno 7's semantic accessibility tree.</summary>
-internal static class BrowserAccessibility
+internal static partial class BrowserAccessibility
 {
     internal static void SetName(FrameworkElement element, string name) =>
         AutomationProperties.SetName(element, name);
@@ -15,7 +16,33 @@ internal static class BrowserAccessibility
     internal static void PrepareDialog(ContentDialog dialog)
     {
         SetName(dialog, dialog.Title?.ToString() ?? "Dialog");
-        dialog.Opened += (_, _) => AttachTree(dialog);
+        string automationId = AutomationProperties.GetAutomationId(dialog);
+        if (automationId.Length == 0)
+        {
+            automationId = "UnoUML.Dialog." + Guid.NewGuid().ToString("N");
+            AutomationProperties.SetAutomationId(dialog, automationId);
+        }
+
+        int generation = 0;
+        dialog.Closed += (_, _) => generation++;
+        dialog.Opened += (_, _) =>
+        {
+            AttachTree(dialog);
+            int current = ++generation;
+            if (!OperatingSystem.IsBrowser()) return;
+            // Uno 7.0.32's modal scope hides its own semantic ancestors. Run
+            // after every Opened handler so its native focus/background state
+            // is installed before repairing only the active dialog's ancestry.
+            dialog.DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    await BrowserBridge.ReadyAsync();
+                    if (generation == current) RestoreDialogAncestry(automationId);
+                }
+                catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+            });
+        };
     }
 
     private static void AttachTree(DependencyObject root)
@@ -39,4 +66,6 @@ internal static class BrowserAccessibility
             AttachTree(VisualTreeHelper.GetChild(root, i));
     }
 
+    [JSImport("restoreDialogAncestry", "UnoUML.Viewport")]
+    private static partial void RestoreDialogAncestry(string automationId);
 }
