@@ -28,7 +28,7 @@ public sealed partial class DiagramViewport : ContentControl
         IsTabStop = false;
         element = BrowserHtmlElement.CreateHtmlElement("div");
         element.SetCssStyle(("width", "100%"), ("height", "100%"), ("overflow", "hidden"));
-        Content = element;
+        Content = CreatePresentationLayers();
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -60,6 +60,7 @@ public sealed partial class DiagramViewport : ContentControl
             BrowserBridge.Mount(HostId, Receive, RenderManaged, ProcessCanvasLayout);
             BrowserBridge.SetLocalMode(HostId, NativeEnabled);
             mounted = true;
+            SyncGpuAvailability();
             BrowserBridge.SetTool(HostId, tool);
             generation.TrySetResult();
         }
@@ -101,10 +102,22 @@ public sealed partial class DiagramViewport : ContentControl
 
     private void Receive(string json)
     {
+        if (json.Length > Gpu.GpuSceneModel.MaxJsonCharacters)
+        {
+            OnGpuUnavailable("The GPU bridge payload exceeds the bounded transport budget.");
+            return;
+        }
         using var payload = JsonDocument.Parse(json);
         var data = payload.RootElement;
         switch (data.GetProperty("kind").GetString())
         {
+            case "gpuScene":
+                if (mounted) gpuCanvas.ApplyUpdate(data.GetProperty("update"));
+                break;
+            case "presentation":
+                SetPresentation(data.GetProperty("backend").GetString() ?? "svg",
+                    data.TryGetProperty("reason", out var reason) ? reason.GetString() ?? "" : "");
+                break;
             case "canvasLayout":
                 CanvasLayoutCommitted?.Invoke(data.GetProperty("revision").GetInt32(), data.GetProperty("json").GetString() ?? "null",
                     data.TryGetProperty("merge", out var merge) && merge.GetBoolean());

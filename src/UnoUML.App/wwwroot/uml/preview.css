@@ -1,7 +1,6 @@
 :host { display: block; }
 .surface {
-  /* Uno's DOM ContentPresenter inherits pointer-events:none until a XAML
-     hit-test target is registered. This shadow surface owns native input. */
+  /* Native HTML input remains above Uno's shared-device GPU canvas. */
   position: absolute; inset: 0; overflow: hidden; pointer-events: auto; touch-action: none; user-select: none;
   isolation: isolate; outline: none; color-scheme: light;
   background-color: #f7f8fb; background-image: radial-gradient(#d7dbe5 1px, transparent 1px);
@@ -100,3 +99,15 @@
 .gantt-handle{position:absolute;width:10px;min-width:10px;padding:0;border:1px solid #6654bd;border-radius:3px;background:white;box-shadow:0 1px 3px #0002;pointer-events:auto;cursor:ew-resize}
 .gantt-handle:focus-visible{outline:2px solid #6654bd;outline-offset:2px}
 .surface[data-tool="select"] .gantt-bar{cursor:ew-resize}
+
+
+/* Keep DOM geometry and hit testing live; suppress paint only after a matching GPU frame. */
+.surface.gpu-enabled .paper > svg { animation: none; }
+.surface.gpu-presented { background: transparent; }
+.surface.gpu-presented .paper { opacity: 0; }
+.surface.gpu-enabled .paper [data-uml-hit]:hover { filter: none; }
+.gpu-selections { position: absolute; inset: 0; pointer-events: none; }
+.gpu-selection, .gpu-hover { position: absolute; pointer-events: none; box-sizing: border-box; border-radius: 5px; }
+.gpu-selection { border: 2px solid #7062cf; }
+.gpu-hover { border: 1px solid #6870c077; box-shadow: 0 0 3px #6870c044; }
+.gpu-hover[hidden] { display: none; }

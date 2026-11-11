@@ -1,3 +1,4 @@
+import { GpuPresentationHost } from './gpu/host.js';
 import { DirectEditing } from './direct-editing.js';
 import { CanvasEditing } from './canvas-editing.js';
 import { GanttEditing } from './gantt-editing.js';
@@ -80,21 +81,22 @@ class Viewport {
     this.direct = new DirectEditing(this);
     this.canvas = new CanvasEditing(this, layoutManaged);
     this.gantt = new GanttEditing(this);
+    this.gpu = new GpuPresentationHost(this);
     this.bindGestures();
     this.resize = new ResizeObserver(() => this.autoFit ? this.fit() : this.position());
     this.resize.observe(host);
   }
-  dispose() { this.direct.finishLabel(false); this.gantt.cancel(); this.resize.disconnect(); this.version++; this.host.shadowRoot.replaceChildren(); this.cache.clear(); }
+  dispose() { this.gpu.dispose(); this.direct.finishLabel(false); this.gantt.cancel(); this.resize.disconnect(); this.version++; this.host.shadowRoot.replaceChildren(); this.cache.clear(); }
   async render(source, fileName = '') {
     this.direct.finishLabel(false);
     this.canvas.cancel();
     this.gantt.configure(false);
-    const version = ++this.version;
-    this.fetchJob?.abort();
     const endpoint = getServerEndpoint();
     const transport = getServerTransport();
     const key = this.localMode + '\0' + transport + endpoint + '\0' + includeRevision + '\0' + fileName + '\0' + source;
     if (this.pristine && key === this.displayKey) return;
+    const version = ++this.version;
+    this.fetchJob?.abort();
     this.pristine = null;
     this.sheetPicker.disabled = true;
     let svg = this.cache.get(key);
@@ -185,6 +187,7 @@ class Viewport {
     this.drag = null; this.linkStart = null; this.clearGuide();
     this.paper.replaceChildren(this.svg);
     this.canvas.attach();
+    this.gpu.setScene(this.svg, this.version);
     this.paper.classList.remove('is-new');
     requestAnimationFrame(() => this.paper.classList.add('is-new'));
     this.placeholder.hidden = true;
@@ -215,6 +218,7 @@ class Viewport {
     this.direct.positionEnds();
     this.canvas?.position();
     this.gantt?.position();
+    this.gpu?.setCamera();
   }
   outline(box, el) {
     box.hidden = !el;
@@ -239,6 +243,7 @@ class Viewport {
     this.additional = values ? values.split(',').map(value => byId
       ? this.index?.byId.get(decodeURIComponent(value)) : this.index?.byLine.get(Number(value))).filter(Boolean) : [];
     this.additional.forEach(el => el.classList.add('multi-mark'));
+    this.gpu?.positionSelections();
     this.canvas?.position();
     this.gantt?.position();
   }
@@ -276,6 +281,7 @@ class Viewport {
     this.additional?.forEach(el=>el.classList.remove('multi-mark'));
     this.marked=elements[0]||null;this.additional=elements.slice(1);
     this.additional.forEach(el=>el.classList.add('multi-mark'));
+    this.gpu?.positionSelections();
     this.outline(this.selection,this.marked);this.canvas?.position();
   }
   direction(el, x, y, drag) {
@@ -524,3 +530,16 @@ export function setGanttAuthoring(id, enabled) { views.get(id)?.gantt.configure(
 export function getCanvasState(id) { return views.get(id)?.canvas.info() || '{}'; }
 export function canvasAction(id, action, options) { views.get(id)?.canvas.action(action,options?JSON.parse(options):{}); }
 export function canvasCommitResult(id,accepted) { const c=views.get(id)?.canvas;if(c?.pendingCommit)c.pendingCommit.accepted=accepted; }
+
+
+// Diagnostics expose the actual accepted presentation, never a requested preference.
+export function rendererState(id) { return views.get(id)?.gpu.state() ?? null; }
+export function setGpuAvailability(id, available, reason) { views.get(id)?.gpu.setAvailability(available, reason); }
+export function presentGpuFrame(id, revision, statisticsJson) {
+  const view = views.get(id);
+  if (!view) return false;
+  let statistics;
+  try { statistics = JSON.parse(statisticsJson); }
+  catch { view.gpu.fail(new Error('Invalid GPU frame statistics.')); return false; }
+  return view.gpu.present(revision, statistics);
+}
