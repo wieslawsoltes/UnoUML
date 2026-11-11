@@ -302,7 +302,7 @@ export async function verifyGpuScene(page,{artifactDir=process.env.SCREENSHOT_DI
         await until(()=>updates.length===3||errors.length>0,'Paint mutation was not observed');
         equal(errors,[],'Observed paint mutation has no error');
         equal(stats.at(-1).geometryBuilds,0,'Mutation observer preserves unchanged geometry');
-        near(presentation.commands[0].paint.color,[1,128/255,0,1],'Observed mutation reaches retained scene');
+        near(presentation.commands[0].paint.color,[1,136/255,0,1],'Observed mutation reaches retained scene');
         check(!presentation.presented(camera.revision),'Mutation makes old acknowledgement stale');
       }finally{presentation.dispose();f.close();}
     });

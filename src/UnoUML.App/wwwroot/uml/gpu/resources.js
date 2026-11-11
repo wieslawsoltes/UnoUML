@@ -7,7 +7,7 @@ const NS='http://www.w3.org/2000/svg';
 const VISUAL_PROPERTIES=[
  'color','color-interpolation','fill','fill-opacity','fill-rule','stroke','stroke-opacity','stroke-width',
  'stroke-linecap','stroke-linejoin','stroke-miterlimit','stroke-dasharray','stroke-dashoffset','paint-order',
- 'opacity','visibility','display','filter','clip-path','clip-rule','mask','marker-start','marker-mid','marker-end',
+ 'opacity','visibility','display','overflow','overflow-x','overflow-y','filter','clip-path','clip-rule','mask','marker-start','marker-mid','marker-end',
  'font-family','font-size','font-style','font-weight','font-stretch','font-variant','font-kerning','font-feature-settings',
  'font-variation-settings','font-optical-sizing','letter-spacing','word-spacing','text-anchor','text-decoration',
  'dominant-baseline','alignment-baseline','baseline-shift','writing-mode','direction','unicode-bidi','white-space',
@@ -78,10 +78,24 @@ function setStyle(source,clone,ctx){
 }
 function definitions(ctx,content){
  const defs=document.createElementNS(NS,'defs'),copied=new Set(),queue=[];
- const scan=xml=>{
-  for(const match of xml.matchAll(/(?:url\(["']?[^"'()]*#([^"'()]+)["']?\)|(?:href|xlink:href)=["']#([^"']+)["'])/g))queue.push(match[1]||match[2]);
+ const fragment=value=>{
+  const index=value.lastIndexOf('#');if(index<0)return null;
+  const id=value.slice(index+1);try{return decodeURIComponent(id);}catch{return id;}
  };
- scan(new XMLSerializer().serializeToString(content));
+ function scan(root){
+  // Inspect DOM values before XML escaping. CSSOM may canonicalize url(#id)
+  // to url("#id"); scanning serialized XML would mistake &quot; for ID bytes.
+  for(const node of [root,...root.querySelectorAll('*')]){
+   for(const attribute of Array.from(node.attributes||[])){
+    const value=attribute.value;
+    if(attribute.localName==='href'&&value.startsWith('#'))queue.push(fragment(value));
+    for(const match of value.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)/g)){
+     const id=fragment(match[1]??match[2]??match[3]);if(id!==null)queue.push(id);
+    }
+   }
+  }
+ }
+ scan(content);
  while(queue.length){
   const id=queue.pop();if(copied.has(id))continue;copied.add(id);
   if(copied.size>512)throw new GeometryError('raster-reference-budget');
@@ -90,7 +104,7 @@ function definitions(ctx,content){
   // Referenced geometry retains <use> instance inheritance. Paint servers and
   // effects instead inherit at their definition site, so freeze their styles.
   if(['linearGradient','radialGradient','filter','mask','pattern','clipPath','marker'].includes(source.localName))setStyle(source,clone,ctx);
-  scan(new XMLSerializer().serializeToString(clone));defs.append(clone);
+  scan(clone);defs.append(clone);
  }
  return defs;
 }

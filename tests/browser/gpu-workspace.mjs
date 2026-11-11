@@ -22,8 +22,8 @@ try {
   const url = external || 'http://127.0.0.1:' + server.address().port + publishedPrefix;
   await page.goto(url,{waitUntil:'domcontentloaded'});
   await page.locator('.paper svg').first().waitFor({state:'visible',timeout:120000});
-  await verifyGpuScene(page);
   await verifyGpuPresentation(page);
+  await verifyGpuScene(page);
   await verifyAccessibility(page);
   await verifyGpuFallback(browser,url);
   assert.deepEqual(errors,[]);

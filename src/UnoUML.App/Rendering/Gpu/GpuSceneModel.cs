@@ -135,6 +135,9 @@ public sealed class GpuSceneModel
 
     private static GpuCommand ReadCommand(JsonElement value, GpuCommand? old)
     {
+        // Kind marks a complete replacement. Only kind-less incremental patches inherit fields.
+        // In particular, an absent clip on a replacement must clear a previous clip.
+        if (value.TryGetProperty("kind", out _)) old = null;
         string id = Id(value.GetProperty("id"));
         GpuCommandKind kind = value.TryGetProperty("kind", out var kindValue)
             ? kindValue.GetString() switch

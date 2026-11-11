@@ -33,6 +33,7 @@ internal static class Program
             ("atomic rejection of malformed patches", AtomicFailures),
             ("stale revision suppression", StaleRevisions),
             ("transform updates retain geometry and images", RetainedResources),
+            ("full replacements reset optional state and partial patches retain it", FullReplacementSemantics),
             ("texture replacement and removal", TextureLifetime),
             ("camera changes and numerical validation", CameraUpdates),
             ("camera-only transactions retain exact resource collections", CameraTransactions),
@@ -168,6 +169,70 @@ internal static class Program
         Equal(updated.Paint.Opacity, 0.5f);
         Equal(updated.Matrix.Translation, new Vector2(30, 40));
         Equal(string.Join(",", model.Order), "triangle,label");
+    }
+
+
+    private static void FullReplacementSemantics()
+    {
+        var model = Seed();
+        var pixels = model.Images["glyph"].Rgba;
+        Accept(model, """
+            {"revision":2,"commands":[{
+              "id":"label","kind":"image","image":"glyph","bounds":[0,0,1,1],
+              "matrix":[2,0,0,3,20,30],"clip":[1,2,3,4],
+              "paint":{"kind":"solid","color":[0.2,0.4,0.6,0.8],"opacity":0.25}
+            }]}
+            """);
+        Check(model.Commands["label"].Clip is not null, "Initial image owns a clip");
+        Equal(model.Commands["label"].Paint.Opacity, .25f);
+
+        // A kind-bearing command is a complete snapshot. The SVG compiler omits
+        // absent image clips; inheriting one would keep a deleted clip active.
+        Accept(model, """
+            {"revision":3,"commands":[{
+              "id":"label","kind":"image","image":"glyph","bounds":[4,5,2,2]
+            }]}
+            """);
+        var replacement = model.Commands["label"];
+        Check(replacement.Clip is null, "Full image replacement clears an omitted clip");
+        Equal(replacement.Matrix, Matrix3x2.Identity);
+        Equal(replacement.Paint.Opacity, 1f);
+        Check(replacement.Paint.Color.AsSpan().SequenceEqual(new float[] { 1, 1, 1, 1 }),
+            "Full image replacement restores neutral tint");
+        Equal(replacement.Bounds, new GpuRect(4, 5, 2, 2));
+        Check(ReferenceEquals(model.Images["glyph"].Rgba, pixels), "Unchanged image pixels stay retained");
+
+        // A command without kind is explicitly a patch. Changing its matrix
+        // must preserve established clip, paint, image and vertex ownership.
+        Accept(model, """
+            {"revision":4,"commands":[{
+              "id":"label","clip":[10,20,30,40],
+              "paint":{"kind":"solid","color":[0,1,0,1],"opacity":0.5}
+            }]}
+            """);
+        var before = model.Commands["label"];
+        Accept(model, """{"revision":5,"commands":[{"id":"label","matrix":[1,0,0,1,11,12]}]}""");
+        var patched = model.Commands["label"];
+        Equal(patched.Matrix, Matrix3x2.CreateTranslation(11, 12));
+        Equal(patched.Clip, before.Clip);
+        Check(ReferenceEquals(patched.Paint, before.Paint), "Matrix patch retains exact paint object");
+        Check(ReferenceEquals(patched.Vertices, before.Vertices), "Matrix patch retains exact vertex array");
+        Equal(patched.Image, before.Image);
+        Check(ReferenceEquals(model.Images["glyph"].Rgba, pixels), "Matrix patch retains image bytes");
+
+        // Full vectors obey the same defaulting contract instead of silently
+        // inheriting the previous owner's red fill.
+        Accept(model, """
+            {"revision":6,"commands":[{
+              "id":"triangle","kind":"mesh","vertices":[1,1,3,1,1,3],"bounds":[1,1,2,2]
+            }]}
+            """);
+        Equal(model.Commands["triangle"].Kind, GpuCommandKind.Mesh);
+        Equal(model.Commands["triangle"].Matrix, Matrix3x2.Identity);
+        Check(model.Commands["triangle"].Paint.Color.AsSpan().SequenceEqual(new float[] { 1, 1, 1, 1 }),
+            "Full vector replacement resets omitted paint");
+        Reject(model, """{"revision":7,"commands":[{"id":"label","kind":"image","bounds":[0,0,1,1]}]}""");
+        Reject(model, """{"revision":7,"commands":[{"id":"triangle","kind":"fill","bounds":[0,0,1,1]}]}""");
     }
 
     private static void TextureLifetime()
