@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { activateAccessibility, clickControl } from './native-controls.mjs';
 
 async function state(page) {
   return page.locator('.surface').first().evaluate(async surface => {
@@ -80,10 +81,10 @@ async function comparePaint(page, name) {
     save(name + '-quality.json', JSON.stringify(metrics, null, 2))
   ]);
   assert.ok(metrics.referenceInk > 100, 'The quality reference must contain real diagram ink.');
-  assert.ok(metrics.gpuInk > metrics.referenceInk * .6, 'The GPU surface must visibly contain the drawing.');
-  assert.ok(metrics.gpuInk < metrics.referenceInk * 1.5, 'GPU paint must not fill large regions incorrectly.');
-  assert.ok(metrics.meanAbsoluteChannelError < 16, 'GPU/SVG average channel error exceeds the smoke-test budget.');
-  assert.ok(metrics.majorDifferenceFraction < .12, 'GPU/SVG disagreement exceeds the smoke-test budget.');
+  assert.ok(metrics.gpuInk > metrics.referenceInk * .9, 'The GPU surface must preserve diagram ink.');
+  assert.ok(metrics.gpuInk < metrics.referenceInk * 1.1, 'GPU paint must not introduce substantial extra ink.');
+  assert.ok(metrics.meanAbsoluteChannelError < 3, 'GPU/SVG average channel error exceeds the quality budget.');
+  assert.ok(metrics.majorDifferenceFraction < .015, 'GPU/SVG disagreement exceeds the quality budget.');
   return metrics;
 }
 
@@ -168,7 +169,8 @@ export async function verifyGpuFallback(browser, url) {
     const value = await state(page);
     assert.equal(value.backend, 'svg', 'Unavailable WebGPU must preserve a visible SVG diagram.');
     assert.equal(await page.locator('.paper').first().evaluate(element => getComputedStyle(element).opacity), '1');
-    await page.getByRole('button', {name:'Split',exact:true}).click();
+    await activateAccessibility(page);
+    await clickControl(page, page.getByRole('button', {name:'Split',exact:true}));
     const source = page.getByRole('textbox', {name:'PlantUML source',exact:true});
     const original = await source.inputValue();
     await source.fill(original.replace('Storefront','Fallback storefront'));
