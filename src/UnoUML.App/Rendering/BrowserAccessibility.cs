@@ -47,6 +47,7 @@ internal static partial class BrowserAccessibility
             automationId = "UnoUML.TextBox." + Guid.NewGuid().ToString("N");
             AutomationProperties.SetAutomationId(text, automationId);
         }
+        BrowserInputDiagnostics.Attach(text, automationId);
         int generation = 0;
         bool loaded = false;
         void Begin()

@@ -492,7 +492,7 @@ if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.u
       }else if(path==='/uml/preview.css'){
         const content=await readFile(new URL('../../src/UnoUML.App/wwwroot'+path,import.meta.url));
         response.writeHead(200,{'Content-Type':'text/css; charset=utf-8'});response.end(content);
-      }else if(/^\/uml\/gpu\/[a-z-]+\.js$/.test(path)||/^\/uml\/native-(accessibility|dialogs|combos|textboxes)\.js$/.test(path)
+      }else if(/^\/uml\/gpu\/[a-z-]+\.js$/.test(path)||/^\/uml\/native-(accessibility|dialogs|combos|textboxes|input-diagnostics)\.js$/.test(path)
         ||/^\/uml\/canvas-(editing|scene|geometry)\.js$/.test(path)||path==='/uml/source-text.js'){
         const content=await readFile(new URL('../../src/UnoUML.App/wwwroot'+path,import.meta.url));
         response.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8'});response.end(content);

@@ -40,7 +40,8 @@ function compactNativeInputTrace(name, sequence, failure, report) {
         ...(entry.event.data ? { dataLength: entry.event.data.length, dataPrefix: prefix(entry.event.data) } : {})
       } : {}),
       target: describe(entry.target), current: describe(entry.current),
-      active: describe(entry.active), sharedInput: describe(entry.sharedInput)
+      active: describe(entry.active), sharedInput: describe(entry.sharedInput),
+      ...(entry.managed !== undefined ? { managed: entry.managed } : {})
     }));
     const text = JSON.stringify({
       name: short(name), sequence, failure: String(failure?.message ?? failure).slice(0, 2000),
@@ -63,11 +64,21 @@ function compactNativeInputTrace(name, sequence, failure, report) {
 export async function traceNativeInput(page, locator, name, action, { artifactDir = process.env.SCREENSHOT_DIR, failureOnly = false } = {}) {
   if (!/^[a-z0-9-]+$/.test(name)) throw new Error('Native input trace name must be a safe artifact stem');
   const sequence = ++traceSequence;
-  const capture = await locator.evaluateHandle(original => {
+  const capture = await locator.evaluateHandle(async original => {
     const doc = original.ownerDocument;
     const root = original.closest('#uno-semantics-root');
     const automationId = original.getAttribute('xamlautomationid');
     const id = original.id;
+    let readManaged = () => null;
+    if (automationId) {
+      try {
+        const diagnostics = await import(new URL('uml/native-input-diagnostics.js', doc.baseURI).href);
+        readManaged = () => diagnostics.readTextBoxDiagnostics(automationId);
+      } catch (error) {
+        const message = String(error?.message ?? error);
+        readManaged = () => ({ error: message });
+      }
+    }
     const started = performance.now();
     const identities = new WeakMap();
     let identity = 0, active = true, total = 0;
@@ -110,7 +121,12 @@ export async function traceNativeInput(page, locator, name, action, { artifactDi
         } : null,
         target: describe(event?.target), active: describe(doc.activeElement),
         original: describe(original), current: describe(current()),
-        sharedInput: describe(doc.getElementById('uno-input'))
+        sharedInput: describe(doc.getElementById('uno-input')),
+        // Synchronous public native state at the actual keyboard boundary.
+        // Keep reads limited to these phases; ordinary focus/input events remain passive DOM evidence.
+        ...((phase === 'begin' || phase === 'end' ||
+          (type === 'keydown' && (phase === 'capture' || phase === 'bubble')))
+          ? { managed: readManaged() } : {})
       };
       counts[phase + ':' + (type ?? '')] = (counts[phase + ':' + (type ?? '')] ?? 0) + 1;
       total++;
