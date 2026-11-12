@@ -37,14 +37,21 @@ const pngs=[];
 const sha256=bytes=>createHash('sha256').update(bytes).digest('hex');
 
 async function verifyDeployedSource(){
+  const indexResponse=await fetch(applicationUrl,{cache:'no-store'});
+  assert.ok(indexResponse.ok,'Unable to fetch the deployed application index');
+  const index=await indexResponse.text();
+  const base=/<base\b[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)')/i.exec(index);
+  assert.ok(base,'The deployed application index must declare its content-directory base href');
+  const assetBase=new URL(base[1]??base[2],indexResponse.url).href;
+  assert.equal(new URL(assetBase).origin,new URL(applicationUrl).origin,'Unexpected deployed asset origin');
   const files=['uml/viewport.js','uml/gpu/scene.js','uml/gpu/resources.js'];
   const rows=await Promise.all(files.map(async path=>{
-    const actualUrl=new URL(path,applicationUrl).href;
+    const actualUrl=new URL(path,assetBase).href;
     const expectedUrl='https://raw.githubusercontent.com/wieslawsoltes/UnoUML/'+deployedSha+'/src/UnoUML.App/wwwroot/'+path;
     const [actualResponse,expectedResponse]=await Promise.all([fetch(actualUrl,{cache:'no-store'}),fetch(expectedUrl)]);
     assert.ok(actualResponse.ok&&expectedResponse.ok,'Unable to verify deployed '+path);
     const actual=Buffer.from(await actualResponse.arrayBuffer()),expected=Buffer.from(await expectedResponse.arrayBuffer());
-    const row={path,actualUrl,sha256:sha256(actual),expectedSha256:sha256(expected),
+    const row={path,assetBase,actualUrl,indexSha256:sha256(index),sha256:sha256(actual),expectedSha256:sha256(expected),
       etag:actualResponse.headers.get('etag'),lastModified:actualResponse.headers.get('last-modified')};
     assert.equal(row.sha256,row.expectedSha256,'Deployed '+path+' is not the immutable baseline');
     return row;
