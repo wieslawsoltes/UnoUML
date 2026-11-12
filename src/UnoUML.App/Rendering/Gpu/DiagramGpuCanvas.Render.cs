@@ -16,7 +16,7 @@ public sealed unsafe partial class DiagramGpuCanvas
         CommandEncoder* encoder = null;
         RenderPassEncoder* pass = null;
         CommandBuffer* commands = null;
-        int visible = 0, draws = 1;
+        int visible = 0, draws = 1, viewportCommands = 0, visibleViewportCommands = 0;
         try
         {
             encoder = api.DeviceCreateCommandEncoder(context.Device, null);
@@ -46,12 +46,15 @@ public sealed unsafe partial class DiagramGpuCanvas
             {
                 ref readonly RenderItem item = ref _renderItems[index];
                 GpuCommand command = item.Command;
+                bool viewport = command.Space == GpuCoordinateSpace.Viewport;
+                if (viewport) viewportCommands++;
                 if (!command.ViewportBounds(_scene.Camera).Intersects((float)_scene.Width, (float)_scene.Height))
                     continue;
                 if (command.ViewportClip(_scene.Camera) is { } clip && !clip.Intersects((float)_scene.Width, (float)_scene.Height))
                     continue;
                 if (command.Paint.Opacity <= 0) continue;
                 _visibleBundles[visible++] = item.Bundle;
+                if (viewport) visibleViewportCommands++;
                 draws += item.Draws;
             }
             if (visible > 0)
@@ -75,7 +78,8 @@ public sealed unsafe partial class DiagramGpuCanvas
                 RenderBundles = _commandBundles.Count, UniformAndStopBytes = (long)(_drawCapacity + _stopCapacity + GlobalUniformBytes),
                 GeometryUploadBytes = _geometryUploadBytes, TextureUploadBytes = _textureUploadBytes,
                 CameraUploadBytes = _cameraUploadBytes, DrawUniformUploadBytes = _drawUniformUploadBytes,
-                GradientUploadBytes = _gradientUploadBytes, BundleBuilds = _bundleBuilds
+                GradientUploadBytes = _gradientUploadBytes, BundleBuilds = _bundleBuilds,
+                ViewportCommands = viewportCommands, VisibleViewportCommands = visibleViewportCommands
             };
         }
         finally

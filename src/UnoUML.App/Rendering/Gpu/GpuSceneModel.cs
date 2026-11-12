@@ -329,6 +329,8 @@ public sealed record DiagramGpuStatistics(long Revision, long PresentedFrames, i
     public int GeometryBuffers { get; init; }
     public int ImageTextures { get; init; }
     public int RenderBundles { get; init; }
+    public int ViewportCommands { get; init; }
+    public int VisibleViewportCommands { get; init; }
     public long UniformAndStopBytes { get; init; }
     public long GeometryUploadBytes { get; init; }
     public long TextureUploadBytes { get; init; }
