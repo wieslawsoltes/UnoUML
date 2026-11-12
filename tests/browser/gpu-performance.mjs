@@ -23,7 +23,7 @@ await mkdir(output, {recursive:true});
 const configuration = {
   viewport:{width:1390,height:860}, deviceScaleFactor:1,
   colorScheme:'light', locale:'en-US', timezoneId:'UTC',
-  sampleCount:4, cameraWarmups:2, cameraSamples:6,
+  sampleCount:4, cameraScale:.9, cameraWarmups:2, cameraSamples:6,
   editWarmups:2, editSamples:4, transformWarmups:2, transformSamples:4,
   requestedDriver:process.env.UNOUML_GPU_DRIVER || (process.platform === 'linux' ? 'software' : 'platform'),
   launch:graphicsLaunchOptions(true),
@@ -213,7 +213,7 @@ function classSource(count, edit=0) {
 }
 
 async function setupClasses(page, count) {
-  await page.locator('.surface').first().evaluate(async (surface,{source,count}) => {
+  await page.locator('.surface').first().evaluate(async (surface,{source,count,scale}) => {
     const ui=await import(new URL('uml/viewport.js',document.baseURI).href);
     const id=surface.getRootNode().host.id;
     ui.setLocalMode(id,true);
@@ -233,7 +233,8 @@ async function setupClasses(page, count) {
     ui.setCanvasState(id,JSON.stringify(saved),10000);
     ui.fit(id);
     const current=new DOMMatrixReadOnly(getComputedStyle(surface.querySelector('.paper')).transform).a;
-    ui.zoom(id,.9/current); // remain within one quality bucket during tiny camera updates
+    // Stay inside one quality bucket without forcing an unchanged camera transaction.
+    if(Math.abs(current-scale)>1e-9*Math.max(1,current,scale))ui.zoom(id,scale/current);
     const minimum=Math.min(...saved.nodes.map(node=>node.x));
     const maximum=Math.max(...saved.nodes.map(node=>node.x+node.width));
     const centerX=(minimum+maximum)/2;
@@ -244,7 +245,7 @@ async function setupClasses(page, count) {
       .sort((a,b)=>distance(a)-distance(b))[0];
     if(!middle)throw new Error('No interior, unconnected node for retained-transform measurement.');
     globalThis.__unoBenchmarkFixture={state:saved,nodeId:middle.id,x:middle.x,revision:10001};
-  },{source:classSource(count),count});
+  },{source:classSource(count),count,scale:configuration.cameraScale});
   return waitForGpuPresentation(page);
 }
 
@@ -330,13 +331,17 @@ async function runWorkload(browser, url, side, pass, workload) {
     if(count)await setupClasses(page,count);
     else{
       const previous=await waitForGpuPresentation(page);
-      await page.locator('.surface').first().evaluate(async surface=>{
+      const changed=await page.locator('.surface').first().evaluate(async (surface,scale)=>{
         const ui=await import(new URL('uml/viewport.js',document.baseURI).href);
         const id=surface.getRootNode().host.id;
         const current=new DOMMatrixReadOnly(getComputedStyle(surface.querySelector('.paper')).transform).a;
-        ui.zoom(id,.9/current);
-      });
-      await waitForGpuPresentation(page,previous.revision);
+        if(Math.abs(current-scale)<=1e-9*Math.max(1,current,scale))return false;
+        ui.zoom(id,scale/current);
+        return true;
+      },configuration.cameraScale);
+      // A camera already at the requested scale deliberately emits no new
+      // transaction. Accept its current frame rather than wait for a nonexistent revision.
+      await waitForGpuPresentation(page,changed?previous.revision:-1);
     }
     report.initial=await waitForGpuPresentation(page);
     accepted(report.initial);
