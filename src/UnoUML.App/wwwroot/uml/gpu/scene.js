@@ -296,7 +296,8 @@ export class ScenePresentation{
   if(orderChanged)update.order=[...this.diagramCommands.map(command=>command.id),...delta.order];
   if(geometryChanged){this.overlayCommands=commands;this.commands=[...this.diagramCommands,...commands];}
   this.lastCamera=cameraKey;
-  this.emit(update);this.reportStats();
+  // onStats describes actual SVG compilation, not retained camera/overlay work.
+  this.emit(update);
  }
  reportStats(){
   if(this.lastStats)this.onStats({...this.lastStats,overlayCommands:this.overlayCommands.length,
