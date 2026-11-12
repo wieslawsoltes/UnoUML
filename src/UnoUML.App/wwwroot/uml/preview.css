@@ -1,7 +1,9 @@
 :host { display: block; }
 .surface {
   /* Native HTML input remains above Uno's shared-device GPU canvas. */
-  position: absolute; inset: 0; overflow: hidden; pointer-events: auto; touch-action: none; user-select: none;
+  /* The camera owns panning. overflow:hidden still permits focus/scrollIntoView
+     to scroll the DOM, displacing absolute handles and the retained GPU frame. */
+  position: absolute; inset: 0; overflow: clip; pointer-events: auto; touch-action: none; user-select: none;
   isolation: isolate; outline: none; color-scheme: light;
   background-color: #f7f8fb; background-image: radial-gradient(#d7dbe5 1px, transparent 1px);
   background-size: 16px 16px; font: 13px system-ui, sans-serif;
