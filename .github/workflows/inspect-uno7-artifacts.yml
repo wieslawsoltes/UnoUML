@@ -1,4 +1,4 @@
-name: Probe Uno 7 DOT structural authoring
+name: Probe Uno 7 native focus through primary workspace and Ports
 on:
   push:
     branches: [codex/uno7-artifact-inspection]
@@ -6,7 +6,7 @@ permissions:
   contents: read
   actions: read
 jobs:
-  dot-probe:
+  focus-probe:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -14,8 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 305214610251f601cc59a3a408287d0542ab4e25
+          ref: __APP_CHECKOUT_SHA__
           persist-credentials: false
+      - name: Record actual application revision
+        run: |
+          app_checkout_sha="$(git rev-parse HEAD)"
+          echo "UNOUML_PROBE_COMMIT=$app_checkout_sha" >> "$GITHUB_ENV"
+          echo "Application checkout: $app_checkout_sha"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -30,102 +35,96 @@ jobs:
           npm run prepare:renderer
       - name: Publish and stage the exact application revision
         run: |
-          dotnet publish src/UnoUML.App -f net10.0-browserwasm -c Release -o "$RUNNER_TEMP/dot-site"
+          dotnet publish src/UnoUML.App -f net10.0-browserwasm -c Release -o "$RUNNER_TEMP/focus-site"
           node scripts/verify-uno7-assets.mjs src/UnoUML.App/obj/project.assets.json
-          node scripts/stage-pages.mjs "$RUNNER_TEMP/dot-site/wwwroot" "$RUNNER_TEMP/dot-pages"
-      - name: Run DOT structural authoring with bounded diagnostics
+          node scripts/stage-pages.mjs "$RUNNER_TEMP/focus-site/wwwroot" "$RUNNER_TEMP/focus-pages"
+      - name: Run unchanged primary flow through mobile reload and Ports
         env:
-          SCREENSHOT_DIR: ${{ runner.temp }}/uno7-dot-probe
+          SCREENSHOT_DIR: ${{ runner.temp }}/uno7-focus-probe
         run: |
-          cat > tests/browser/uno7-dot-probe.mjs <<'JS'
-          import assert from 'node:assert/strict';
-          import { mkdir, writeFile } from 'node:fs/promises';
-          import { resolve } from 'node:path';
-          import { chromium } from 'playwright';
-          import { publishedPrefix, servePublishedSite } from './published-site.mjs';
-          import { graphicsLaunchOptions } from './graphics-options.mjs';
-          import { activateAccessibility, activateControl, getNativeControlDiagnostics } from './native-controls.mjs';
-          import { verifyDotStructuralAuthoring } from './dot-structure.mjs';
-          
-          const appCommit = 'e3bc416796c6c05ef5022d20cd5d842f86b51087';
-          const directory = resolve(process.env.SCREENSHOT_DIR);
-          const started = Date.now();
-          const diagnostics = { appCommit, startedAt:new Date(started).toISOString(), phases:[], console:[],
-            pageErrors:[], requestFailures:[], captureErrors:[], dropped:{} };
-          const limits = { phases:32, console:256, pageErrors:64, requestFailures:128, captureErrors:16 };
-          const record = (field, value) => {
-            if (diagnostics[field].length < limits[field])
-              diagnostics[field].push({elapsedMs:Date.now()-started, ...value});
-            else diagnostics.dropped[field] = (diagnostics.dropped[field] || 0) + 1;
-          };
-          const phase = name => record('phases', {name});
-          const describe = error => ({message:String(error?.message ?? error).slice(0,8192), stack:error?.stack?.slice(0,16384)});
-          let server, browser, page, failure;
-          await mkdir(directory, {recursive:true});
-          try {
-            server = await servePublishedSite(resolve(process.argv[2]));
-            const url = 'http://127.0.0.1:' + server.address().port + publishedPrefix;
-            browser = await chromium.launch(graphicsLaunchOptions());
-            page = await browser.newPage({viewport:{width:1480,height:960}, colorScheme:'light', acceptDownloads:true});
-            page.setDefaultTimeout(35000);
-            page.on('pageerror', error => record('pageErrors', describe(error)));
-            page.on('console', message => record('console', {
-              type:message.type(), text:message.text().slice(0,4096), location:message.location()
-            }));
-            page.on('requestfailed', request => record('requestFailures', {
-              url:request.url().slice(0,4096), type:request.resourceType(), failure:request.failure()?.errorText
-            }));
-            phase('navigating');
-            await page.goto(url, {waitUntil:'domcontentloaded'});
-            await page.locator('.paper svg').first().waitFor({state:'visible',timeout:120000});
-            phase('waiting for startup and accessibility');
-            await activateAccessibility(page);
-            phase('opening split editor');
-            await activateControl(page, page.getByRole('button',{name:'Split',exact:true}));
-            const source = page.getByRole('textbox',{name:'PlantUML source',exact:true});
-            await source.waitFor({state:'visible'});
-            phase('running unchanged DOT authoring scenario');
-            await verifyDotStructuralAuthoring(page, source);
-            assert.deepEqual(diagnostics.pageErrors, [], 'DOT authoring must not produce browser errors');
-            phase('passed');
-            console.log('Passed focused DOT structural authoring at ' + appCommit);
-          } catch (error) {
-            failure = error;
-            phase('failed');
-            diagnostics.failure = describe(error);
-            console.error('Focused DOT structural authoring failed:', error);
-          } finally {
-            if (page && !page.isClosed()) {
-              diagnostics.nativeActions = getNativeControlDiagnostics(page);
-              const capture = async (name, action) => {
-                try { await action(); }
-                catch (error) { record('captureErrors', {name,...describe(error)}); }
-              };
-              await capture('source', async () => {
-                const source = page.getByRole('textbox',{name:'PlantUML source',exact:true});
-                if (await source.count()) await writeFile(resolve(directory,'dot-probe-source.puml'), await source.inputValue({timeout:1000}));
-              });
-              await capture('draft', async () => {
-                const draft = await page.evaluate(() => localStorage.getItem('UnoUML:unouml.document.v1'));
-                if (draft) await writeFile(resolve(directory,'dot-probe-draft.json'), draft);
-              });
-              await capture('html', async () => writeFile(resolve(directory,'dot-probe.html'), await page.content()));
-              await capture('screenshot', async () => page.screenshot({path:resolve(directory,'dot-probe.png'),timeout:15000}));
-            }
-            diagnostics.elapsedMs = Date.now() - started;
-            diagnostics.passed = !failure;
-            await writeFile(resolve(directory,'dot-probe-diagnostics.json'), JSON.stringify(diagnostics,null,2));
-            try { await browser?.close(); }
-            catch (error) { failure ??= error; console.error('Browser cleanup failed:', error); }
-            if (server) await new Promise(resolve => server.close(resolve));
+          node --input-type=module <<'JS'
+          import {readFile,writeFile} from 'node:fs/promises';
+
+          function deriveFocusProbe(source) {
+            const once = (text, before, after, label) => {
+              if (text.split(before).length !== 2) throw new Error('Unexpected workspace structure: ' + label);
+              return text.replace(before, after);
+            };
+            const independent = 'async function verifyIndependentAuthoring(browser, url) {';
+            const main = 'const external = process.env.WORKSPACE_URL;';
+            const launch = '  browser = await chromium.launch(graphicsLaunchOptions());';
+            const throughPorts = '  await verifyPorts(page);\n';
+            const errorGate = '  assert.deepEqual(errors, []);\n';
+            const independentStart = source.indexOf(independent), mainStart = source.indexOf(main);
+            const launchStart = source.indexOf(launch), portsEnd = source.indexOf(throughPorts) + throughPorts.length;
+            if (independentStart < 0 || mainStart <= independentStart || launchStart < mainStart
+                || portsEnd < launchStart || source.split(throughPorts).length !== 2)
+              throw new Error('Cannot identify the unchanged primary prefix through verifyPorts');
+            const retainedPrefix = source.slice(launchStart, portsEnd);
+            let probe = source.slice(0, independentStart) + source.slice(mainStart);
+            const cut = probe.indexOf(throughPorts) + throughPorts.length;
+            const errorStart = probe.indexOf(errorGate, cut);
+            const catchStart = probe.indexOf('} catch (error) {', errorStart);
+            if (errorStart < cut || catchStart < errorStart) throw new Error('Cannot identify primary error gate and cleanup');
+            probe = probe.slice(0, cut) + probe.slice(errorStart, errorStart + errorGate.length)
+              + "  console.log('Passed focused primary workspace through mobile draft reload and Ports at ' + appCommit);\n"
+              + probe.slice(catchStart);
+            probe = once(probe, main, [
+              "const appCommit = process.env.UNOUML_PROBE_COMMIT;",
+              "if (!/^[0-9a-f]{40}$/.test(appCommit ?? '')) throw new Error('The workflow must provide the actual git checkout SHA');",
+              '',
+              main
+            ].join('\n'), 'actual checkout metadata');
+            probe = once(probe, [
+              '} finally {',
+              '  // Capture the primary failure before releasing its GPU context. Run every',
+              '  // isolated authoring scenario once after the primary flow has finished.',
+              "  if (page) await collectFailure('Could not close primary workspace page', () => page.close());",
+              '  if (browser) {',
+              "    await collectFailure('Independent authoring workspace checks failed', () => verifyIndependentAuthoring(browser, url));",
+              '  }'
+            ].join('\n'), [
+              '} finally {',
+              "  await collectFailure('Could not save focused native-control diagnostics', async () => {",
+              '    if (process.env.SCREENSHOT_DIR) {',
+              '      await mkdir(process.env.SCREENSHOT_DIR, {recursive:true});',
+              '      const diagnostics = {',
+              "        appCommit, scope:'Primary startup and editing through mobile draft reload and verifyPorts',",
+              '        nativeActions:page ? getNativeControlDiagnostics(page) : [],',
+              "        failures:failures.map(error => ({message:String(error.message).slice(0,4096), stack:error.stack?.slice(0,16384)}))",
+              '      };',
+              "      await writeFile(resolve(process.env.SCREENSHOT_DIR, 'focus-probe-diagnostics.json'), JSON.stringify(diagnostics,null,2));",
+              '    }',
+              '  });',
+              "  if (page) await collectFailure('Could not close primary workspace page', () => page.close());"
+            ].join('\n'), 'independent execution removal and native diagnostics');
+            probe = once(probe,
+              "  console.error('Failed primary desktop/mobile workspace checks:', error);",
+              "  console.error('Focused primary native-focus probe failed:', error);", 'failure scope label');
+            probe = once(probe,
+              "  failures.push(new Error('Primary desktop/mobile workspace checks failed', {cause:error}));",
+              "  failures.push(new Error('Focused primary native-focus probe failed', {cause:error}));", 'failure aggregate label');
+            probe = once(probe,
+              "if (failures.length) throw new AggregateError(failures, 'Published workspace checks failed');",
+              "if (failures.length) throw new AggregateError(failures, 'Focused primary native-focus probe failed');", 'final scope label');
+            if (!probe.includes(retainedPrefix) || probe.split(errorGate).length !== 2)
+              throw new Error('The original primary prefix or browser-error assertion changed');
+            if (probe.includes('verifyIndependentAuthoring(')
+                || /await (verifyCompatibilityEditing|verifyTypedFields|verifySaltEditing|verifyYamlEditing|verifyDotEditing|verifyGpuFallback|verifyArchiveImport|verifyArchiveAliasEditing|verifyImportedPageRouting|verifyNativeCompatibility|compareRenderers)\(/.test(probe))
+              throw new Error('The focused probe still invokes a later authoring scenario');
+            return probe;
           }
-          if (failure) throw failure;
+
+          const source=await readFile('tests/browser/workspace.mjs','utf8');
+          const probe=deriveFocusProbe(source);
+          await writeFile('tests/browser/uno7-focus-probe.mjs',probe);
+          console.log('Retained the unchanged primary prefix through verifyPorts and its original browser-error assertion.');
           JS
-          node --check tests/browser/uno7-dot-probe.mjs
-          CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/uno7-dot-probe.mjs "$RUNNER_TEMP/dot-pages"
+          node --check tests/browser/uno7-focus-probe.mjs
+          CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/uno7-focus-probe.mjs "$RUNNER_TEMP/focus-pages"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: uno7-dot-probe
-          path: ${{ runner.temp }}/uno7-dot-probe/
+          name: uno7-focus-probe
+          path: ${{ runner.temp }}/uno7-focus-probe/
           if-no-files-found: warn
