@@ -18,6 +18,14 @@ internal static partial class BrowserSourceText
             Registrations.GetValue(owner, static control => new(control));
     }
 
+    // A new document can normalize to the current TextBox value (for example,
+    // reopening LF text as CRLF), so property change alone is not a binding signal.
+    internal static void Synchronize(TextBox owner)
+    {
+        if (OperatingSystem.IsBrowser())
+            Registrations.GetValue(owner, static control => new(control)).Synchronize();
+    }
+
     private sealed class Registration
     {
         private readonly TextBox owner;
@@ -46,6 +54,21 @@ internal static partial class BrowserSourceText
             };
             owner.RegisterPropertyChangedCallback(TextBox.TextProperty, (_, _) => QueueUpdate());
             if (owner.IsLoaded) QueueUpdate();
+        }
+
+        internal void Synchronize()
+        {
+            if (!owner.IsLoaded) return;
+            generation++;
+            // Invalidate the old document's BOM expectation before the caller
+            // assigns a new value. Keep the loaded editor registered for input,
+            // including its active native composition lifetime.
+            if (mounted)
+                Sync(automationId, "\"\"", owner.FocusState != FocusState.Unfocused,
+                    owner.SelectionStart, owner.SelectionLength);
+            // Publish final text/selection/focus after the whole managed refresh,
+            // even when Text equality prevents a property-change notification.
+            QueueUpdate();
         }
 
         private void QueueUpdate()

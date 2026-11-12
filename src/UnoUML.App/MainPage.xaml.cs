@@ -279,6 +279,7 @@ public sealed partial class MainPage : Page
         try
         {
             string editorText = SourceProjection.EditorText;
+            BrowserSourceText.Synchronize(SourceEditor);
             if (SourceEditor.Text != editorText) SourceEditor.Text = editorText;
             if (lastSource != doc.Source || PagePicker.Items.Count == 0)
             {
