@@ -201,6 +201,68 @@ test('different text and correct projections retain their value and caret', () =
   } finally { dom.dispose(); }
 });
 
+test('document refresh synchronously invalidates an old BOM projection before a plain file is assigned', () => {
+  const dom = fixture();
+  try {
+    // The old source was queued while native semantic/IME projection was absent.
+    dom.sync('source', '\uFEFFsame\r\nbody', true, 2, 4);
+    assert.equal(dom.frames.size, 1);
+    const semantic = dom.input('source'), ime = dom.input();
+    dom.document.activeElement = ime;
+
+    // BrowserSourceText.Synchronize sends this envelope before assigning the new
+    // document. The plain file deliberately equals the old text without its BOM.
+    dom.sync('source', '', true);
+    for (const input of [semantic, ime]) {
+      input.value = 'same\nbody';
+      input.setSelectionRange(1, 6, 'backward');
+      input.scrollTop = 31;
+      input.scrollLeft = 9;
+    }
+    dom.fire('focusin', ime);
+    dom.flush();
+    dom.flush();
+    for (const input of [semantic, ime]) {
+      assert.equal(input.value, 'same\nbody', 'Old microtask/frame/focus work must not restore a removed document BOM');
+      assert.deepEqual([input.selectionStart, input.selectionEnd, input.selectionDirection], [1, 6, 'backward']);
+      assert.deepEqual([input.scrollTop, input.scrollLeft], [31, 9]);
+    }
+  } finally { dom.dispose(); }
+});
+
+test('equivalent LF and CRLF refreshes publish fresh BOM expectations without a text-change event', () => {
+  const dom = fixture();
+  try {
+    const input = dom.input('source');
+    dom.document.activeElement = input;
+    const lf = '\uFEFFhead\n🧠\ntail';
+    for (const source of [lf.replace(/\n/g, '\r\n'), lf]) {
+      input.value = lf;
+      input.setSelectionRange(1, 1, 'forward');
+      dom.sync('source', lf, true, 1);
+      // Text equality can suppress the framework property callback. Refresh
+      // still invalidates the previous expectation and queues the final state.
+      dom.sync('source', '', true);
+      const start = source.indexOf('🧠'), end = source.indexOf('tail');
+      dom.sync('source', source, true, start, end - start);
+      assert.equal(input.value, lf);
+      assert.deepEqual([input.selectionStart, input.selectionEnd], [1, 1],
+        'An already correct projection must not move its caret');
+
+      // A later native projection consumes FEFF. Pending work must use this
+      // refresh's selection rather than the old document's selection.
+      input.value = lf.slice(1);
+      input.setSelectionRange(0, 0, 'backward');
+      input.scrollTop = 27;
+      input.scrollLeft = 4;
+      dom.flush();
+      assert.equal(input.value, lf);
+      assert.deepEqual([input.selectionStart, input.selectionEnd, input.selectionDirection], [6, 9, 'backward']);
+      assert.deepEqual([input.scrollTop, input.scrollLeft], [27, 4]);
+    }
+  } finally { dom.dispose(); }
+});
+
 test('surrogate pairs stay intact and managed offsets are clamped to normalized input', () => {
   const dom = fixture();
   try {
