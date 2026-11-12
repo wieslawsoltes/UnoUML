@@ -169,8 +169,11 @@ option, preserves scroll position and is cancelled by intervening DOM focus or
 window blur. The observer and public focus subscriptions end on popup close or
 unload. The real application test waits for this known queued projection while
 requiring focus to remain inside the modal or its controlled popup. After one
-explicit option focus request, it waits for the current semantic option to become
-`:focus` before the existing exact focus assertion and one Enter dispatch. Passive
+explicit option focus request, one synchronous readiness predicate resolves the
+current controlled listbox and checks its active, exposed option by role and name.
+The assertion uses that same observed Boolean before one Enter dispatch. This
+avoids a second DOM read racing the brief native-ancestor-to-option projection;
+reopening still proves the actual committed selection and deselected peers. Passive
 failure tracing can inspect the modal-isolated source editor's public native-owner
 reader; interaction locators continue to enforce modal exclusion.
 
@@ -484,8 +487,9 @@ Verified rendering gates:
 - The Core suite passed 4,065 assertions, including 103 new source-projection checks and unchanged startup history for all 33 starter templates.
 - Production WGSL passed **six pipeline creations and 29 offscreen pixel checks**, including mixed world/viewport drawing and double target pixel density.
 - The attached Chromium compiler suite passed 159 assertions and a native non-scaling-stroke measurement, across 14 scenarios.
-- The independent retained overlay fixture passed **67 assertions across 10 cases**, including real pointer input through a GPU-presented handle. [Exact staged integration run](https://github.com/wieslawsoltes/UnoUML/actions/runs/43160621189).
+- The independent retained overlay fixture passed **67 assertions across 10 cases**, including real pointer input through a GPU-presented handle. The complete [shader/compiler job at `68dce305`](https://github.com/wieslawsoltes/UnoUML/actions/runs/43161371840/job/130993120769) passed with the unchanged camera-retention assertions.
 - The published Uno application presented through its shared WebGPU device and completed 24 camera updates without additional geometry, texture, paint or gradient uploads, or render-bundle rebuilds.
+- The live application selection check passed at `68dce305`: native viewport commands painted the outline while DOM paint was transparent, matched the positive reference better than the absent-outline control, and preserved source, draft and history after pointer selection and Escape.
 
 The starter sequence comparison at 928 × 614 pixels measured a mean absolute RGB
 channel error of 0.7336 on the 0–255 scale. A maximum channel difference above 64
