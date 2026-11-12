@@ -1,6 +1,7 @@
 // Uno 7.0.32's virtualized ComboBox options omit the initial aria-selected
-// value. Project the public C# SelectedIndex onto the current semantic options;
-// selection, focus, keyboard handling and popup lifetime remain native.
+// value, and its focus resolver does not include the ComboBox option regions.
+// Project public C# selection and actual focused-item snapshots independently;
+// selection, keyboard handling and popup lifetime remain native.
 let session = null;
 
 function validScope(automationId, generation) {
@@ -20,17 +21,25 @@ function currentRoot(state) {
   if (root) state.observer.observe(root, {
     childList: true, subtree: true, attributes: true,
     // Option creation is deferred to an animation frame, and relationships or
-    // item positions may arrive later. Our aria-selected writes cannot loop.
-    attributeFilter: ['aria-controls', 'aria-expanded', 'aria-posinset']
+    // item positions may arrive later. Modal exposure can follow insertion.
+    // Our aria-selected writes and focus calls cannot cause mutation loops.
+    attributeFilter: ['aria-controls', 'aria-expanded', 'aria-posinset', 'aria-hidden']
   });
   return root;
 }
 
 function createSession() {
-  const state = { document, root: null, scopes: new Map(), observer: null };
+  const state = { document, root: null, scopes: new Map(), observer: null, projectingFocus: false };
+  state.cancelFocus = () => {
+    // The original intent is consumed before our own focus event. Any pending
+    // intent left here would otherwise override a later, independent focus.
+    for (const scope of state.scopes.values()) scope.pendingFocus = null;
+  };
   state.observer = new MutationObserver(() => {
     if (session === state && state.scopes.size) reconcile(state);
   });
+  state.document.addEventListener('focusin', state.cancelFocus, true);
+  state.document.defaultView?.addEventListener('blur', state.cancelFocus);
   currentRoot(state);
   return state;
 }
@@ -51,6 +60,7 @@ function restore(state, scope, element) {
 }
 
 function release(state, scope) {
+  scope.pendingFocus = null;
   for (const element of scope.owned.keys()) restore(state, scope, element);
 }
 
@@ -93,6 +103,40 @@ function reconcileScope(state, scope) {
     ownership.last = value;
     if (element.getAttribute('aria-selected') !== value) element.setAttribute('aria-selected', value);
   }
+  projectFocus(state, scope, options);
+}
+
+function canProjectFrom(state, element) {
+  // Native focus can currently resolve to a structural semantic ancestor. A
+  // queued native snapshot must not steal focus from the HTML/SVG editor or
+  // another external DOM control whose focus the native manager cannot see.
+  return state.document.hasFocus() && (element === state.document.body || element === state.document.documentElement
+    || element === state.root || !!state.root?.contains(element));
+}
+
+function projectFocus(state, scope, options) {
+  const intent = scope.pendingFocus;
+  if (!intent || state.projectingFocus) return;
+  if (session !== state || state.scopes.get(scope.automationId) !== scope
+      || intent.revision !== scope.focusRevision
+      || !state.document.hasFocus()
+      || state.document.activeElement !== intent.expectedActiveElement) {
+    scope.pendingFocus = null;
+    return;
+  }
+  const option = [...options].find(([, index]) => index === intent.index)?.[0];
+  // Zero-size virtualized options are intentionally focusable semantic nodes.
+  // Wait for public modal exposure, without inventing bounds or tab stops.
+  if (!option || option.closest('[aria-hidden="true"], [hidden], [inert]')
+      || option.getAttribute('aria-disabled') === 'true') return;
+
+  // Consume before calling focus: native focus callbacks can synchronously
+  // reenter the bridge, and a newer request will receive its own revision.
+  scope.pendingFocus = null;
+  if (state.document.activeElement === option) return;
+  state.projectingFocus = true;
+  try { option.focus({ preventScroll: true }); }
+  finally { state.projectingFocus = false; }
 }
 
 function reconcile(state) {
@@ -112,7 +156,10 @@ export function beginComboScope(automationId, generation, selectedIndex) {
     return true;
   }
   if (previous) release(state, previous);
-  state.scopes.set(automationId, { automationId, generation, selectedIndex, owned: new Map() });
+  state.scopes.set(automationId, {
+    automationId, generation, selectedIndex, owned: new Map(),
+    focusRevision: -1, pendingFocus: null
+  });
   reconcile(state);
   return true;
 }
@@ -128,6 +175,23 @@ export function updateComboScope(automationId, generation, selectedIndex) {
   return true;
 }
 
+/** Actual FocusManager item index; -1 cancels rather than inferring selection. */
+export function focusComboScope(automationId, generation, focusRevision, focusedIndex) {
+  if (!validIndex(focusedIndex) || !Number.isSafeInteger(focusRevision) || focusRevision < 0) return false;
+  const state = session;
+  const scope = state?.scopes.get(automationId);
+  if (!scope || scope.generation !== generation || focusRevision <= scope.focusRevision) return false;
+  scope.focusRevision = focusRevision;
+  scope.pendingFocus = null;
+  if (focusedIndex === -1) return true;
+  currentRoot(state);
+  const expectedActiveElement = state.document.activeElement;
+  if (!canProjectFrom(state, expectedActiveElement)) return true;
+  scope.pendingFocus = { revision: focusRevision, index: focusedIndex, expectedActiveElement };
+  reconcile(state);
+  return true;
+}
+
 /** Closed/Unloaded ends observation; stale callbacks cannot affect a reopen. */
 export function endComboScope(automationId, generation) {
   const state = session;
@@ -137,6 +201,8 @@ export function endComboScope(automationId, generation) {
   state.scopes.delete(automationId);
   if (!state.scopes.size) {
     state.observer.disconnect();
+    state.document.removeEventListener('focusin', state.cancelFocus, true);
+    state.document.defaultView?.removeEventListener('blur', state.cancelFocus);
     session = null;
   }
   return true;
