@@ -14,6 +14,18 @@ authoring, canonical exports, exact-frame acceptance, resource budgets and
 explicit fallback contracts. Changes must remove work while preserving pixels
 and editor behavior.
 
+## Accepted result
+
+The [accepted paired run](https://github.com/wieslawsoltes/UnoUML/actions/runs/43325315202)
+passes all 12 workloads and six initial-image comparisons with identical GPU RGB
+pixels. At the characterized 1.5× camera scale, source-edit wall p50 improves by
+35.3% for 64 classes and 74.4–76.1% for 256 classes. Reported texture upload bytes
+per edit fall by 98.59% / 99.65%. Starter draw calls fall from 88 to 65.
+
+These are software-adapter measurements with explicit retained-resource,
+quality and reference checks. The complete results, memory tradeoff, mixed
+camera/transform timings and known scale boundaries appear below.
+
 ## Existing measured baseline
 
 The [saved application measurements](https://github.com/wieslawsoltes/UnoUML/actions/runs/43170302022)
@@ -79,7 +91,7 @@ measured wall latency.
 Regression coverage adds native atomic-total, conservative-bound, owner-lifetime
 and direct-route transitions; browser cancellation, exact pixel reuse and
 invalidation cases; and eight full-frame direct/stencil RGBA comparisons with
-zero tolerance. Runtime acceptance is recorded below when CI completes.
+zero tolerance. Runtime acceptance is recorded below.
 
 ## Comparison protocol
 
@@ -118,9 +130,11 @@ Raster cache hit/miss summaries use per-operation differences of lifetime
 counters. Camera compilation/cache summaries stay null because camera movement
 retains the last compilation snapshot without creating a new compilation.
 
-Baseline and candidate SVG reference pixels must match exactly, and paired GPU
-RGB channels may differ by at most one quantization unit. The existing GPU/SVG
-quality budgets remain unchanged. Timing distributions are descriptive; they are
+Initial baseline and candidate SVG reference pixels must match exactly, and
+paired initial GPU RGB channels may differ by at most one quantization unit.
+Each final frame independently passes the same GPU/SVG quality budgets against
+its own reference; strict cross-revision identity is checked on initial frames.
+The existing quality budgets remain unchanged. Timing distributions are descriptive; they are
 not a pass/fail performance threshold. The paired harness uses nearest-rank
 p50/p95 order statistics. Its legacy JSON fields named `median` contain p50;
 with six/four measured samples, p50 selects the lower middle observation and
@@ -172,16 +186,21 @@ also passed held-write read-only transitions, byte-exact conflicts and all
 
 ### Full implementation acceptance
 
-[Full integration CI](https://github.com/wieslawsoltes/UnoUML/actions/runs/43316750481)
-passed on `d304eab058143c49f8274a1cd98da5a1f4e41771`. The subsequent
-SDK-selection workflow fix changes no application code or measurement logic.
+[Full integration CI](https://github.com/wieslawsoltes/UnoUML/actions/runs/43325326540)
+passed on `91135866923974a119d7e6ddbdb0267c2ffa234b`, the exact paired benchmark
+candidate. Its application code is identical to the earlier
+[accepted implementation](https://github.com/wieslawsoltes/UnoUML/actions/runs/43316750481)
+at `d304eab058143c49f8274a1cd98da5a1f4e41771`. Subsequent reporting commits
+clarify quantile labels and preserve the evidence; they change no application
+code, measurement operations or quality gates.
 
 | Gate | Result |
 | --- | --- |
 | Native GPU scene model | 1,291 assertions, 22 cases |
 | Core model | 4,065 assertions, 33 templates, 149 tools |
 | Node tests | 99 tests across eight suites |
-| Managed catalog | 296 fixtures |
+| Managed catalog coverage | 310/310 fixtures |
+| Local browser catalog | 296 fixtures |
 | Additional renderer checks | 161 DOT sizing, 302 canvas metadata, 73 structured and 87 Gantt assertions |
 | Production shaders | Seven pipelines, 4× MSAA, 29 existing pixel checks |
 | Direct/stencil equivalence | Eight complete frames, zero differing RGBA channels |
@@ -224,7 +243,8 @@ was already established by the baseline and remains intact.
 These are descriptive samples from Chromium 156 on SwiftShader, not a paired
 latency comparison or a hardware FPS result. They preserve the existing smoke
 test's sorted-index convention, `floor(n / 2)` and `floor(0.95 * n)`, rather than
-recomputing its stored summaries with the paired harness's nearest-rank method. The boundaries differ and may overlap.
+recomputing its stored summaries with the paired harness's nearest-rank method.
+The boundaries differ and may overlap.
 For example, revision 22 has 2,893.5 ms wall time but only 35.9 ms scope and
 0.3999 ms dispatcher intervals; revision 14 has 1,522.8 ms wall time with 33.0999 ms
 scope and 0.2 ms dispatch. Removing the local validation gate would not explain
@@ -324,4 +344,119 @@ for all fractional-scale rasterization differences. Camera normalization also
 accepts an already matching validated frame instead of waiting for a revision
 that an unchanged camera deliberately does not emit.
 
-Paired measurements at this characterized setup are pending.
+### Accepted paired performance results
+
+The [paired workflow](https://github.com/wieslawsoltes/UnoUML/actions/runs/43325315202)
+passed on baseline `b25c990167b13db19dca318ca2f25420085e3518` and candidate
+`91135866923974a119d7e6ddbdb0267c2ffa234b`. Both independently built applications were exercised in the
+same Chromium 156.0.8078.79 process on Ubuntu image `20261101.186.1`, Node
+22.23.4 and the application's actual SwiftShader fallback adapter. DPR was 1,
+the camera scale 1.5, the captured surface 928 × 614, and MSAA remained 4×.
+
+All **12 workloads, six pairs and 136 measured operations passed**: 72 camera,
+32 source-edit and 32 transform samples. Every paired initial SVG reference and
+GPU RGB image is exactly identical: mean difference, maximum channel difference
+and changed-pixel fraction are all zero. Every final per-workload quality check
+and all four real selection/clear checks also pass. All 272 measured error-scope
+observations completed, with zero pending promises, rejections or synchronous
+failures.
+
+The [machine-readable record](performance/webgpu-2026-11-12.json) preserves every
+logged workload/phase distribution, device observation and paired comparison.
+[Artifact 13991949254](https://github.com/wieslawsoltes/UnoUML/actions/runs/43325315202/artifacts/13991949254)
+contains raw samples, initial SVG/camera/font snapshots and all original images.
+The tables below use the recorded nearest-rank p50; pair labels identify the
+zero-based baseline/candidate passes in the ABBA sequence.
+
+#### Source-edit latency and work
+
+| Workload | Pair | Baseline wall p50, ms | Candidate wall p50, ms | Wall reduction | Compilation p50, ms | Native encoding p50, ms |
+| --- | --- | ---: | ---: | ---: | --- | --- |
+| 64 classes | 0/1 | 1,246.4 | 806.5 | 35.3% | 503.9 → 31.1 | 11.6 → 9.1 |
+| 64 classes | 3/2 | 1,220.7 | 789.2 | 35.3% | 380.7 → 33.3 | 11.8 → 9.7 |
+| 256 classes | 0/1 | 5,187.5 | 1,240.3 | 76.1% | 3,929.2 → 109.2 | 40.1 → 35.2 |
+| 256 classes | 3/2 | 5,041.4 | 1,291.8 | 74.4% | 3,586.0 → 107.4 | 40.1 → 34.3 |
+
+The 64-class source-edit wall p50 falls by **35.3%** in both pairs; the 256-class
+result falls by **74.4–76.1%**. Compilation elapsed p50 falls by approximately
+91–94% and 97% respectively. Compilation includes raster awaits and is not a
+CPU-only duration. These are public viewport source-render/saved-layout
+operations with distinct same-length label values; the protocol does not measure
+editor keystroke latency.
+
+The exact resource counters repeat in every measured edit:
+
+| Per source edit | 64 classes, baseline → candidate | 256 classes, baseline → candidate |
+| --- | ---: | ---: |
+| Raster hits | 0 → 127 | 0 → 511 |
+| Raster misses | 128 → 1 | 512 → 1 |
+| Reported texture upload bytes | 1,323,008 → 18,632 | 5,292,032 → 18,632 |
+| Texture upload reduction | 98.59% | 99.65% |
+
+Only the changed label needs a new raster capture. Source replacement still
+creates fresh vector-command owners; the following costs are equal on both
+revisions:
+
+| Per source edit | 64 classes | 256 classes |
+| --- | ---: | ---: |
+| Geometry builds | 128 | 512 |
+| Geometry upload bytes | 271,872 | 1,087,488 |
+| Draw-uniform upload bytes | 98,304 | 393,216 |
+| Render-bundle builds | 384 | 1,536 |
+
+The gain is retained raster reuse, not complete geometry retention across source
+replacement. Live GPU texture payload remains 1,323,008 / 5,292,032 bytes.
+The candidate keeps prior reusable CPU raster entries: its source-phase cache
+p50 is 321,896 bytes larger than baseline, increasing to 359,160 additional bytes
+after source restoration. The cache remains bounded by its existing 64 MiB and
+8,192-entry budgets. Reduced uploads do not imply reduced live scene texture memory.
+
+#### Draw work and retained manipulation
+
+| Workload at 1.5× | Total / visible commands | Baseline draws | Candidate draws | Reduction |
+| --- | ---: | ---: | ---: | ---: |
+| Starter | 52 / 52 | 88 | 65 | 26.1% |
+| 64 classes | 384 / 144 | 241 | 193 | 19.9% |
+| 256 classes | 1,536 / 144 | 241 | 193 | 19.9% |
+
+The two class viewports show the same 24 classes, while retaining different
+complete scene sizes. Their equal visible draw counts must not be interpreted
+as displaying every node at once.
+
+All 72 measured camera samples on both revisions upload exactly 64 camera bytes
+and zero geometry, texture, draw-uniform or gradient bytes, with no bundle
+rebuilds. All 32 transforms preserve the world viewport, geometry and textures,
+upload 1,536 changed draw-uniform bytes plus 64 camera bytes, and rebuild no
+bundles. These retained-update contracts already existed and remain intact.
+
+Every starter selection-clear check removes viewport command membership from
+ten to one, uploads one 256-byte viewport uniform and rebuilds one bundle while
+retaining geometry/textures. Selection-mask matching is 98.4375% in all four
+repetitions.
+
+#### Camera and transform timing
+
+| Phase | Workload | Pair 0/1 wall p50, ms | Pair 3/2 wall p50, ms |
+| --- | --- | --- | --- |
+| camera | starter | 830.7 → 667.6 | 751.3 → 671.4 |
+| camera | 64 classes | 673.5 → 669.6 | 719.9 → 648.3 |
+| camera | 256 classes | 656.4 → 658.6 | 680.5 → 675.5 |
+| transform | 64 classes | 691.6 → 694.2 | 689.6 → 699.7 |
+| transform | 256 classes | 753.7 → 787.6 | 819.1 → 810.3 |
+
+These camera and transform wall results do not establish a general manipulation
+speedup. The 256-class camera result is essentially flat; the 64-class transform
+is slightly slower in both pairs, and the 256-class transform is mixed. The
+repeatable source-edit gain and reduced draw/upload work are the supported
+performance conclusions.
+
+Candidate source-edit native scope p50 spans 16.1–23.8 ms and dispatcher p50
+0.2–0.3 ms. Camera scope duration sometimes approaches 650 ms, while other
+similarly long wall samples have much shorter scope intervals. The measurements
+do not attribute every delay to one stage, and frame-validation sequencing is
+unchanged.
+
+This is one warmed ABBA run with small descriptive samples on a software
+adapter. It establishes these workload-specific improvements and pixel/resource
+invariants. Hardware frame-rate, sustained GPU throughput and universal
+cross-scale visual equivalence remain separate qualifications.

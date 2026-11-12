@@ -1,0 +1,6200 @@
+{
+  "schema": 1,
+  "provenance": {
+    "repository": "wieslawsoltes/UnoUML",
+    "workflowRun": 43325315202,
+    "job": 131556185358,
+    "artifact": 13991949254,
+    "workflowUrl": "https://github.com/wieslawsoltes/UnoUML/actions/runs/43325315202",
+    "artifactUrl": "https://github.com/wieslawsoltes/UnoUML/actions/runs/43325315202/artifacts/13991949254",
+    "source": "Unmodified GPU_BENCHMARK_WORKLOAD, GPU_BENCHMARK_PAIR and GPU_BENCHMARK_RESULT JSON records from the completed job log.",
+    "quantiles": "Nearest-rank p50/p95. Original median / *Median fields contain p50 order statistics; for n=6 or n=4, p50 is the lower middle observation and p95 is the maximum.",
+    "pixelScope": "Cross-revision initial RGB images are compared exactly. Each final image independently passes the shared GPU/SVG quality gates.",
+    "rawSamples": "Preserved separately in the linked workflow artifact."
+  },
+  "result": {
+    "status": "passed",
+    "baselineSha": "b25c990167b13db19dca318ca2f25420085e3518",
+    "candidateSha": "91135866923974a119d7e6ddbdb0267c2ffa234b",
+    "browserVersion": "156.0.8078.79",
+    "runtime": {
+      "node": "v22.23.4",
+      "platform": "linux",
+      "architecture": "x64",
+      "runnerImage": "ubuntu26",
+      "runnerImageVersion": "20261101.186.1"
+    },
+    "configuration": {
+      "viewport": {
+        "width": 1390,
+        "height": 860
+      },
+      "deviceScaleFactor": 1,
+      "colorScheme": "light",
+      "locale": "en-US",
+      "timezoneId": "UTC",
+      "sampleCount": 4,
+      "cameraScale": 1.5,
+      "cameraWarmups": 2,
+      "cameraSamples": 6,
+      "editWarmups": 2,
+      "editSamples": 4,
+      "transformWarmups": 2,
+      "transformSamples": 4,
+      "requestedDriver": "software",
+      "launch": {
+        "executablePath": "/usr/bin/google-chrome",
+        "headless": true,
+        "args": [
+          "--enable-unsafe-webgpu",
+          "--use-angle=swiftshader",
+          "--enable-unsafe-swiftshader",
+          "--use-vulkan=swiftshader",
+          "--enable-features=Vulkan"
+        ]
+      },
+      "order": [
+        "baseline",
+        "candidate",
+        "candidate",
+        "baseline"
+      ],
+      "workloads": [
+        "starter",
+        "classes-64",
+        "classes-256"
+      ]
+    },
+    "startedAt": "2026-11-12T23:07:19.982Z",
+    "completedAt": "2026-11-12T23:14:19.052Z",
+    "workloadsCompleted": 12,
+    "pairsCompleted": 6,
+    "failures": []
+  },
+  "workloads": [
+    {
+      "side": "baseline",
+      "pass": 0,
+      "workload": "starter",
+      "sha": "b25c990167b13db19dca318ca2f25420085e3518",
+      "status": "passed",
+      "devices": [
+        {
+          "index": 0,
+          "info": {
+            "vendor": "google",
+            "architecture": "swiftshader",
+            "device": "",
+            "description": "",
+            "isFallbackAdapter": true
+          },
+          "requestedAt": 1455,
+          "deviceId": 1,
+          "resolvedAt": 1480,
+          "features": [
+            "core-features-and-limits",
+            "timestamp-query"
+          ]
+        }
+      ],
+      "initial": {
+        "sampleCount": 4,
+        "pipelineCount": 6,
+        "commands": 52,
+        "visibleCommands": 52,
+        "culledCommands": 0,
+        "drawCalls": 88,
+        "visibleDirectMeshCommands": null,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 35,
+        "imageTextures": 17,
+        "renderBundles": 52,
+        "vertexBytes": 25008,
+        "textureBytes": 247368,
+        "drawUniformCapacityBytes": 16384,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 16480
+      },
+      "final": {
+        "sampleCount": 4,
+        "pipelineCount": 6,
+        "commands": 53,
+        "visibleCommands": 53,
+        "culledCommands": 0,
+        "drawCalls": 90,
+        "visibleDirectMeshCommands": null,
+        "viewportCommands": 1,
+        "visibleViewportCommands": 1,
+        "geometryBuffers": 36,
+        "imageTextures": 17,
+        "renderBundles": 53,
+        "vertexBytes": 25104,
+        "textureBytes": 247368,
+        "drawUniformCapacityBytes": 32768,
+        "gradientCapacityBytes": 16384,
+        "uniformAndStopBytes": 49216
+      },
+      "quality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0.68202724268973,
+        "majorDifferenceFraction": 0.002579888801527575,
+        "referenceInk": 10198,
+        "gpuInk": 9954,
+        "overlay": null
+      },
+      "finalQuality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0.6820319227601183,
+        "majorDifferenceFraction": 0.002579888801527575,
+        "referenceInk": 16350,
+        "gpuInk": 16106,
+        "overlay": null
+      },
+      "phases": {
+        "camera": {
+          "scopePromises": {
+            "observed": 12,
+            "completed": 12,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 6,
+            "min": 680.2999999999884,
+            "median": 830.6999999999534,
+            "p95": 984.5,
+            "max": 984.5
+          },
+          "operationMilliseconds": {
+            "count": 6,
+            "min": 0.8000000000465661,
+            "median": 1,
+            "p95": 2.2999999999883585,
+            "max": 2.2999999999883585
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 6,
+            "min": 0.3,
+            "median": 0.4,
+            "p95": 0.6,
+            "max": 0.6
+          },
+          "compilationMilliseconds": null,
+          "compiler": {
+            "geometryBuilds": null,
+            "geometryCacheHits": null,
+            "textureBytes": null,
+            "cacheBytes": null
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": null,
+            "rasterCacheMisses": null
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 12,
+            "min": 36.79999999998836,
+            "median": 73.20000000001164,
+            "p95": 712.7999999999884,
+            "max": 712.7999999999884
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 36,
+            "min": 0,
+            "median": 0,
+            "p95": 0.20000000001164153,
+            "max": 0.30000000004656613
+          },
+          "drawCalls": {
+            "count": 6,
+            "min": 88,
+            "median": 88,
+            "p95": 88,
+            "max": 88
+          },
+          "visibleCommands": {
+            "count": 6,
+            "min": 52,
+            "median": 52,
+            "p95": 52,
+            "max": 52
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 6,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "gradientUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        }
+      },
+      "overlay": {
+        "quality": {
+          "width": 928,
+          "height": 614,
+          "meanAbsoluteChannelError": 0.7309679087573477,
+          "majorDifferenceFraction": 0.002715025833988543,
+          "referenceInk": 16956,
+          "gpuInk": 16683,
+          "overlay": {
+            "pixels": 640,
+            "gpuMeanChannelError": 21.951041666666665,
+            "absentMeanChannelError": 108.384375,
+            "matchedFraction": 0.984375
+          }
+        },
+        "retention": {
+          "fromRevision": 13,
+          "toRevision": 14,
+          "viewportCommandsBefore": 10,
+          "viewportCommandsAfter": 1,
+          "drawUniformUploadDelta": 256,
+          "drawUniformUploadBudget": 256,
+          "bundleBuildDelta": 1
+        },
+        "selected": {
+          "sampleCount": 4,
+          "pipelineCount": 6,
+          "commands": 62,
+          "visibleCommands": 62,
+          "culledCommands": 0,
+          "drawCalls": 108,
+          "visibleDirectMeshCommands": null,
+          "viewportCommands": 10,
+          "visibleViewportCommands": 10,
+          "geometryBuffers": 45,
+          "imageTextures": 17,
+          "renderBundles": 62,
+          "vertexBytes": 30600,
+          "textureBytes": 247368,
+          "drawUniformCapacityBytes": 32768,
+          "gradientCapacityBytes": 16384,
+          "uniformAndStopBytes": 49216
+        },
+        "cleared": {
+          "sampleCount": 4,
+          "pipelineCount": 6,
+          "commands": 53,
+          "visibleCommands": 53,
+          "culledCommands": 0,
+          "drawCalls": 90,
+          "visibleDirectMeshCommands": null,
+          "viewportCommands": 1,
+          "visibleViewportCommands": 1,
+          "geometryBuffers": 36,
+          "imageTextures": 17,
+          "renderBundles": 53,
+          "vertexBytes": 25104,
+          "textureBytes": 247368,
+          "drawUniformCapacityBytes": 32768,
+          "gradientCapacityBytes": 16384,
+          "uniformAndStopBytes": 49216
+        }
+      }
+    },
+    {
+      "side": "baseline",
+      "pass": 0,
+      "workload": "classes-64",
+      "sha": "b25c990167b13db19dca318ca2f25420085e3518",
+      "status": "passed",
+      "devices": [
+        {
+          "index": 0,
+          "info": {
+            "vendor": "google",
+            "architecture": "swiftshader",
+            "device": "",
+            "description": "",
+            "isFallbackAdapter": true
+          },
+          "requestedAt": 732,
+          "deviceId": 1,
+          "resolvedAt": 734.7000000000116,
+          "features": [
+            "core-features-and-limits",
+            "timestamp-query"
+          ]
+        }
+      ],
+      "initial": {
+        "sampleCount": 4,
+        "pipelineCount": 6,
+        "commands": 384,
+        "visibleCommands": 144,
+        "culledCommands": 240,
+        "drawCalls": 241,
+        "visibleDirectMeshCommands": null,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 256,
+        "imageTextures": 128,
+        "renderBundles": 384,
+        "vertexBytes": 271872,
+        "textureBytes": 1323008,
+        "drawUniformCapacityBytes": 131072,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 131168
+      },
+      "final": {
+        "sampleCount": 4,
+        "pipelineCount": 6,
+        "commands": 384,
+        "visibleCommands": 144,
+        "culledCommands": 240,
+        "drawCalls": 241,
+        "visibleDirectMeshCommands": null,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 256,
+        "imageTextures": 128,
+        "renderBundles": 384,
+        "vertexBytes": 271872,
+        "textureBytes": 1323008,
+        "drawUniformCapacityBytes": 131072,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 131168
+      },
+      "quality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.4302043552735033,
+        "majorDifferenceFraction": 0.0069042738402785575,
+        "referenceInk": 36461,
+        "gpuInk": 36649,
+        "overlay": null
+      },
+      "finalQuality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.4302043552735033,
+        "majorDifferenceFraction": 0.0069042738402785575,
+        "referenceInk": 36461,
+        "gpuInk": 36649,
+        "overlay": null
+      },
+      "phases": {
+        "camera": {
+          "scopePromises": {
+            "observed": 12,
+            "completed": 12,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 6,
+            "min": 655.2000000000116,
+            "median": 673.5,
+            "p95": 790.9000000000233,
+            "max": 790.9000000000233
+          },
+          "operationMilliseconds": {
+            "count": 6,
+            "min": 0.7999999999883585,
+            "median": 0.8999999999650754,
+            "p95": 1.2000000000116415,
+            "max": 1.2000000000116415
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 6,
+            "min": 0.8999,
+            "median": 1.8999,
+            "p95": 4.2999,
+            "max": 4.2999
+          },
+          "compilationMilliseconds": null,
+          "compiler": {
+            "geometryBuilds": null,
+            "geometryCacheHits": null,
+            "textureBytes": null,
+            "cacheBytes": null
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": null,
+            "rasterCacheMisses": null
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 12,
+            "min": 32.29999999998836,
+            "median": 45.79999999998836,
+            "p95": 63.40000000002328,
+            "max": 63.40000000002328
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 34,
+            "min": 0,
+            "median": 0,
+            "p95": 0.19999999995343387,
+            "max": 1.2999999999883585
+          },
+          "drawCalls": {
+            "count": 6,
+            "min": 241,
+            "median": 241,
+            "p95": 241,
+            "max": 241
+          },
+          "visibleCommands": {
+            "count": 6,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 6,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "gradientUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        },
+        "source": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 1134.899999999965,
+            "median": 1246.4000000000233,
+            "p95": 1330.5999999999767,
+            "max": 1330.5999999999767
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 59.5,
+            "median": 74.59999999997672,
+            "p95": 120.5,
+            "max": 120.5
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 11.5,
+            "median": 11.6,
+            "p95": 18.0999,
+            "max": 18.0999
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 444,
+            "median": 503.8999999999651,
+            "p95": 879.7000000000116,
+            "max": 879.7000000000116
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            }
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 22.099999999976717,
+            "median": 22.699999999953434,
+            "p95": 53.899999999965075,
+            "max": 53.899999999965075
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.09999999997671694,
+            "max": 0.09999999997671694
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 241,
+            "median": 241,
+            "p95": 241,
+            "max": 241
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 271872,
+              "median": 271872,
+              "p95": 271872,
+              "max": 271872
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 98304,
+              "median": 98304,
+              "p95": 98304,
+              "max": 98304
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 32,
+              "median": 32,
+              "p95": 32,
+              "max": 32
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 384,
+              "median": 384,
+              "p95": 384,
+              "max": 384
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        },
+        "transform": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 675.8999999999651,
+            "median": 691.6000000000349,
+            "p95": 721.7999999999884,
+            "max": 721.7999999999884
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 3.599999999976717,
+            "median": 3.8999999999650754,
+            "p95": 4.2000000000116415,
+            "max": 4.2000000000116415
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 1.9,
+            "median": 2.8999,
+            "p95": 4.3,
+            "max": 4.3
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 16.599999999976717,
+            "median": 21.79999999998836,
+            "p95": 31.70000000001164,
+            "max": 31.70000000001164
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 42,
+            "median": 47.59999999997672,
+            "p95": 50.399999999965075,
+            "max": 50.399999999965075
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.1000000000349246,
+            "max": 0.1000000000349246
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 241,
+            "median": 241,
+            "p95": 241,
+            "max": 241
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 1536,
+              "median": 1536,
+              "p95": 1536,
+              "max": 1536
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        }
+      },
+      "overlay": null
+    },
+    {
+      "side": "baseline",
+      "pass": 0,
+      "workload": "classes-256",
+      "sha": "b25c990167b13db19dca318ca2f25420085e3518",
+      "status": "passed",
+      "devices": [
+        {
+          "index": 0,
+          "info": {
+            "vendor": "google",
+            "architecture": "swiftshader",
+            "device": "",
+            "description": "",
+            "isFallbackAdapter": true
+          },
+          "requestedAt": 689.2000000000116,
+          "deviceId": 1,
+          "resolvedAt": 690.2000000000116,
+          "features": [
+            "core-features-and-limits",
+            "timestamp-query"
+          ]
+        }
+      ],
+      "initial": {
+        "sampleCount": 4,
+        "pipelineCount": 6,
+        "commands": 1536,
+        "visibleCommands": 144,
+        "culledCommands": 1392,
+        "drawCalls": 241,
+        "visibleDirectMeshCommands": null,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 1024,
+        "imageTextures": 512,
+        "renderBundles": 1536,
+        "vertexBytes": 1087488,
+        "textureBytes": 5292032,
+        "drawUniformCapacityBytes": 524288,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 524384
+      },
+      "final": {
+        "sampleCount": 4,
+        "pipelineCount": 6,
+        "commands": 1536,
+        "visibleCommands": 144,
+        "culledCommands": 1392,
+        "drawCalls": 241,
+        "visibleDirectMeshCommands": null,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 1024,
+        "imageTextures": 512,
+        "renderBundles": 1536,
+        "vertexBytes": 1087488,
+        "textureBytes": 5292032,
+        "drawUniformCapacityBytes": 524288,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 524384
+      },
+      "quality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.387323795349882,
+        "majorDifferenceFraction": 0.006598899247444681,
+        "referenceInk": 36237,
+        "gpuInk": 36629,
+        "overlay": null
+      },
+      "finalQuality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.387323795349882,
+        "majorDifferenceFraction": 0.006598899247444681,
+        "referenceInk": 36237,
+        "gpuInk": 36629,
+        "overlay": null
+      },
+      "phases": {
+        "camera": {
+          "scopePromises": {
+            "observed": 12,
+            "completed": 12,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 6,
+            "min": 637,
+            "median": 656.4000000000233,
+            "p95": 681.5,
+            "max": 681.5
+          },
+          "operationMilliseconds": {
+            "count": 6,
+            "min": 0.8999999999650754,
+            "median": 1.2000000000116415,
+            "p95": 2.900000000023283,
+            "max": 2.900000000023283
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 6,
+            "min": 1.8,
+            "median": 2.1,
+            "p95": 5.3,
+            "max": 5.3
+          },
+          "compilationMilliseconds": null,
+          "compiler": {
+            "geometryBuilds": null,
+            "geometryCacheHits": null,
+            "textureBytes": null,
+            "cacheBytes": null
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": null,
+            "rasterCacheMisses": null
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 12,
+            "min": 21.79999999998836,
+            "median": 622.0999999999767,
+            "p95": 664.1000000000349,
+            "max": 664.1000000000349
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 24,
+            "min": 0,
+            "median": 0,
+            "p95": 0.30000000004656613,
+            "max": 0.40000000002328306
+          },
+          "drawCalls": {
+            "count": 6,
+            "min": 241,
+            "median": 241,
+            "p95": 241,
+            "max": 241
+          },
+          "visibleCommands": {
+            "count": 6,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 6,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "gradientUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        },
+        "source": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 5118.5,
+            "median": 5187.5,
+            "p95": 6410.299999999988,
+            "max": 6410.299999999988
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 273.20000000001164,
+            "median": 274.5,
+            "p95": 448.3999999999651,
+            "max": 448.3999999999651
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 37.4,
+            "median": 40.1,
+            "p95": 46.6,
+            "max": 46.6
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 3730.6999999999534,
+            "median": 3929.1999999999534,
+            "p95": 5138.299999999988,
+            "max": 5138.299999999988
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            }
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 39.79999999998836,
+            "median": 45.09999999997672,
+            "p95": 51,
+            "max": 51
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.1000000000349246,
+            "max": 0.1000000000349246
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 241,
+            "median": 241,
+            "p95": 241,
+            "max": 241
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 1087488,
+              "median": 1087488,
+              "p95": 1087488,
+              "max": 1087488
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 393216,
+              "median": 393216,
+              "p95": 393216,
+              "max": 393216
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 32,
+              "median": 32,
+              "p95": 32,
+              "max": 32
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 1536,
+              "median": 1536,
+              "p95": 1536,
+              "max": 1536
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        },
+        "transform": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 745.2000000000116,
+            "median": 753.7000000000116,
+            "p95": 796.2999999999884,
+            "max": 796.2999999999884
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 13.5,
+            "median": 14.5,
+            "p95": 21.599999999976717,
+            "max": 21.599999999976717
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 6.5,
+            "median": 7,
+            "p95": 8.2,
+            "max": 8.2
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 58.40000000002328,
+            "median": 58.899999999965075,
+            "p95": 63.20000000001164,
+            "max": 63.20000000001164
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 37.90000000002328,
+            "median": 38.09999999997672,
+            "p95": 43.09999999997672,
+            "max": 43.09999999997672
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.1000000000349246,
+            "max": 0.1000000000349246
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 241,
+            "median": 241,
+            "p95": 241,
+            "max": 241
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 1536,
+              "median": 1536,
+              "p95": 1536,
+              "max": 1536
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        }
+      },
+      "overlay": null
+    },
+    {
+      "side": "candidate",
+      "pass": 1,
+      "workload": "starter",
+      "sha": "91135866923974a119d7e6ddbdb0267c2ffa234b",
+      "status": "passed",
+      "devices": [
+        {
+          "index": 0,
+          "info": {
+            "vendor": "google",
+            "architecture": "swiftshader",
+            "device": "",
+            "description": "",
+            "isFallbackAdapter": true
+          },
+          "requestedAt": 725.3999999999651,
+          "deviceId": 1,
+          "resolvedAt": 726.2999999999884,
+          "features": [
+            "core-features-and-limits",
+            "timestamp-query"
+          ]
+        }
+      ],
+      "initial": {
+        "sampleCount": 4,
+        "pipelineCount": 7,
+        "commands": 52,
+        "visibleCommands": 52,
+        "culledCommands": 0,
+        "drawCalls": 65,
+        "visibleDirectMeshCommands": 23,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 35,
+        "imageTextures": 17,
+        "renderBundles": 52,
+        "vertexBytes": 25008,
+        "textureBytes": 247368,
+        "drawUniformCapacityBytes": 16384,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 16480
+      },
+      "final": {
+        "sampleCount": 4,
+        "pipelineCount": 7,
+        "commands": 53,
+        "visibleCommands": 53,
+        "culledCommands": 0,
+        "drawCalls": 67,
+        "visibleDirectMeshCommands": 23,
+        "viewportCommands": 1,
+        "visibleViewportCommands": 1,
+        "geometryBuffers": 36,
+        "imageTextures": 17,
+        "renderBundles": 53,
+        "vertexBytes": 25104,
+        "textureBytes": 247368,
+        "drawUniformCapacityBytes": 32768,
+        "gradientCapacityBytes": 16384,
+        "uniformAndStopBytes": 49216
+      },
+      "quality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0.68202724268973,
+        "majorDifferenceFraction": 0.002579888801527575,
+        "referenceInk": 10198,
+        "gpuInk": 9954,
+        "overlay": null
+      },
+      "finalQuality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0.6820319227601183,
+        "majorDifferenceFraction": 0.002579888801527575,
+        "referenceInk": 16350,
+        "gpuInk": 16106,
+        "overlay": null
+      },
+      "phases": {
+        "camera": {
+          "scopePromises": {
+            "observed": 12,
+            "completed": 12,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 6,
+            "min": 649.5,
+            "median": 667.5999999999767,
+            "p95": 755.3999999999651,
+            "max": 755.3999999999651
+          },
+          "operationMilliseconds": {
+            "count": 6,
+            "min": 0.7999999999883585,
+            "median": 0.8999999999650754,
+            "p95": 3.400000000023283,
+            "max": 3.400000000023283
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 6,
+            "min": 0.3,
+            "median": 0.4,
+            "p95": 0.6,
+            "max": 0.6
+          },
+          "compilationMilliseconds": null,
+          "compiler": {
+            "geometryBuilds": null,
+            "geometryCacheHits": null,
+            "textureBytes": null,
+            "cacheBytes": null
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": null,
+            "rasterCacheMisses": null
+          },
+          "validationScopeMilliseconds": {
+            "count": 6,
+            "min": 49.3,
+            "median": 61.5,
+            "p95": 87.3,
+            "max": 87.3
+          },
+          "validationDispatchMilliseconds": {
+            "count": 6,
+            "min": 0.2,
+            "median": 0.3,
+            "p95": 17,
+            "max": 17
+          },
+          "scopePromiseMilliseconds": {
+            "count": 12,
+            "min": 49.20000000001164,
+            "median": 61.5,
+            "p95": 87.20000000001164,
+            "max": 87.20000000001164
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 36,
+            "min": 0,
+            "median": 0,
+            "p95": 0.1000000000349246,
+            "max": 0.1000000000349246
+          },
+          "drawCalls": {
+            "count": 6,
+            "min": 65,
+            "median": 65,
+            "p95": 65,
+            "max": 65
+          },
+          "visibleCommands": {
+            "count": 6,
+            "min": 52,
+            "median": 52,
+            "p95": 52,
+            "max": 52
+          },
+          "visibleDirectMeshCommands": {
+            "count": 6,
+            "min": 23,
+            "median": 23,
+            "p95": 23,
+            "max": 23
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 6,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "gradientUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        }
+      },
+      "overlay": {
+        "quality": {
+          "width": 928,
+          "height": 614,
+          "meanAbsoluteChannelError": 0.7309679087573477,
+          "majorDifferenceFraction": 0.002715025833988543,
+          "referenceInk": 16956,
+          "gpuInk": 16683,
+          "overlay": {
+            "pixels": 640,
+            "gpuMeanChannelError": 21.951041666666665,
+            "absentMeanChannelError": 108.384375,
+            "matchedFraction": 0.984375
+          }
+        },
+        "retention": {
+          "fromRevision": 12,
+          "toRevision": 13,
+          "viewportCommandsBefore": 10,
+          "viewportCommandsAfter": 1,
+          "drawUniformUploadDelta": 256,
+          "drawUniformUploadBudget": 256,
+          "bundleBuildDelta": 1
+        },
+        "selected": {
+          "sampleCount": 4,
+          "pipelineCount": 7,
+          "commands": 62,
+          "visibleCommands": 62,
+          "culledCommands": 0,
+          "drawCalls": 82,
+          "visibleDirectMeshCommands": 26,
+          "viewportCommands": 10,
+          "visibleViewportCommands": 10,
+          "geometryBuffers": 45,
+          "imageTextures": 17,
+          "renderBundles": 62,
+          "vertexBytes": 30600,
+          "textureBytes": 247368,
+          "drawUniformCapacityBytes": 32768,
+          "gradientCapacityBytes": 16384,
+          "uniformAndStopBytes": 49216
+        },
+        "cleared": {
+          "sampleCount": 4,
+          "pipelineCount": 7,
+          "commands": 53,
+          "visibleCommands": 53,
+          "culledCommands": 0,
+          "drawCalls": 67,
+          "visibleDirectMeshCommands": 23,
+          "viewportCommands": 1,
+          "visibleViewportCommands": 1,
+          "geometryBuffers": 36,
+          "imageTextures": 17,
+          "renderBundles": 53,
+          "vertexBytes": 25104,
+          "textureBytes": 247368,
+          "drawUniformCapacityBytes": 32768,
+          "gradientCapacityBytes": 16384,
+          "uniformAndStopBytes": 49216
+        }
+      }
+    },
+    {
+      "side": "candidate",
+      "pass": 1,
+      "workload": "classes-64",
+      "sha": "91135866923974a119d7e6ddbdb0267c2ffa234b",
+      "status": "passed",
+      "devices": [
+        {
+          "index": 0,
+          "info": {
+            "vendor": "google",
+            "architecture": "swiftshader",
+            "device": "",
+            "description": "",
+            "isFallbackAdapter": true
+          },
+          "requestedAt": 661,
+          "deviceId": 1,
+          "resolvedAt": 662,
+          "features": [
+            "core-features-and-limits",
+            "timestamp-query"
+          ]
+        }
+      ],
+      "initial": {
+        "sampleCount": 4,
+        "pipelineCount": 7,
+        "commands": 384,
+        "visibleCommands": 144,
+        "culledCommands": 240,
+        "drawCalls": 193,
+        "visibleDirectMeshCommands": 48,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 256,
+        "imageTextures": 128,
+        "renderBundles": 384,
+        "vertexBytes": 271872,
+        "textureBytes": 1323008,
+        "drawUniformCapacityBytes": 131072,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 131168
+      },
+      "final": {
+        "sampleCount": 4,
+        "pipelineCount": 7,
+        "commands": 384,
+        "visibleCommands": 144,
+        "culledCommands": 240,
+        "drawCalls": 193,
+        "visibleDirectMeshCommands": 48,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 256,
+        "imageTextures": 128,
+        "renderBundles": 384,
+        "vertexBytes": 271872,
+        "textureBytes": 1323008,
+        "drawUniformCapacityBytes": 131072,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 131168
+      },
+      "quality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.4302043552735033,
+        "majorDifferenceFraction": 0.0069042738402785575,
+        "referenceInk": 36461,
+        "gpuInk": 36649,
+        "overlay": null
+      },
+      "finalQuality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.4302043552735033,
+        "majorDifferenceFraction": 0.0069042738402785575,
+        "referenceInk": 36461,
+        "gpuInk": 36649,
+        "overlay": null
+      },
+      "phases": {
+        "camera": {
+          "scopePromises": {
+            "observed": 12,
+            "completed": 12,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 6,
+            "min": 650.2000000000116,
+            "median": 669.6000000000349,
+            "p95": 813.1000000000349,
+            "max": 813.1000000000349
+          },
+          "operationMilliseconds": {
+            "count": 6,
+            "min": 0.7000000000116415,
+            "median": 0.8999999999650754,
+            "p95": 1,
+            "max": 1
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 6,
+            "min": 0.4,
+            "median": 1.9,
+            "p95": 4.6999,
+            "max": 4.6999
+          },
+          "compilationMilliseconds": null,
+          "compiler": {
+            "geometryBuilds": null,
+            "geometryCacheHits": null,
+            "textureBytes": null,
+            "cacheBytes": null
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": null,
+            "rasterCacheMisses": null
+          },
+          "validationScopeMilliseconds": {
+            "count": 6,
+            "min": 33.1999,
+            "median": 59,
+            "p95": 75.0999,
+            "max": 75.0999
+          },
+          "validationDispatchMilliseconds": {
+            "count": 6,
+            "min": 0.2999,
+            "median": 0.4,
+            "p95": 33.6999,
+            "max": 33.6999
+          },
+          "scopePromiseMilliseconds": {
+            "count": 12,
+            "min": 33.199999999953434,
+            "median": 58.899999999965075,
+            "p95": 75.09999999997672,
+            "max": 75.09999999997672
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 35,
+            "min": 0,
+            "median": 0,
+            "p95": 0.1000000000349246,
+            "max": 0.1000000000349246
+          },
+          "drawCalls": {
+            "count": 6,
+            "min": 193,
+            "median": 193,
+            "p95": 193,
+            "max": 193
+          },
+          "visibleCommands": {
+            "count": 6,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": {
+            "count": 6,
+            "min": 48,
+            "median": 48,
+            "p95": 48,
+            "max": 48
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 6,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "gradientUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        },
+        "source": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 803,
+            "median": 806.5,
+            "p95": 847.7999999999884,
+            "max": 847.7999999999884
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 73.59999999997672,
+            "median": 99,
+            "p95": 126.30000000004657,
+            "max": 126.30000000004657
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 9,
+            "median": 9.1,
+            "p95": 9.2999,
+            "max": 9.2999
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 30.400000000023283,
+            "median": 31.099999999976717,
+            "p95": 38.5,
+            "max": 38.5
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 1626272,
+              "median": 1644904,
+              "p95": 1682168,
+              "max": 1682168
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 127,
+              "median": 127,
+              "p95": 127,
+              "max": 127
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            }
+          },
+          "validationScopeMilliseconds": {
+            "count": 4,
+            "min": 22.3,
+            "median": 23.7999,
+            "p95": 29.3,
+            "max": 29.3
+          },
+          "validationDispatchMilliseconds": {
+            "count": 4,
+            "min": 0.2,
+            "median": 0.2,
+            "p95": 0.2,
+            "max": 0.2
+          },
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 22.100000000034925,
+            "median": 23.79999999998836,
+            "p95": 29.20000000001164,
+            "max": 29.20000000001164
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.1000000000349246,
+            "max": 0.1000000000349246
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 193,
+            "median": 193,
+            "p95": 193,
+            "max": 193
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": {
+            "count": 4,
+            "min": 48,
+            "median": 48,
+            "p95": 48,
+            "max": 48
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 271872,
+              "median": 271872,
+              "p95": 271872,
+              "max": 271872
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 18632,
+              "median": 18632,
+              "p95": 18632,
+              "max": 18632
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 98304,
+              "median": 98304,
+              "p95": 98304,
+              "max": 98304
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 32,
+              "median": 32,
+              "p95": 32,
+              "max": 32
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 384,
+              "median": 384,
+              "p95": 384,
+              "max": 384
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        },
+        "transform": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 691.2999999999884,
+            "median": 694.1999999999534,
+            "p95": 725.8000000000466,
+            "max": 725.8000000000466
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 3.3999999999650754,
+            "median": 3.900000000023283,
+            "p95": 4.099999999976717,
+            "max": 4.099999999976717
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 1.9,
+            "median": 2,
+            "p95": 4.5,
+            "max": 4.5
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 16.70000000001164,
+            "median": 17.29999999998836,
+            "p95": 19.79999999998836,
+            "max": 19.79999999998836
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 1682168,
+              "median": 1682168,
+              "p95": 1682168,
+              "max": 1682168
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          },
+          "validationScopeMilliseconds": {
+            "count": 4,
+            "min": 32.6,
+            "median": 45.2,
+            "p95": 48.6,
+            "max": 48.6
+          },
+          "validationDispatchMilliseconds": {
+            "count": 4,
+            "min": 0.2,
+            "median": 0.3,
+            "p95": 0.8,
+            "max": 0.8
+          },
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 32.399999999965075,
+            "median": 45,
+            "p95": 48.5,
+            "max": 48.5
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.09999999997671694,
+            "max": 0.09999999997671694
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 193,
+            "median": 193,
+            "p95": 193,
+            "max": 193
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": {
+            "count": 4,
+            "min": 48,
+            "median": 48,
+            "p95": 48,
+            "max": 48
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 1536,
+              "median": 1536,
+              "p95": 1536,
+              "max": 1536
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        }
+      },
+      "overlay": null
+    },
+    {
+      "side": "candidate",
+      "pass": 1,
+      "workload": "classes-256",
+      "sha": "91135866923974a119d7e6ddbdb0267c2ffa234b",
+      "status": "passed",
+      "devices": [
+        {
+          "index": 0,
+          "info": {
+            "vendor": "google",
+            "architecture": "swiftshader",
+            "device": "",
+            "description": "",
+            "isFallbackAdapter": true
+          },
+          "requestedAt": 683.2999999999884,
+          "deviceId": 1,
+          "resolvedAt": 684.0999999999767,
+          "features": [
+            "core-features-and-limits",
+            "timestamp-query"
+          ]
+        }
+      ],
+      "initial": {
+        "sampleCount": 4,
+        "pipelineCount": 7,
+        "commands": 1536,
+        "visibleCommands": 144,
+        "culledCommands": 1392,
+        "drawCalls": 193,
+        "visibleDirectMeshCommands": 48,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 1024,
+        "imageTextures": 512,
+        "renderBundles": 1536,
+        "vertexBytes": 1087488,
+        "textureBytes": 5292032,
+        "drawUniformCapacityBytes": 524288,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 524384
+      },
+      "final": {
+        "sampleCount": 4,
+        "pipelineCount": 7,
+        "commands": 1536,
+        "visibleCommands": 144,
+        "culledCommands": 1392,
+        "drawCalls": 193,
+        "visibleDirectMeshCommands": 48,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 1024,
+        "imageTextures": 512,
+        "renderBundles": 1536,
+        "vertexBytes": 1087488,
+        "textureBytes": 5292032,
+        "drawUniformCapacityBytes": 524288,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 524384
+      },
+      "quality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.387323795349882,
+        "majorDifferenceFraction": 0.006598899247444681,
+        "referenceInk": 36237,
+        "gpuInk": 36629,
+        "overlay": null
+      },
+      "finalQuality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.387323795349882,
+        "majorDifferenceFraction": 0.006598899247444681,
+        "referenceInk": 36237,
+        "gpuInk": 36629,
+        "overlay": null
+      },
+      "phases": {
+        "camera": {
+          "scopePromises": {
+            "observed": 12,
+            "completed": 12,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 6,
+            "min": 638.7999999999302,
+            "median": 658.5999999999767,
+            "p95": 673.4000000000233,
+            "max": 673.4000000000233
+          },
+          "operationMilliseconds": {
+            "count": 6,
+            "min": 1,
+            "median": 1.099999999976717,
+            "p95": 1.599999999976717,
+            "max": 1.599999999976717
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 6,
+            "min": 1.5,
+            "median": 1.6,
+            "p95": 8.1999,
+            "max": 8.1999
+          },
+          "compilationMilliseconds": null,
+          "compiler": {
+            "geometryBuilds": null,
+            "geometryCacheHits": null,
+            "textureBytes": null,
+            "cacheBytes": null
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": null,
+            "rasterCacheMisses": null
+          },
+          "validationScopeMilliseconds": {
+            "count": 6,
+            "min": 14.9,
+            "median": 26.8999,
+            "p95": 651.7,
+            "max": 651.7
+          },
+          "validationDispatchMilliseconds": {
+            "count": 6,
+            "min": 0.2999,
+            "median": 0.4,
+            "p95": 0.5,
+            "max": 0.5
+          },
+          "scopePromiseMilliseconds": {
+            "count": 12,
+            "min": 14.20000000006985,
+            "median": 26.899999999906868,
+            "p95": 651.6000000000931,
+            "max": 651.6000000000931
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 20,
+            "min": 0,
+            "median": 0,
+            "p95": 0.5,
+            "max": 1.099999999976717
+          },
+          "drawCalls": {
+            "count": 6,
+            "min": 193,
+            "median": 193,
+            "p95": 193,
+            "max": 193
+          },
+          "visibleCommands": {
+            "count": 6,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": {
+            "count": 6,
+            "min": 48,
+            "median": 48,
+            "p95": 48,
+            "max": 48
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 6,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "gradientUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        },
+        "source": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 1232.4000000000233,
+            "median": 1240.3000000000466,
+            "p95": 1339.0999999999767,
+            "max": 1339.0999999999767
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 195.90000000002328,
+            "median": 232.19999999995343,
+            "p95": 414.9000000000233,
+            "max": 414.9000000000233
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 34.5,
+            "median": 35.1999,
+            "p95": 44.3,
+            "max": 44.3
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 108.30000000004657,
+            "median": 109.20000000006985,
+            "p95": 120.30000000004657,
+            "max": 120.30000000004657
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 5595296,
+              "median": 5613928,
+              "p95": 5651192,
+              "max": 5651192
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 511,
+              "median": 511,
+              "p95": 511,
+              "max": 511
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            }
+          },
+          "validationScopeMilliseconds": {
+            "count": 4,
+            "min": 15,
+            "median": 16.1,
+            "p95": 22.5999,
+            "max": 22.5999
+          },
+          "validationDispatchMilliseconds": {
+            "count": 4,
+            "min": 0.2,
+            "median": 0.3,
+            "p95": 0.6,
+            "max": 0.6
+          },
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 14.900000000023283,
+            "median": 16.099999999976717,
+            "p95": 22.5,
+            "max": 22.5
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.10000000009313226,
+            "max": 0.10000000009313226
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 193,
+            "median": 193,
+            "p95": 193,
+            "max": 193
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": {
+            "count": 4,
+            "min": 48,
+            "median": 48,
+            "p95": 48,
+            "max": 48
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 1087488,
+              "median": 1087488,
+              "p95": 1087488,
+              "max": 1087488
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 18632,
+              "median": 18632,
+              "p95": 18632,
+              "max": 18632
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 393216,
+              "median": 393216,
+              "p95": 393216,
+              "max": 393216
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 32,
+              "median": 32,
+              "p95": 32,
+              "max": 32
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 1536,
+              "median": 1536,
+              "p95": 1536,
+              "max": 1536
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        },
+        "transform": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 780.5999999999767,
+            "median": 787.5999999999767,
+            "p95": 812.2000000000698,
+            "max": 812.2000000000698
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 14.900000000023283,
+            "median": 21.199999999953434,
+            "p95": 28.199999999953434,
+            "max": 28.199999999953434
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 6.6,
+            "median": 6.8999,
+            "p95": 9.5,
+            "max": 9.5
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 64.89999999990687,
+            "median": 67.80000000004657,
+            "p95": 103.69999999995343,
+            "max": 103.69999999995343
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 5651192,
+              "median": 5651192,
+              "p95": 5651192,
+              "max": 5651192
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          },
+          "validationScopeMilliseconds": {
+            "count": 4,
+            "min": 36.2999,
+            "median": 38.3,
+            "p95": 51.3999,
+            "max": 51.3999
+          },
+          "validationDispatchMilliseconds": {
+            "count": 4,
+            "min": 0.2,
+            "median": 0.3,
+            "p95": 0.4,
+            "max": 0.4
+          },
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 36.09999999997672,
+            "median": 38.300000000046566,
+            "p95": 51.29999999993015,
+            "max": 51.29999999993015
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.10000000009313226,
+            "max": 0.10000000009313226
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 193,
+            "median": 193,
+            "p95": 193,
+            "max": 193
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": {
+            "count": 4,
+            "min": 48,
+            "median": 48,
+            "p95": 48,
+            "max": 48
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 1536,
+              "median": 1536,
+              "p95": 1536,
+              "max": 1536
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        }
+      },
+      "overlay": null
+    },
+    {
+      "side": "candidate",
+      "pass": 2,
+      "workload": "starter",
+      "sha": "91135866923974a119d7e6ddbdb0267c2ffa234b",
+      "status": "passed",
+      "devices": [
+        {
+          "index": 0,
+          "info": {
+            "vendor": "google",
+            "architecture": "swiftshader",
+            "device": "",
+            "description": "",
+            "isFallbackAdapter": true
+          },
+          "requestedAt": 757.5,
+          "deviceId": 1,
+          "resolvedAt": 760.2999999999302,
+          "features": [
+            "core-features-and-limits",
+            "timestamp-query"
+          ]
+        }
+      ],
+      "initial": {
+        "sampleCount": 4,
+        "pipelineCount": 7,
+        "commands": 52,
+        "visibleCommands": 52,
+        "culledCommands": 0,
+        "drawCalls": 65,
+        "visibleDirectMeshCommands": 23,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 35,
+        "imageTextures": 17,
+        "renderBundles": 52,
+        "vertexBytes": 25008,
+        "textureBytes": 247368,
+        "drawUniformCapacityBytes": 16384,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 16480
+      },
+      "final": {
+        "sampleCount": 4,
+        "pipelineCount": 7,
+        "commands": 53,
+        "visibleCommands": 53,
+        "culledCommands": 0,
+        "drawCalls": 67,
+        "visibleDirectMeshCommands": 23,
+        "viewportCommands": 1,
+        "visibleViewportCommands": 1,
+        "geometryBuffers": 36,
+        "imageTextures": 17,
+        "renderBundles": 53,
+        "vertexBytes": 25104,
+        "textureBytes": 247368,
+        "drawUniformCapacityBytes": 32768,
+        "gradientCapacityBytes": 16384,
+        "uniformAndStopBytes": 49216
+      },
+      "quality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0.68202724268973,
+        "majorDifferenceFraction": 0.002579888801527575,
+        "referenceInk": 10198,
+        "gpuInk": 9954,
+        "overlay": null
+      },
+      "finalQuality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0.6820319227601183,
+        "majorDifferenceFraction": 0.002579888801527575,
+        "referenceInk": 16350,
+        "gpuInk": 16106,
+        "overlay": null
+      },
+      "phases": {
+        "camera": {
+          "scopePromises": {
+            "observed": 12,
+            "completed": 12,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 6,
+            "min": 648.2999999999302,
+            "median": 671.4000000000233,
+            "p95": 808.1999999999534,
+            "max": 808.1999999999534
+          },
+          "operationMilliseconds": {
+            "count": 6,
+            "min": 0.9000000000232831,
+            "median": 1,
+            "p95": 2,
+            "max": 2
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 6,
+            "min": 0.5,
+            "median": 0.5,
+            "p95": 0.7999,
+            "max": 0.7999
+          },
+          "compilationMilliseconds": null,
+          "compiler": {
+            "geometryBuilds": null,
+            "geometryCacheHits": null,
+            "textureBytes": null,
+            "cacheBytes": null
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": null,
+            "rasterCacheMisses": null
+          },
+          "validationScopeMilliseconds": {
+            "count": 6,
+            "min": 42.7,
+            "median": 53.8,
+            "p95": 94.7,
+            "max": 94.7
+          },
+          "validationDispatchMilliseconds": {
+            "count": 6,
+            "min": 0.3,
+            "median": 0.3,
+            "p95": 22.4,
+            "max": 22.4
+          },
+          "scopePromiseMilliseconds": {
+            "count": 12,
+            "min": 42.5,
+            "median": 53.800000000046566,
+            "p95": 94.69999999995343,
+            "max": 94.69999999995343
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 36,
+            "min": 0,
+            "median": 0,
+            "p95": 0.19999999995343387,
+            "max": 0.2000000000698492
+          },
+          "drawCalls": {
+            "count": 6,
+            "min": 65,
+            "median": 65,
+            "p95": 65,
+            "max": 65
+          },
+          "visibleCommands": {
+            "count": 6,
+            "min": 52,
+            "median": 52,
+            "p95": 52,
+            "max": 52
+          },
+          "visibleDirectMeshCommands": {
+            "count": 6,
+            "min": 23,
+            "median": 23,
+            "p95": 23,
+            "max": 23
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 6,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "gradientUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        }
+      },
+      "overlay": {
+        "quality": {
+          "width": 928,
+          "height": 614,
+          "meanAbsoluteChannelError": 0.7309679087573477,
+          "majorDifferenceFraction": 0.002715025833988543,
+          "referenceInk": 16956,
+          "gpuInk": 16683,
+          "overlay": {
+            "pixels": 640,
+            "gpuMeanChannelError": 21.951041666666665,
+            "absentMeanChannelError": 108.384375,
+            "matchedFraction": 0.984375
+          }
+        },
+        "retention": {
+          "fromRevision": 12,
+          "toRevision": 13,
+          "viewportCommandsBefore": 10,
+          "viewportCommandsAfter": 1,
+          "drawUniformUploadDelta": 256,
+          "drawUniformUploadBudget": 256,
+          "bundleBuildDelta": 1
+        },
+        "selected": {
+          "sampleCount": 4,
+          "pipelineCount": 7,
+          "commands": 62,
+          "visibleCommands": 62,
+          "culledCommands": 0,
+          "drawCalls": 82,
+          "visibleDirectMeshCommands": 26,
+          "viewportCommands": 10,
+          "visibleViewportCommands": 10,
+          "geometryBuffers": 45,
+          "imageTextures": 17,
+          "renderBundles": 62,
+          "vertexBytes": 30600,
+          "textureBytes": 247368,
+          "drawUniformCapacityBytes": 32768,
+          "gradientCapacityBytes": 16384,
+          "uniformAndStopBytes": 49216
+        },
+        "cleared": {
+          "sampleCount": 4,
+          "pipelineCount": 7,
+          "commands": 53,
+          "visibleCommands": 53,
+          "culledCommands": 0,
+          "drawCalls": 67,
+          "visibleDirectMeshCommands": 23,
+          "viewportCommands": 1,
+          "visibleViewportCommands": 1,
+          "geometryBuffers": 36,
+          "imageTextures": 17,
+          "renderBundles": 53,
+          "vertexBytes": 25104,
+          "textureBytes": 247368,
+          "drawUniformCapacityBytes": 32768,
+          "gradientCapacityBytes": 16384,
+          "uniformAndStopBytes": 49216
+        }
+      }
+    },
+    {
+      "side": "candidate",
+      "pass": 2,
+      "workload": "classes-64",
+      "sha": "91135866923974a119d7e6ddbdb0267c2ffa234b",
+      "status": "passed",
+      "devices": [
+        {
+          "index": 0,
+          "info": {
+            "vendor": "google",
+            "architecture": "swiftshader",
+            "device": "",
+            "description": "",
+            "isFallbackAdapter": true
+          },
+          "requestedAt": 735.5,
+          "deviceId": 1,
+          "resolvedAt": 736.5,
+          "features": [
+            "core-features-and-limits",
+            "timestamp-query"
+          ]
+        }
+      ],
+      "initial": {
+        "sampleCount": 4,
+        "pipelineCount": 7,
+        "commands": 384,
+        "visibleCommands": 144,
+        "culledCommands": 240,
+        "drawCalls": 193,
+        "visibleDirectMeshCommands": 48,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 256,
+        "imageTextures": 128,
+        "renderBundles": 384,
+        "vertexBytes": 271872,
+        "textureBytes": 1323008,
+        "drawUniformCapacityBytes": 131072,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 131168
+      },
+      "final": {
+        "sampleCount": 4,
+        "pipelineCount": 7,
+        "commands": 384,
+        "visibleCommands": 144,
+        "culledCommands": 240,
+        "drawCalls": 193,
+        "visibleDirectMeshCommands": 48,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 256,
+        "imageTextures": 128,
+        "renderBundles": 384,
+        "vertexBytes": 271872,
+        "textureBytes": 1323008,
+        "drawUniformCapacityBytes": 131072,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 131168
+      },
+      "quality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.4302043552735033,
+        "majorDifferenceFraction": 0.0069042738402785575,
+        "referenceInk": 36461,
+        "gpuInk": 36649,
+        "overlay": null
+      },
+      "finalQuality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.4302043552735033,
+        "majorDifferenceFraction": 0.0069042738402785575,
+        "referenceInk": 36461,
+        "gpuInk": 36649,
+        "overlay": null
+      },
+      "phases": {
+        "camera": {
+          "scopePromises": {
+            "observed": 12,
+            "completed": 12,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 6,
+            "min": 646.8999999999069,
+            "median": 648.3000000000466,
+            "p95": 666,
+            "max": 666
+          },
+          "operationMilliseconds": {
+            "count": 6,
+            "min": 0.8000000000465661,
+            "median": 1,
+            "p95": 1.3000000000465661,
+            "max": 1.3000000000465661
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 6,
+            "min": 0.7999,
+            "median": 1.9,
+            "p95": 3.6999,
+            "max": 3.6999
+          },
+          "compilationMilliseconds": null,
+          "compiler": {
+            "geometryBuilds": null,
+            "geometryCacheHits": null,
+            "textureBytes": null,
+            "cacheBytes": null
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": null,
+            "rasterCacheMisses": null
+          },
+          "validationScopeMilliseconds": {
+            "count": 6,
+            "min": 18,
+            "median": 23.8,
+            "p95": 636.6,
+            "max": 636.6
+          },
+          "validationDispatchMilliseconds": {
+            "count": 6,
+            "min": 0.1,
+            "median": 0.3,
+            "p95": 0.4,
+            "max": 0.4
+          },
+          "scopePromiseMilliseconds": {
+            "count": 12,
+            "min": 18,
+            "median": 23.70000000006985,
+            "p95": 636.5,
+            "max": 636.5
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 24,
+            "min": 0,
+            "median": 0,
+            "p95": 0.19999999995343387,
+            "max": 0.40000000002328306
+          },
+          "drawCalls": {
+            "count": 6,
+            "min": 193,
+            "median": 193,
+            "p95": 193,
+            "max": 193
+          },
+          "visibleCommands": {
+            "count": 6,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": {
+            "count": 6,
+            "min": 48,
+            "median": 48,
+            "p95": 48,
+            "max": 48
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 6,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "gradientUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        },
+        "source": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 751.8000000000466,
+            "median": 789.2000000000698,
+            "p95": 848.8999999999069,
+            "max": 848.8999999999069
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 57.09999999997672,
+            "median": 77.59999999997672,
+            "p95": 128.30000000004657,
+            "max": 128.30000000004657
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 9.1,
+            "median": 9.7,
+            "p95": 10.5,
+            "max": 10.5
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 32.90000000002328,
+            "median": 33.300000000046566,
+            "p95": 64.69999999995343,
+            "max": 64.69999999995343
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 1626272,
+              "median": 1644904,
+              "p95": 1682168,
+              "max": 1682168
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 127,
+              "median": 127,
+              "p95": 127,
+              "max": 127
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            }
+          },
+          "validationScopeMilliseconds": {
+            "count": 4,
+            "min": 21.5,
+            "median": 21.8999,
+            "p95": 53.9,
+            "max": 53.9
+          },
+          "validationDispatchMilliseconds": {
+            "count": 4,
+            "min": 0.1,
+            "median": 0.1999,
+            "p95": 0.7,
+            "max": 0.7
+          },
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 21.5,
+            "median": 21.699999999953434,
+            "p95": 53.90000000002328,
+            "max": 53.90000000002328
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.10000000009313226,
+            "max": 0.10000000009313226
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 193,
+            "median": 193,
+            "p95": 193,
+            "max": 193
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": {
+            "count": 4,
+            "min": 48,
+            "median": 48,
+            "p95": 48,
+            "max": 48
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 271872,
+              "median": 271872,
+              "p95": 271872,
+              "max": 271872
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 18632,
+              "median": 18632,
+              "p95": 18632,
+              "max": 18632
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 98304,
+              "median": 98304,
+              "p95": 98304,
+              "max": 98304
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 32,
+              "median": 32,
+              "p95": 32,
+              "max": 32
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 384,
+              "median": 384,
+              "p95": 384,
+              "max": 384
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        },
+        "transform": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 696.5,
+            "median": 699.6999999999534,
+            "p95": 720.7999999999302,
+            "max": 720.7999999999302
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 3.799999999930151,
+            "median": 4,
+            "p95": 5.299999999930151,
+            "max": 5.299999999930151
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 2,
+            "median": 2.1,
+            "p95": 3.1999,
+            "max": 3.1999
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 17.199999999953434,
+            "median": 17.5,
+            "p95": 20.900000000023283,
+            "max": 20.900000000023283
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 1682168,
+              "median": 1682168,
+              "p95": 1682168,
+              "max": 1682168
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          },
+          "validationScopeMilliseconds": {
+            "count": 4,
+            "min": 46.0999,
+            "median": 48,
+            "p95": 49.1,
+            "max": 49.1
+          },
+          "validationDispatchMilliseconds": {
+            "count": 4,
+            "min": 0.2999,
+            "median": 0.3,
+            "p95": 0.4,
+            "max": 0.4
+          },
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 46,
+            "median": 48,
+            "p95": 49,
+            "max": 49
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.10000000009313226,
+            "max": 0.10000000009313226
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 193,
+            "median": 193,
+            "p95": 193,
+            "max": 193
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": {
+            "count": 4,
+            "min": 48,
+            "median": 48,
+            "p95": 48,
+            "max": 48
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 1536,
+              "median": 1536,
+              "p95": 1536,
+              "max": 1536
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        }
+      },
+      "overlay": null
+    },
+    {
+      "side": "candidate",
+      "pass": 2,
+      "workload": "classes-256",
+      "sha": "91135866923974a119d7e6ddbdb0267c2ffa234b",
+      "status": "passed",
+      "devices": [
+        {
+          "index": 0,
+          "info": {
+            "vendor": "google",
+            "architecture": "swiftshader",
+            "device": "",
+            "description": "",
+            "isFallbackAdapter": true
+          },
+          "requestedAt": 802.6000000000931,
+          "deviceId": 1,
+          "resolvedAt": 803.7000000000698,
+          "features": [
+            "core-features-and-limits",
+            "timestamp-query"
+          ]
+        }
+      ],
+      "initial": {
+        "sampleCount": 4,
+        "pipelineCount": 7,
+        "commands": 1536,
+        "visibleCommands": 144,
+        "culledCommands": 1392,
+        "drawCalls": 193,
+        "visibleDirectMeshCommands": 48,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 1024,
+        "imageTextures": 512,
+        "renderBundles": 1536,
+        "vertexBytes": 1087488,
+        "textureBytes": 5292032,
+        "drawUniformCapacityBytes": 524288,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 524384
+      },
+      "final": {
+        "sampleCount": 4,
+        "pipelineCount": 7,
+        "commands": 1536,
+        "visibleCommands": 144,
+        "culledCommands": 1392,
+        "drawCalls": 193,
+        "visibleDirectMeshCommands": 48,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 1024,
+        "imageTextures": 512,
+        "renderBundles": 1536,
+        "vertexBytes": 1087488,
+        "textureBytes": 5292032,
+        "drawUniformCapacityBytes": 524288,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 524384
+      },
+      "quality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.387323795349882,
+        "majorDifferenceFraction": 0.006598899247444681,
+        "referenceInk": 36237,
+        "gpuInk": 36629,
+        "overlay": null
+      },
+      "finalQuality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.387323795349882,
+        "majorDifferenceFraction": 0.006598899247444681,
+        "referenceInk": 36237,
+        "gpuInk": 36629,
+        "overlay": null
+      },
+      "phases": {
+        "camera": {
+          "scopePromises": {
+            "observed": 12,
+            "completed": 12,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 6,
+            "min": 670,
+            "median": 675.5,
+            "p95": 703.7999999999302,
+            "max": 703.7999999999302
+          },
+          "operationMilliseconds": {
+            "count": 6,
+            "min": 0.7999999999301508,
+            "median": 0.8999999999068677,
+            "p95": 1.7999999999301508,
+            "max": 1.7999999999301508
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 6,
+            "min": 1.5,
+            "median": 1.6,
+            "p95": 4.5,
+            "max": 4.5
+          },
+          "compilationMilliseconds": null,
+          "compiler": {
+            "geometryBuilds": null,
+            "geometryCacheHits": null,
+            "textureBytes": null,
+            "cacheBytes": null
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": null,
+            "rasterCacheMisses": null
+          },
+          "validationScopeMilliseconds": {
+            "count": 6,
+            "min": 19.7,
+            "median": 656.4,
+            "p95": 692,
+            "max": 692
+          },
+          "validationDispatchMilliseconds": {
+            "count": 6,
+            "min": 0.3,
+            "median": 0.4,
+            "p95": 0.5,
+            "max": 0.5
+          },
+          "scopePromiseMilliseconds": {
+            "count": 12,
+            "min": 19.600000000093132,
+            "median": 656.2999999999302,
+            "p95": 691.9000000000233,
+            "max": 691.9000000000233
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 24,
+            "min": 0,
+            "median": 0,
+            "p95": 0.30000000004656613,
+            "max": 0.9000000000232831
+          },
+          "drawCalls": {
+            "count": 6,
+            "min": 193,
+            "median": 193,
+            "p95": 193,
+            "max": 193
+          },
+          "visibleCommands": {
+            "count": 6,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": {
+            "count": 6,
+            "min": 48,
+            "median": 48,
+            "p95": 48,
+            "max": 48
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 6,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "gradientUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        },
+        "source": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 1258.0999999999767,
+            "median": 1291.8000000000466,
+            "p95": 1368.5999999999767,
+            "max": 1368.5999999999767
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 233.09999999997672,
+            "median": 260.20000000006985,
+            "p95": 444.70000000006985,
+            "max": 444.70000000006985
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 31.1,
+            "median": 34.3,
+            "p95": 41.9,
+            "max": 41.9
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 105.80000000004657,
+            "median": 107.40000000002328,
+            "p95": 111.20000000006985,
+            "max": 111.20000000006985
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 5595296,
+              "median": 5613928,
+              "p95": 5651192,
+              "max": 5651192
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 511,
+              "median": 511,
+              "p95": 511,
+              "max": 511
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            }
+          },
+          "validationScopeMilliseconds": {
+            "count": 4,
+            "min": 9.8,
+            "median": 21.5,
+            "p95": 36.5,
+            "max": 36.5
+          },
+          "validationDispatchMilliseconds": {
+            "count": 4,
+            "min": 0.3,
+            "median": 0.3,
+            "p95": 0.4,
+            "max": 0.4
+          },
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 9.699999999953434,
+            "median": 21.5,
+            "p95": 36.40000000002328,
+            "max": 36.40000000002328
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.10000000009313226,
+            "max": 0.10000000009313226
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 193,
+            "median": 193,
+            "p95": 193,
+            "max": 193
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": {
+            "count": 4,
+            "min": 48,
+            "median": 48,
+            "p95": 48,
+            "max": 48
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 1087488,
+              "median": 1087488,
+              "p95": 1087488,
+              "max": 1087488
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 18632,
+              "median": 18632,
+              "p95": 18632,
+              "max": 18632
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 393216,
+              "median": 393216,
+              "p95": 393216,
+              "max": 393216
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 32,
+              "median": 32,
+              "p95": 32,
+              "max": 32
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 1536,
+              "median": 1536,
+              "p95": 1536,
+              "max": 1536
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        },
+        "transform": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 795.3000000000466,
+            "median": 810.3000000000466,
+            "p95": 845.5999999999767,
+            "max": 845.5999999999767
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 14.5,
+            "median": 14.899999999906868,
+            "p95": 24.099999999976717,
+            "max": 24.099999999976717
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 5.7,
+            "median": 6.2,
+            "p95": 10,
+            "max": 10
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 63.29999999993015,
+            "median": 64.80000000004657,
+            "p95": 79,
+            "max": 79
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 5651192,
+              "median": 5651192,
+              "p95": 5651192,
+              "max": 5651192
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          },
+          "validationScopeMilliseconds": {
+            "count": 4,
+            "min": 43.4,
+            "median": 47.1,
+            "p95": 51.4,
+            "max": 51.4
+          },
+          "validationDispatchMilliseconds": {
+            "count": 4,
+            "min": 0.3,
+            "median": 0.3,
+            "p95": 0.5,
+            "max": 0.5
+          },
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 43.09999999997672,
+            "median": 47,
+            "p95": 51.300000000046566,
+            "max": 51.300000000046566
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.10000000009313226,
+            "max": 0.10000000009313226
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 193,
+            "median": 193,
+            "p95": 193,
+            "max": 193
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": {
+            "count": 4,
+            "min": 48,
+            "median": 48,
+            "p95": 48,
+            "max": 48
+          },
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 1536,
+              "median": 1536,
+              "p95": 1536,
+              "max": 1536
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "deferredFrameRequests": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          }
+        }
+      },
+      "overlay": null
+    },
+    {
+      "side": "baseline",
+      "pass": 3,
+      "workload": "starter",
+      "sha": "b25c990167b13db19dca318ca2f25420085e3518",
+      "status": "passed",
+      "devices": [
+        {
+          "index": 0,
+          "info": {
+            "vendor": "google",
+            "architecture": "swiftshader",
+            "device": "",
+            "description": "",
+            "isFallbackAdapter": true
+          },
+          "requestedAt": 845.5999999999767,
+          "deviceId": 1,
+          "resolvedAt": 848.0999999999767,
+          "features": [
+            "core-features-and-limits",
+            "timestamp-query"
+          ]
+        }
+      ],
+      "initial": {
+        "sampleCount": 4,
+        "pipelineCount": 6,
+        "commands": 52,
+        "visibleCommands": 52,
+        "culledCommands": 0,
+        "drawCalls": 88,
+        "visibleDirectMeshCommands": null,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 35,
+        "imageTextures": 17,
+        "renderBundles": 52,
+        "vertexBytes": 25008,
+        "textureBytes": 247368,
+        "drawUniformCapacityBytes": 16384,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 16480
+      },
+      "final": {
+        "sampleCount": 4,
+        "pipelineCount": 6,
+        "commands": 53,
+        "visibleCommands": 53,
+        "culledCommands": 0,
+        "drawCalls": 90,
+        "visibleDirectMeshCommands": null,
+        "viewportCommands": 1,
+        "visibleViewportCommands": 1,
+        "geometryBuffers": 36,
+        "imageTextures": 17,
+        "renderBundles": 53,
+        "vertexBytes": 25104,
+        "textureBytes": 247368,
+        "drawUniformCapacityBytes": 32768,
+        "gradientCapacityBytes": 16384,
+        "uniformAndStopBytes": 49216
+      },
+      "quality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0.68202724268973,
+        "majorDifferenceFraction": 0.002579888801527575,
+        "referenceInk": 10198,
+        "gpuInk": 9954,
+        "overlay": null
+      },
+      "finalQuality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0.6820319227601183,
+        "majorDifferenceFraction": 0.002579888801527575,
+        "referenceInk": 16350,
+        "gpuInk": 16106,
+        "overlay": null
+      },
+      "phases": {
+        "camera": {
+          "scopePromises": {
+            "observed": 12,
+            "completed": 12,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 6,
+            "min": 625.9000000000233,
+            "median": 751.3000000000466,
+            "p95": 787.5,
+            "max": 787.5
+          },
+          "operationMilliseconds": {
+            "count": 6,
+            "min": 1,
+            "median": 1,
+            "p95": 1.7000000000698492,
+            "max": 1.7000000000698492
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 6,
+            "min": 0.4,
+            "median": 0.5,
+            "p95": 3.5,
+            "max": 3.5
+          },
+          "compilationMilliseconds": null,
+          "compiler": {
+            "geometryBuilds": null,
+            "geometryCacheHits": null,
+            "textureBytes": null,
+            "cacheBytes": null
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": null,
+            "rasterCacheMisses": null
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 12,
+            "min": 20.79999999993015,
+            "median": 77.5,
+            "p95": 663.8000000000466,
+            "max": 663.8000000000466
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 31,
+            "min": 0,
+            "median": 0,
+            "p95": 0.2000000000698492,
+            "max": 2.800000000046566
+          },
+          "drawCalls": {
+            "count": 6,
+            "min": 88,
+            "median": 88,
+            "p95": 88,
+            "max": 88
+          },
+          "visibleCommands": {
+            "count": 6,
+            "min": 52,
+            "median": 52,
+            "p95": 52,
+            "max": 52
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 6,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "gradientUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        }
+      },
+      "overlay": {
+        "quality": {
+          "width": 928,
+          "height": 614,
+          "meanAbsoluteChannelError": 0.7309679087573477,
+          "majorDifferenceFraction": 0.002715025833988543,
+          "referenceInk": 16956,
+          "gpuInk": 16683,
+          "overlay": {
+            "pixels": 640,
+            "gpuMeanChannelError": 21.951041666666665,
+            "absentMeanChannelError": 108.384375,
+            "matchedFraction": 0.984375
+          }
+        },
+        "retention": {
+          "fromRevision": 12,
+          "toRevision": 13,
+          "viewportCommandsBefore": 10,
+          "viewportCommandsAfter": 1,
+          "drawUniformUploadDelta": 256,
+          "drawUniformUploadBudget": 256,
+          "bundleBuildDelta": 1
+        },
+        "selected": {
+          "sampleCount": 4,
+          "pipelineCount": 6,
+          "commands": 62,
+          "visibleCommands": 62,
+          "culledCommands": 0,
+          "drawCalls": 108,
+          "visibleDirectMeshCommands": null,
+          "viewportCommands": 10,
+          "visibleViewportCommands": 10,
+          "geometryBuffers": 45,
+          "imageTextures": 17,
+          "renderBundles": 62,
+          "vertexBytes": 30600,
+          "textureBytes": 247368,
+          "drawUniformCapacityBytes": 32768,
+          "gradientCapacityBytes": 16384,
+          "uniformAndStopBytes": 49216
+        },
+        "cleared": {
+          "sampleCount": 4,
+          "pipelineCount": 6,
+          "commands": 53,
+          "visibleCommands": 53,
+          "culledCommands": 0,
+          "drawCalls": 90,
+          "visibleDirectMeshCommands": null,
+          "viewportCommands": 1,
+          "visibleViewportCommands": 1,
+          "geometryBuffers": 36,
+          "imageTextures": 17,
+          "renderBundles": 53,
+          "vertexBytes": 25104,
+          "textureBytes": 247368,
+          "drawUniformCapacityBytes": 32768,
+          "gradientCapacityBytes": 16384,
+          "uniformAndStopBytes": 49216
+        }
+      }
+    },
+    {
+      "side": "baseline",
+      "pass": 3,
+      "workload": "classes-64",
+      "sha": "b25c990167b13db19dca318ca2f25420085e3518",
+      "status": "passed",
+      "devices": [
+        {
+          "index": 0,
+          "info": {
+            "vendor": "google",
+            "architecture": "swiftshader",
+            "device": "",
+            "description": "",
+            "isFallbackAdapter": true
+          },
+          "requestedAt": 692.6999999999534,
+          "deviceId": 1,
+          "resolvedAt": 695.4000000000233,
+          "features": [
+            "core-features-and-limits",
+            "timestamp-query"
+          ]
+        }
+      ],
+      "initial": {
+        "sampleCount": 4,
+        "pipelineCount": 6,
+        "commands": 384,
+        "visibleCommands": 144,
+        "culledCommands": 240,
+        "drawCalls": 241,
+        "visibleDirectMeshCommands": null,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 256,
+        "imageTextures": 128,
+        "renderBundles": 384,
+        "vertexBytes": 271872,
+        "textureBytes": 1323008,
+        "drawUniformCapacityBytes": 131072,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 131168
+      },
+      "final": {
+        "sampleCount": 4,
+        "pipelineCount": 6,
+        "commands": 384,
+        "visibleCommands": 144,
+        "culledCommands": 240,
+        "drawCalls": 241,
+        "visibleDirectMeshCommands": null,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 256,
+        "imageTextures": 128,
+        "renderBundles": 384,
+        "vertexBytes": 271872,
+        "textureBytes": 1323008,
+        "drawUniformCapacityBytes": 131072,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 131168
+      },
+      "quality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.4302043552735033,
+        "majorDifferenceFraction": 0.0069042738402785575,
+        "referenceInk": 36461,
+        "gpuInk": 36649,
+        "overlay": null
+      },
+      "finalQuality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.4302043552735033,
+        "majorDifferenceFraction": 0.0069042738402785575,
+        "referenceInk": 36461,
+        "gpuInk": 36649,
+        "overlay": null
+      },
+      "phases": {
+        "camera": {
+          "scopePromises": {
+            "observed": 12,
+            "completed": 12,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 6,
+            "min": 683.5999999999767,
+            "median": 719.9000000000233,
+            "p95": 843,
+            "max": 843
+          },
+          "operationMilliseconds": {
+            "count": 6,
+            "min": 0.6999999999534339,
+            "median": 0.9000000000232831,
+            "p95": 1,
+            "max": 1
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 6,
+            "min": 0.9,
+            "median": 1.9,
+            "p95": 5.1,
+            "max": 5.1
+          },
+          "compilationMilliseconds": null,
+          "compiler": {
+            "geometryBuilds": null,
+            "geometryCacheHits": null,
+            "textureBytes": null,
+            "cacheBytes": null
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": null,
+            "rasterCacheMisses": null
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 12,
+            "min": 33.70000000006985,
+            "median": 43.79999999993015,
+            "p95": 94.70000000006985,
+            "max": 94.70000000006985
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 34,
+            "min": 0,
+            "median": 0,
+            "p95": 0.6999999999534339,
+            "max": 6.300000000046566
+          },
+          "drawCalls": {
+            "count": 6,
+            "min": 241,
+            "median": 241,
+            "p95": 241,
+            "max": 241
+          },
+          "visibleCommands": {
+            "count": 6,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 6,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "gradientUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        },
+        "source": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 1219.1999999999534,
+            "median": 1220.7000000000698,
+            "p95": 1380.5,
+            "max": 1380.5
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 100,
+            "median": 102.69999999995343,
+            "p95": 137.80000000004657,
+            "max": 137.80000000004657
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 11,
+            "median": 11.7999,
+            "p95": 12.8,
+            "max": 12.8
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 377.19999999995343,
+            "median": 380.69999999995343,
+            "p95": 558.4000000000233,
+            "max": 558.4000000000233
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            }
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 22.5,
+            "median": 22.800000000046566,
+            "p95": 28.400000000023283,
+            "max": 28.400000000023283
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.09999999997671694,
+            "max": 0.09999999997671694
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 241,
+            "median": 241,
+            "p95": 241,
+            "max": 241
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 271872,
+              "median": 271872,
+              "p95": 271872,
+              "max": 271872
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 98304,
+              "median": 98304,
+              "p95": 98304,
+              "max": 98304
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 32,
+              "median": 32,
+              "p95": 32,
+              "max": 32
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 384,
+              "median": 384,
+              "p95": 384,
+              "max": 384
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        },
+        "transform": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 643.3000000000466,
+            "median": 689.6000000000931,
+            "p95": 731.0999999999767,
+            "max": 731.0999999999767
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 3.5,
+            "median": 3.700000000069849,
+            "p95": 4.399999999906868,
+            "max": 4.399999999906868
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 2,
+            "median": 2.5,
+            "p95": 3.5,
+            "max": 3.5
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 16.300000000046566,
+            "median": 16.599999999976717,
+            "p95": 29.300000000046566,
+            "max": 29.300000000046566
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 1323008,
+              "median": 1323008,
+              "p95": 1323008,
+              "max": 1323008
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 128,
+              "median": 128,
+              "p95": 128,
+              "max": 128
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 41.5,
+            "median": 49.09999999997672,
+            "p95": 56,
+            "max": 56
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.2000000000698492,
+            "max": 0.2000000000698492
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 241,
+            "median": 241,
+            "p95": 241,
+            "max": 241
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 1536,
+              "median": 1536,
+              "p95": 1536,
+              "max": 1536
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        }
+      },
+      "overlay": null
+    },
+    {
+      "side": "baseline",
+      "pass": 3,
+      "workload": "classes-256",
+      "sha": "b25c990167b13db19dca318ca2f25420085e3518",
+      "status": "passed",
+      "devices": [
+        {
+          "index": 0,
+          "info": {
+            "vendor": "google",
+            "architecture": "swiftshader",
+            "device": "",
+            "description": "",
+            "isFallbackAdapter": true
+          },
+          "requestedAt": 666,
+          "deviceId": 1,
+          "resolvedAt": 666.9000000000233,
+          "features": [
+            "core-features-and-limits",
+            "timestamp-query"
+          ]
+        }
+      ],
+      "initial": {
+        "sampleCount": 4,
+        "pipelineCount": 6,
+        "commands": 1536,
+        "visibleCommands": 144,
+        "culledCommands": 1392,
+        "drawCalls": 241,
+        "visibleDirectMeshCommands": null,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 1024,
+        "imageTextures": 512,
+        "renderBundles": 1536,
+        "vertexBytes": 1087488,
+        "textureBytes": 5292032,
+        "drawUniformCapacityBytes": 524288,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 524384
+      },
+      "final": {
+        "sampleCount": 4,
+        "pipelineCount": 6,
+        "commands": 1536,
+        "visibleCommands": 144,
+        "culledCommands": 1392,
+        "drawCalls": 241,
+        "visibleDirectMeshCommands": null,
+        "viewportCommands": 0,
+        "visibleViewportCommands": 0,
+        "geometryBuffers": 1024,
+        "imageTextures": 512,
+        "renderBundles": 1536,
+        "vertexBytes": 1087488,
+        "textureBytes": 5292032,
+        "drawUniformCapacityBytes": 524288,
+        "gradientCapacityBytes": 32,
+        "uniformAndStopBytes": 524384
+      },
+      "quality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.387323795349882,
+        "majorDifferenceFraction": 0.006598899247444681,
+        "referenceInk": 36237,
+        "gpuInk": 36629,
+        "overlay": null
+      },
+      "finalQuality": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 1.387323795349882,
+        "majorDifferenceFraction": 0.006598899247444681,
+        "referenceInk": 36237,
+        "gpuInk": 36629,
+        "overlay": null
+      },
+      "phases": {
+        "camera": {
+          "scopePromises": {
+            "observed": 12,
+            "completed": 12,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 6,
+            "min": 670.0999999999767,
+            "median": 680.5,
+            "p95": 715.4000000000233,
+            "max": 715.4000000000233
+          },
+          "operationMilliseconds": {
+            "count": 6,
+            "min": 0.8000000000465661,
+            "median": 0.9000000000232831,
+            "p95": 1.3000000000465661,
+            "max": 1.3000000000465661
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 6,
+            "min": 1.6999,
+            "median": 2,
+            "p95": 5,
+            "max": 5
+          },
+          "compilationMilliseconds": null,
+          "compiler": {
+            "geometryBuilds": null,
+            "geometryCacheHits": null,
+            "textureBytes": null,
+            "cacheBytes": null
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": null,
+            "rasterCacheMisses": null
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 12,
+            "min": 24.5,
+            "median": 663,
+            "p95": 697.7000000000698,
+            "max": 697.7000000000698
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 24,
+            "min": 0,
+            "median": 0,
+            "p95": 0.10000000009313226,
+            "max": 0.5
+          },
+          "drawCalls": {
+            "count": 6,
+            "min": 241,
+            "median": 241,
+            "p95": 241,
+            "max": 241
+          },
+          "visibleCommands": {
+            "count": 6,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 6,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "gradientUploadBytes": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 6,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 6,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        },
+        "source": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 4130.400000000023,
+            "median": 5041.400000000023,
+            "p95": 6489,
+            "max": 6489
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 194.40000000002328,
+            "median": 216.69999999995343,
+            "p95": 521.1999999999534,
+            "max": 521.1999999999534
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 38.6,
+            "median": 40.1,
+            "p95": 47.5999,
+            "max": 47.5999
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 2831.5999999999767,
+            "median": 3586,
+            "p95": 5155.300000000047,
+            "max": 5155.300000000047
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            }
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 22.29999999993015,
+            "median": 39,
+            "p95": 45.5,
+            "max": 45.5
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.09999999997671694,
+            "max": 0.09999999997671694
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 241,
+            "median": 241,
+            "p95": 241,
+            "max": 241
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 1087488,
+              "median": 1087488,
+              "p95": 1087488,
+              "max": 1087488
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 393216,
+              "median": 393216,
+              "p95": 393216,
+              "max": 393216
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 32,
+              "median": 32,
+              "p95": 32,
+              "max": 32
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 1536,
+              "median": 1536,
+              "p95": 1536,
+              "max": 1536
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        },
+        "transform": {
+          "scopePromises": {
+            "observed": 8,
+            "completed": 8,
+            "pending": 0,
+            "synchronousFailures": 0,
+            "rejected": 0
+          },
+          "wallMilliseconds": {
+            "count": 4,
+            "min": 806.6000000000931,
+            "median": 819.1000000000931,
+            "p95": 849.5,
+            "max": 849.5
+          },
+          "operationMilliseconds": {
+            "count": 4,
+            "min": 14.100000000093132,
+            "median": 16.400000000023283,
+            "p95": 27.900000000023283,
+            "max": 27.900000000023283
+          },
+          "cpuEncodeMilliseconds": {
+            "count": 4,
+            "min": 6.4,
+            "median": 7.6999,
+            "p95": 10,
+            "max": 10
+          },
+          "compilationMilliseconds": {
+            "count": 4,
+            "min": 59.09999999997672,
+            "median": 61.39999999990687,
+            "p95": 84.69999999995343,
+            "max": 84.69999999995343
+          },
+          "compiler": {
+            "geometryBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "geometryCacheHits": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            },
+            "textureBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            },
+            "cacheBytes": {
+              "count": 4,
+              "min": 5292032,
+              "median": 5292032,
+              "p95": 5292032,
+              "max": 5292032
+            }
+          },
+          "rasterCacheDeltas": {
+            "rasterCacheHits": {
+              "count": 4,
+              "min": 512,
+              "median": 512,
+              "p95": 512,
+              "max": 512
+            },
+            "rasterCacheMisses": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            }
+          },
+          "validationScopeMilliseconds": null,
+          "validationDispatchMilliseconds": null,
+          "scopePromiseMilliseconds": {
+            "count": 8,
+            "min": 33.29999999993015,
+            "median": 46.89999999990687,
+            "p95": 60.699999999953434,
+            "max": 60.699999999953434
+          },
+          "queueSubmitCallMilliseconds": {
+            "count": 16,
+            "min": 0,
+            "median": 0,
+            "p95": 0.09999999997671694,
+            "max": 0.09999999997671694
+          },
+          "drawCalls": {
+            "count": 4,
+            "min": 241,
+            "median": 241,
+            "p95": 241,
+            "max": 241
+          },
+          "visibleCommands": {
+            "count": 4,
+            "min": 144,
+            "median": 144,
+            "p95": 144,
+            "max": 144
+          },
+          "visibleDirectMeshCommands": null,
+          "counters": {
+            "geometryUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "textureUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "cameraUploadBytes": {
+              "count": 4,
+              "min": 64,
+              "median": 64,
+              "p95": 64,
+              "max": 64
+            },
+            "drawUniformUploadBytes": {
+              "count": 4,
+              "min": 1536,
+              "median": 1536,
+              "p95": 1536,
+              "max": 1536
+            },
+            "gradientUploadBytes": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "bundleBuilds": {
+              "count": 4,
+              "min": 0,
+              "median": 0,
+              "p95": 0,
+              "max": 0
+            },
+            "presentedFrames": {
+              "count": 4,
+              "min": 1,
+              "median": 1,
+              "p95": 1,
+              "max": 1
+            },
+            "submittedFrames": null,
+            "deferredFrameRequests": null
+          }
+        }
+      },
+      "overlay": null
+    }
+  ],
+  "pairs": [
+    {
+      "baselinePass": 0,
+      "candidatePass": 1,
+      "workload": "starter",
+      "status": "passed",
+      "error": null,
+      "referencePixels": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0,
+        "maxChannelDifference": 0,
+        "changedFraction": 0,
+        "majorDifferenceFraction": 0
+      },
+      "gpuPixels": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0,
+        "maxChannelDifference": 0,
+        "changedFraction": 0,
+        "majorDifferenceFraction": 0
+      },
+      "phases": {
+        "camera": {
+          "baselineWallMedian": 830.6999999999534,
+          "candidateWallMedian": 667.5999999999767,
+          "candidateToBaselineWallMedian": 0.8036595642229615,
+          "baselineEncodeMedian": 0.4,
+          "candidateEncodeMedian": 0.4,
+          "candidateToBaselineEncodeMedian": 1
+        }
+      }
+    },
+    {
+      "baselinePass": 0,
+      "candidatePass": 1,
+      "workload": "classes-64",
+      "status": "passed",
+      "error": null,
+      "referencePixels": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0,
+        "maxChannelDifference": 0,
+        "changedFraction": 0,
+        "majorDifferenceFraction": 0
+      },
+      "gpuPixels": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0,
+        "maxChannelDifference": 0,
+        "changedFraction": 0,
+        "majorDifferenceFraction": 0
+      },
+      "phases": {
+        "camera": {
+          "baselineWallMedian": 673.5,
+          "candidateWallMedian": 669.6000000000349,
+          "candidateToBaselineWallMedian": 0.9942093541203191,
+          "baselineEncodeMedian": 1.8999,
+          "candidateEncodeMedian": 1.9,
+          "candidateToBaselineEncodeMedian": 1.0000526343491762
+        },
+        "source": {
+          "baselineWallMedian": 1246.4000000000233,
+          "candidateWallMedian": 806.5,
+          "candidateToBaselineWallMedian": 0.6470635430038391,
+          "baselineEncodeMedian": 11.6,
+          "candidateEncodeMedian": 9.1,
+          "candidateToBaselineEncodeMedian": 0.7844827586206896
+        },
+        "transform": {
+          "baselineWallMedian": 691.6000000000349,
+          "candidateWallMedian": 694.1999999999534,
+          "candidateToBaselineWallMedian": 1.0037593984961226,
+          "baselineEncodeMedian": 2.8999,
+          "candidateEncodeMedian": 2,
+          "candidateToBaselineEncodeMedian": 0.689678954446705
+        }
+      }
+    },
+    {
+      "baselinePass": 0,
+      "candidatePass": 1,
+      "workload": "classes-256",
+      "status": "passed",
+      "error": null,
+      "referencePixels": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0,
+        "maxChannelDifference": 0,
+        "changedFraction": 0,
+        "majorDifferenceFraction": 0
+      },
+      "gpuPixels": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0,
+        "maxChannelDifference": 0,
+        "changedFraction": 0,
+        "majorDifferenceFraction": 0
+      },
+      "phases": {
+        "camera": {
+          "baselineWallMedian": 656.4000000000233,
+          "candidateWallMedian": 658.5999999999767,
+          "candidateToBaselineWallMedian": 1.0033516148689112,
+          "baselineEncodeMedian": 2.1,
+          "candidateEncodeMedian": 1.6,
+          "candidateToBaselineEncodeMedian": 0.7619047619047619
+        },
+        "source": {
+          "baselineWallMedian": 5187.5,
+          "candidateWallMedian": 1240.3000000000466,
+          "candidateToBaselineWallMedian": 0.23909397590362344,
+          "baselineEncodeMedian": 40.1,
+          "candidateEncodeMedian": 35.1999,
+          "candidateToBaselineEncodeMedian": 0.8778029925187032
+        },
+        "transform": {
+          "baselineWallMedian": 753.7000000000116,
+          "candidateWallMedian": 787.5999999999767,
+          "candidateToBaselineWallMedian": 1.0449781080004836,
+          "baselineEncodeMedian": 7,
+          "candidateEncodeMedian": 6.8999,
+          "candidateToBaselineEncodeMedian": 0.9856999999999999
+        }
+      }
+    },
+    {
+      "baselinePass": 3,
+      "candidatePass": 2,
+      "workload": "starter",
+      "status": "passed",
+      "error": null,
+      "referencePixels": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0,
+        "maxChannelDifference": 0,
+        "changedFraction": 0,
+        "majorDifferenceFraction": 0
+      },
+      "gpuPixels": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0,
+        "maxChannelDifference": 0,
+        "changedFraction": 0,
+        "majorDifferenceFraction": 0
+      },
+      "phases": {
+        "camera": {
+          "baselineWallMedian": 751.3000000000466,
+          "candidateWallMedian": 671.4000000000233,
+          "candidateToBaselineWallMedian": 0.8936510049247727,
+          "baselineEncodeMedian": 0.5,
+          "candidateEncodeMedian": 0.5,
+          "candidateToBaselineEncodeMedian": 1
+        }
+      }
+    },
+    {
+      "baselinePass": 3,
+      "candidatePass": 2,
+      "workload": "classes-64",
+      "status": "passed",
+      "error": null,
+      "referencePixels": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0,
+        "maxChannelDifference": 0,
+        "changedFraction": 0,
+        "majorDifferenceFraction": 0
+      },
+      "gpuPixels": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0,
+        "maxChannelDifference": 0,
+        "changedFraction": 0,
+        "majorDifferenceFraction": 0
+      },
+      "phases": {
+        "camera": {
+          "baselineWallMedian": 719.9000000000233,
+          "candidateWallMedian": 648.3000000000466,
+          "candidateToBaselineWallMedian": 0.900541741908634,
+          "baselineEncodeMedian": 1.9,
+          "candidateEncodeMedian": 1.9,
+          "candidateToBaselineEncodeMedian": 1
+        },
+        "source": {
+          "baselineWallMedian": 1220.7000000000698,
+          "candidateWallMedian": 789.2000000000698,
+          "candidateToBaselineWallMedian": 0.6465142950766156,
+          "baselineEncodeMedian": 11.7999,
+          "candidateEncodeMedian": 9.7,
+          "candidateToBaselineEncodeMedian": 0.8220408647530911
+        },
+        "transform": {
+          "baselineWallMedian": 689.6000000000931,
+          "candidateWallMedian": 699.6999999999534,
+          "candidateToBaselineWallMedian": 1.0146461716935309,
+          "baselineEncodeMedian": 2.5,
+          "candidateEncodeMedian": 2.1,
+          "candidateToBaselineEncodeMedian": 0.8400000000000001
+        }
+      }
+    },
+    {
+      "baselinePass": 3,
+      "candidatePass": 2,
+      "workload": "classes-256",
+      "status": "passed",
+      "error": null,
+      "referencePixels": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0,
+        "maxChannelDifference": 0,
+        "changedFraction": 0,
+        "majorDifferenceFraction": 0
+      },
+      "gpuPixels": {
+        "width": 928,
+        "height": 614,
+        "meanAbsoluteChannelError": 0,
+        "maxChannelDifference": 0,
+        "changedFraction": 0,
+        "majorDifferenceFraction": 0
+      },
+      "phases": {
+        "camera": {
+          "baselineWallMedian": 680.5,
+          "candidateWallMedian": 675.5,
+          "candidateToBaselineWallMedian": 0.9926524614254225,
+          "baselineEncodeMedian": 2,
+          "candidateEncodeMedian": 1.6,
+          "candidateToBaselineEncodeMedian": 0.8
+        },
+        "source": {
+          "baselineWallMedian": 5041.400000000023,
+          "candidateWallMedian": 1291.8000000000466,
+          "candidateToBaselineWallMedian": 0.25623834649106214,
+          "baselineEncodeMedian": 40.1,
+          "candidateEncodeMedian": 34.3,
+          "candidateToBaselineEncodeMedian": 0.855361596009975
+        },
+        "transform": {
+          "baselineWallMedian": 819.1000000000931,
+          "candidateWallMedian": 810.3000000000466,
+          "candidateToBaselineWallMedian": 0.9892565010376687,
+          "baselineEncodeMedian": 7.6999,
+          "candidateEncodeMedian": 6.2,
+          "candidateToBaselineEncodeMedian": 0.8052052624060052
+        }
+      }
+    }
+  ]
+}
