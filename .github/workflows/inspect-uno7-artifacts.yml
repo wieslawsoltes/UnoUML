@@ -1,4 +1,4 @@
-name: Inspect Uno 7 validation artifacts
+name: Probe Uno 7 DOT structural authoring
 on:
   push:
     branches: [codex/uno7-artifact-inspection]
@@ -6,47 +6,126 @@ permissions:
   contents: read
   actions: read
 jobs:
-  inspect:
+  dot-probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
+    env:
+      UNOUML_REQUIRE_WEBGPU: '1'
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: e3bc416796c6c05ef5022d20cd5d842f86b51087
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - uses: actions/download-artifact@v4
-        with:
-          name: workspace-checks
-          run-id: 43142118043
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: diagnostics
-      - name: Summarize bounded public test diagnostics
-        shell: bash
+          cache: npm
+      - name: Prepare native and browser dependencies
         run: |
-          node --input-type=module <<'JS'
-          import {readFile,readdir} from 'node:fs/promises';
-          const root='diagnostics';
-          const files=await readdir(root);
-          console.log('Artifact files:',JSON.stringify(files));
-          for(const name of ['gantt-editing','canvas-editing','dot-structure','files-editing']) {
-            const file=name+'-diagnostics.json';
-            if(!files.includes(file))continue;
-            const d=JSON.parse(await readFile(root+'/'+file,'utf8'));
-            console.log('DIAGNOSTIC '+name+' '+JSON.stringify({keys:Object.keys(d),phases:d.phases,failures:d.failures,
-              finalState:d.finalState,pageErrors:d.pageErrors,requestFailures:d.requestFailures,
-              console:d.console?.slice(-48),nativeActions:d.nativeActions?.slice(-12)}).slice(0,48000));
+          dotnet workload install wasm-tools --skip-manifest-update
+          npm ci --ignore-scripts
+          npm run prepare:renderer
+      - name: Publish and stage the exact application revision
+        run: |
+          dotnet publish src/UnoUML.App -f net10.0-browserwasm -c Release -o "$RUNNER_TEMP/dot-site"
+          node scripts/verify-uno7-assets.mjs src/UnoUML.App/obj/project.assets.json
+          node scripts/stage-pages.mjs "$RUNNER_TEMP/dot-site/wwwroot" "$RUNNER_TEMP/dot-pages"
+      - name: Run the unchanged DOT scenario with bounded diagnostics
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/uno7-dot-probe
+        run: |
+          cat > tests/browser/uno7-dot-probe.mjs <<'JS'
+          import assert from 'node:assert/strict';
+          import { mkdir, writeFile } from 'node:fs/promises';
+          import { resolve } from 'node:path';
+          import { chromium } from 'playwright';
+          import { publishedPrefix, servePublishedSite } from './published-site.mjs';
+          import { graphicsLaunchOptions } from './graphics-options.mjs';
+          import { activateAccessibility, activateControl, getNativeControlDiagnostics } from './native-controls.mjs';
+          import { verifyDotStructuralAuthoring } from './dot-structure.mjs';
+          
+          const appCommit = 'e3bc416796c6c05ef5022d20cd5d842f86b51087';
+          const directory = resolve(process.env.SCREENSHOT_DIR);
+          const started = Date.now();
+          const diagnostics = { appCommit, startedAt:new Date(started).toISOString(), phases:[], console:[],
+            pageErrors:[], requestFailures:[], captureErrors:[], dropped:{} };
+          const limits = { phases:32, console:256, pageErrors:64, requestFailures:128, captureErrors:16 };
+          const record = (field, value) => {
+            if (diagnostics[field].length < limits[field])
+              diagnostics[field].push({elapsedMs:Date.now()-started, ...value});
+            else diagnostics.dropped[field] = (diagnostics.dropped[field] || 0) + 1;
+          };
+          const phase = name => record('phases', {name});
+          const describe = error => ({message:String(error?.message ?? error).slice(0,8192), stack:error?.stack?.slice(0,16384)});
+          let server, browser, page, failure;
+          await mkdir(directory, {recursive:true});
+          try {
+            server = await servePublishedSite(resolve(process.argv[2]));
+            const url = 'http://127.0.0.1:' + server.address().port + publishedPrefix;
+            browser = await chromium.launch(graphicsLaunchOptions());
+            page = await browser.newPage({viewport:{width:1480,height:960}, colorScheme:'light', acceptDownloads:true});
+            page.setDefaultTimeout(35000);
+            page.on('pageerror', error => record('pageErrors', describe(error)));
+            page.on('console', message => record('console', {
+              type:message.type(), text:message.text().slice(0,4096), location:message.location()
+            }));
+            page.on('requestfailed', request => record('requestFailures', {
+              url:request.url().slice(0,4096), type:request.resourceType(), failure:request.failure()?.errorText
+            }));
+            phase('navigating');
+            await page.goto(url, {waitUntil:'domcontentloaded'});
+            await page.locator('.paper svg').first().waitFor({state:'visible',timeout:120000});
+            phase('waiting for startup and accessibility');
+            await activateAccessibility(page);
+            phase('opening split editor');
+            await activateControl(page, page.getByRole('button',{name:'Split',exact:true}));
+            const source = page.getByRole('textbox',{name:'PlantUML source',exact:true});
+            await source.waitFor({state:'visible'});
+            phase('running unchanged DOT authoring scenario');
+            await verifyDotStructuralAuthoring(page, source);
+            assert.deepEqual(diagnostics.pageErrors, [], 'DOT authoring must not produce browser errors');
+            phase('passed');
+            console.log('Passed focused DOT structural authoring at ' + appCommit);
+          } catch (error) {
+            failure = error;
+            phase('failed');
+            diagnostics.failure = describe(error);
+            console.error('Focused DOT structural authoring failed:', error);
+          } finally {
+            if (page && !page.isClosed()) {
+              diagnostics.nativeActions = getNativeControlDiagnostics(page);
+              const capture = async (name, action) => {
+                try { await action(); }
+                catch (error) { record('captureErrors', {name,...describe(error)}); }
+              };
+              await capture('source', async () => {
+                const source = page.getByRole('textbox',{name:'PlantUML source',exact:true});
+                if (await source.count()) await writeFile(resolve(directory,'dot-probe-source.puml'), await source.inputValue({timeout:1000}));
+              });
+              await capture('draft', async () => {
+                const draft = await page.evaluate(() => localStorage.getItem('UnoUML:unouml.document.v1'));
+                if (draft) await writeFile(resolve(directory,'dot-probe-draft.json'), draft);
+              });
+              await capture('html', async () => writeFile(resolve(directory,'dot-probe.html'), await page.content()));
+              await capture('screenshot', async () => page.screenshot({path:resolve(directory,'dot-probe.png'),timeout:15000}));
+            }
+            diagnostics.elapsedMs = Date.now() - started;
+            diagnostics.passed = !failure;
+            await writeFile(resolve(directory,'dot-probe-diagnostics.json'), JSON.stringify(diagnostics,null,2));
+            try { await browser?.close(); }
+            catch (error) { failure ??= error; console.error('Browser cleanup failed:', error); }
+            if (server) await new Promise(resolve => server.close(resolve));
           }
-          for(const name of ['unouml-failure.puml','canvas-editing-failure.puml','files-editing-failure.puml']) {
-            if(!files.includes(name))continue;
-            const source=await readFile(root+'/'+name,'utf8');
-            console.log('SOURCE '+name+' '+JSON.stringify({length:source.length,bom:source.charCodeAt(0)===65279,
-              prefixUnits:source.slice(0,32).split('').map(c=>c.charCodeAt(0)),
-              crlf:(source.match(/\r\n/g)||[]).length,cr:(source.match(/\r/g)||[]).length,lf:(source.match(/\n/g)||[]).length,
-              text:source.slice(0,6000)}));
-          }
-          if(files.includes('dot-structure-failure.html')) {
-            const html=await readFile(root+'/dot-structure-failure.html','utf8');
-            const tags=[...html.matchAll(/<(?:div|button|input|textarea)\b[^>]*>/g)].map(m=>m[0])
-              .filter(tag=>/aria-label="(?:Table cell|Label table|Row [0-9])|role="listbox"/.test(tag));
-            console.log('DOT TABLE SEMANTICS '+JSON.stringify(tags.slice(-40)));
-          }
+          if (failure) throw failure;
           JS
+          node --check tests/browser/uno7-dot-probe.mjs
+          CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/uno7-dot-probe.mjs "$RUNNER_TEMP/dot-pages"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uno7-dot-probe
+          path: ${{ runner.temp }}/uno7-dot-probe/
+          if-no-files-found: warn
