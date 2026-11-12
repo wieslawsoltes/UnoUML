@@ -325,6 +325,11 @@ public sealed record DiagramGpuStatistics(long Revision, long PresentedFrames, i
     int PixelWidth, int PixelHeight, int SampleCount)
 {
     public string Backend { get; init; } = "Uno shared WebGPU";
+    // CPU-side scope completion and dispatcher delays; these are not GPU execution timings.
+    public double ValidationScopeMilliseconds { get; init; }
+    public double ValidationDispatchMilliseconds { get; init; }
+    public long SubmittedFrames { get; init; }
+    public long DeferredFrameRequests { get; init; }
     public int PipelineCount { get; init; }
     public int GeometryBuffers { get; init; }
     public int ImageTextures { get; init; }

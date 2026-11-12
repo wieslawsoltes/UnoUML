@@ -28,6 +28,8 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
     private bool _frameValidationPending;
     private bool _renderAgain;
     private long _presentedFrames;
+    private long _submittedFrames;
+    private long _deferredFrameRequests;
     private DiagramGpuStatistics _statistics = new(-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4);
 
     public event Action? Available;
@@ -126,6 +128,7 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
             }
             if (!_available || _frameValidationPending)
             {
+                _deferredFrameRequests++;
                 _renderAgain = true;
                 return;
             }
@@ -219,6 +222,7 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
 
     private void EndValidation(WebGpuCanvasContext context, ValidationBatch batch)
     {
+        batch.ScopeStartTimestamp = Stopwatch.GetTimestamp();
         for (int i = 0; i < 2; i++)
         {
             nint token;
@@ -252,8 +256,10 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
 
     private void CompleteValidation(ValidationBatch batch)
     {
+        long callbacksCompleted = Stopwatch.GetTimestamp();
         Dispatch(() =>
         {
+            long dispatcherEntered = Stopwatch.GetTimestamp();
             bool available = false, presented = false, invalidate = false;
             lock (_gate)
             {
@@ -277,7 +283,14 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
                     {
                         _presentedFrames++;
                         if (batch.Statistics is { } statistics)
-                            _statistics = statistics with { PresentedFrames = _presentedFrames };
+                            _statistics = statistics with
+                            {
+                                PresentedFrames = _presentedFrames,
+                                SubmittedFrames = _submittedFrames,
+                                DeferredFrameRequests = _deferredFrameRequests,
+                                ValidationScopeMilliseconds = Stopwatch.GetElapsedTime(batch.ScopeStartTimestamp, callbacksCompleted).TotalMilliseconds,
+                                ValidationDispatchMilliseconds = Stopwatch.GetElapsedTime(callbacksCompleted, dispatcherEntered).TotalMilliseconds
+                            };
                     }
                     presented = current && batch.Revision >= 0;
                     invalidate = _renderAgain || !current;
@@ -296,6 +309,7 @@ public sealed unsafe partial class DiagramGpuCanvas : WebGpuCanvasElement
         internal readonly long Revision = revision;
         internal readonly long PresentationVersion = presentationVersion;
         internal readonly bool Initialization = initialization;
+        internal long ScopeStartTimestamp;
         internal int Remaining = 2;
         internal string? Failure;
         internal DiagramGpuStatistics? Statistics;

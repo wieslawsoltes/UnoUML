@@ -70,6 +70,7 @@ public sealed unsafe partial class DiagramGpuCanvas
             commands = api.CommandEncoderFinish(encoder, null);
             Ensure(commands, "frame command buffer");
             api.QueueSubmit(context.Queue, 1, &commands);
+            _submittedFrames++;
             return new(_scene.Revision, _presentedFrames, draws, _scene.CommandCount, visible,
                 _scene.CommandCount - visible, _scene.VertexBytes, _scene.TextureBytes, 0,
                 context.PixelWidth, context.PixelHeight, (int)Samples)
