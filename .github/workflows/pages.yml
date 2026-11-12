@@ -70,8 +70,9 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     # Native/software-GPU authoring includes the primary desktop/mobile flow and
-    # every isolated scenario. Keep enough budget for their complete coverage.
-    timeout-minutes: 40
+    # every isolated scenario, including the later import/native-compatibility
+    # paths. Per-interaction timeouts remain in the browser tests.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
