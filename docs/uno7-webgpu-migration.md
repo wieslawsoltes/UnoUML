@@ -124,6 +124,18 @@ observed in Uno 7.0.32:
   node tracking and conditional restoration preserve lifecycle correctness;
   readonly state, tab order, text and selection remain native.
 
+Uno 7.0.32 initializes semantic TextBox read-only state correctly but omits the
+automation property notification when an existing `TextBox.IsReadOnly` changes.
+`BrowserAccessibility` registers a public dependency-property callback for each
+loaded TextBox and raises `ValuePatternIdentifiers.IsReadOnlyProperty` with its
+previous and current values while automation property listeners are active.
+Uno's browser handler updates both the input's `readOnly` property and
+`aria-readonly`. Unload unregisters the callback; reload takes a fresh baseline.
+This preserves the source editor's read-only state during pending imported-file
+transactions without changing text, focus or selection. The public `FromElement`
+lookup may lazily create a peer; the listener guard keeps inactive accessibility
+trees untouched.
+
 ComboBox registration is idempotent and assigns `AutomationId` before the native
 semantic head is created: Uno 7.0.32 does not project subsequent AutomationId
 changes onto an existing head. Dialog preparation walks public content, border
@@ -370,6 +382,14 @@ patches without recompiling the document. Transform-only edits update a 256-byte
 draw uniform while retaining geometry and bundles. The visible bundle list is
 reused across frames.
 
+Resource synchronization compares each draw slot with its retained command and
+gradient-stop offset. Appending or removing viewport decorations leaves unchanged
+diagram uniforms resident; moved or changed slots upload their 256-byte record.
+Replacing a shared draw or stop arena conservatively uploads the full active draw
+set and rebuilds bindings/bundles. Expanded capacities remain available for later
+interactions. Separate draw-uniform and gradient-capacity counters distinguish
+these occasional growth events from ordinary sparse updates.
+
 ## Ownership, limits and fallback
 
 Uno owns the device, queue and composition target. The custom renderer owns and
@@ -450,7 +470,20 @@ output against the SVG reference, and asserts camera updates do not upload new
 geometry/textures/paint or rebuild bundles. Its live selection check additionally
 compares GPU pixels against both painted and deliberately absent DOM outlines,
 then verifies that selection and Escape leave document history unchanged.
+The same clear step checks retained arena capacities, geometry, textures, compiler
+identity and world commands; its uniform-upload budget is 256 bytes for each
+remaining viewport command. This rejects the previous whole-scene rewrite.
 Unsupported-adapter startup is exercised with `navigator.gpu` unavailable.
+
+Readiness predicates are synchronous; module imports complete before polling.
+Imported-resource checks hold a real IndexedDB write transaction and require the
+exact pending cached source and the current semantic editor's read-only state
+in the same observation. Conflict recovery still checks history and stored bytes.
+Canvas readiness observes the acknowledged native frame every 50 ms and requires
+three unchanged intervals of SVG identity, camera, dimensions, viewBox, scroll
+and scene acknowledgement. It neither forces a render nor retries Fit. Passive
+sample and signature counters distinguish observer scheduling from geometry
+changes if a check times out.
 
 CI uploads graphics metrics, paired screenshots and browser console diagnostics.
 Pull requests run these gates without deploying the production Pages site.
@@ -468,8 +501,9 @@ presentation, pending work, source-independent scene revision, fallback reason,
 compiler counters and C# graphics statistics.
 
 Statistics include command visibility, draw counts, live geometry/image/bundle
-counts, native `viewportCommands` and `visibleViewportCommands`, buffer/texture
-bytes, cumulative upload bytes, bundle builds, CPU encoding time, target dimensions,
+counts, native `viewportCommands` and `visibleViewportCommands`, separate
+`drawUniformCapacityBytes` and `gradientCapacityBytes`, buffer/texture bytes,
+cumulative upload bytes, bundle builds, CPU encoding time, target dimensions,
 sample count and frame count. GPU-frame time is not
 inferred from CPU encoding time. Browser camera wall-time measurements include
 scheduling and software-driver costs.
@@ -478,12 +512,12 @@ Verified rendering gates:
 
 - Release Uno browser build and native graphics link succeeded.
 - Restored Uno framework packages are 7.0.32; Silk.NET.WebGPU is 2.23.0.
-- GPU model tests passed **878 assertions in 14 cases**, including viewport-space culling/clipping, sparse-patch and replacement semantics, resource retention and atomic rejection.
+- At `68dce305`, GPU model tests passed **878 assertions in 14 cases**, including viewport-space culling/clipping, sparse-patch and replacement semantics, resource retention and atomic rejection. The current 17-case suite additionally exercises per-slot uniform retention, gradient repacking, order changes and arena/device recreation.
 - Geometry, source-input projection and presentation-host tests cover 16, 23 and eight cases respectively. The source cases include stale BOM invalidation, equivalent LF/CRLF refresh without a native text-change event, and semantic editors created after the initial frame.
 - Native semantic fixtures passed 82 assertions across 22 cases, including modal, ComboBox focus/selection and TextBox enabled-state lifecycles. The published application passed the corresponding reopened-dialog and renderer-toggle checks.
 - Separate native TextBox focus fixtures passed **30 assertions across 11 cases** in both the fast Chromium gate and the published application. They cover real replacement and delayed insertion, current selection/scroll and subsequent keyboard input, fresh native ownership, explicit user focus changes, composition, hidden/inert/disabled replacements and loaded-generation cleanup.
 - All six independent **Canvas, Files, DOT, structured-diagram, Network and Gantt** authoring suites passed together in CI #68, including free geometry and automatic layout, file-subtree operations, shared-edge/table restructuring, chart axes, task dragging/resizing, dependency propagation, byte-exact BOM/CRLF Save/Open/draft restoration and atomic undo.
-- The focused primary flow through mobile draft reload and Ports passed at revision `69c1426`. The complete CI #68 primary flow then exposed a test reading the modal-isolated source during DOT grouping; that read now observes the current public source identity while interaction locators continue to enforce modal exclusion.
+- The primary flow at `68dce305` passed the earlier mobile/Ports and DOT grouping boundaries, archive loading and archive-alias editing. It then exposed premature pending-import observation and the missing live read-only notification; both are addressed in the subsequent commits. Files, DOT, structured-diagram, Network and Gantt also passed with GPU overlays. Canvas's timeout reported a current accepted, correctly sized frame; its observer is now independent of RAF scheduling and records stability counters.
 - The Core suite passed 4,065 assertions, including 103 new source-projection checks and unchanged startup history for all 33 starter templates.
 - Production WGSL passed **six pipeline creations and 29 offscreen pixel checks**, including mixed world/viewport drawing and double target pixel density.
 - The attached Chromium compiler suite passed 159 assertions and a native non-scaling-stroke measurement, across 14 scenarios.
@@ -498,6 +532,14 @@ occurred in 0.2425% of pixels. Its visible-ink counts were 11,537 GPU pixels and
 the same attached SVG, camera, fonts and browser. These figures characterize this
 fixture and configuration; they do not establish universal SVG pixel equivalence.
 
+The live selection comparison measured a mean absolute channel error of 0.7868
+and a 0.3138% major-difference fraction over the same viewport. Its 654-pixel
+selection mask had mean channel error 23.4842 against the painted reference,
+compared with 109.0545 for the absent-outline control; 98.1651% of mask pixels
+were closer to the painted reference. The selected frame contained ten visible
+viewport commands. Escape removed the selection while preserving the legitimate
+keyboard focus ring. [Recorded metrics and provenance](https://github.com/wieslawsoltes/UnoUML/actions/runs/43166031261).
+
 The scene retained 35 geometry buffers, 17 image textures and 52 ordered render
 bundles. Across the 24 camera updates, geometry uploads remained 25,008 bytes,
 texture uploads remained 247,372 bytes, draw-uniform uploads remained 13,312 bytes,
@@ -505,6 +547,13 @@ gradient uploads remained 32 bytes and bundle builds remained 52. The only chang
 upload counter was the camera buffer: 128 to 1,664 bytes, exactly 24 × 64 bytes.
 Resolution-bucket changes can legitimately recompile curves and text at a higher
 quality level; this retention check stays within one bucket.
+
+The same software-adapter run recorded a final CPU encoding sample of 0.5 ms,
+but camera-acknowledgement wall time had median 782.1 ms and p95 1,474.7 ms.
+Those wall times include browser scheduling and software rendering; they are
+reported separately from command encoding. GPU execution time was not measured.
+The retention counters establish upload and allocation behavior, while interactive
+hardware performance remains a separate qualification.
 
 The final PR validation section records subsequent integrated browser results.
 Earlier layout benchmark numbers in README are historical source-layout timings,
