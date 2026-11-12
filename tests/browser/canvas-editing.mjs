@@ -1,3 +1,4 @@
+import { fitCanvas } from './canvas-frame.mjs';
 import { activateAccessibility, activateControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,readFile} from 'node:fs/promises';
@@ -55,7 +56,7 @@ export async function verifyCanvasEditing(page,source) {
     await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+dx,y+dy,{steps:8});await page.mouse.up();
     for(const key of modifiers.reverse())await page.keyboard.up(key);
   };
-  await fillControl(page, source, input);await shape('A').waitFor();await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, input);await shape('A').waitFor();await fitCanvas(page);
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   // Use the same DOM geometry API for snapshots and polling. Chromium's SVG
   // box-model protocol used by boundingBox() need not share these stroke bounds.
@@ -153,7 +154,7 @@ export async function verifyCanvasEditing(page,source) {
   assert.equal(routedCaptions.slice(routedCaptions.indexOf('\n')+1),cardinalities);
   // This fixture is wider than the preceding three-node scene. Fit it before
   // pointer actions so Playwright need not scroll the clipped canvas to a label.
-  await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fitCanvas(page);
   const intersects=(a,b)=>a.x<b.x+b.width-.1&&a.x+a.width>b.x+.1&&a.y<b.y+b.height-.1&&a.y+a.height>b.y+.1;
   const captionBefore=[await measure(sourceCaption),await measure(targetCaption)];
   for(const caption of captionBefore)for(const id of ['Order','LineItem','Struct','Class','Abstractclass'])
@@ -184,7 +185,7 @@ export async function verifyCanvasEditing(page,source) {
 
   // Nested DOM ordering and collapse projection must not corrupt child geometry or manual paths.
   const grouped='@startuml\npackage ZGroup {\n class AChild\n class BChild\n AChild --> BChild : inner\n}\nclass Outside\nAChild --> Outside : outer\n@enduml';
-  await fillControl(page, source, grouped);await shape('ZGroup').waitFor();await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, grouped);await shape('ZGroup').waitFor();await fitCanvas(page);
   const beforeChild=await measure(shape('ZGroup.AChild')),group=shape('ZGroup').locator('text').filter({hasText:'ZGroup'}).first();
   await drag(group,42,24,['Alt']);
   const afterChild=await measure(shape('ZGroup.AChild'));assert.ok(Math.abs(afterChild.x-beforeChild.x-42)<2&&Math.abs(afterChild.y-beforeChild.y-24)<2,'Group drag translates children exactly once');
@@ -199,7 +200,7 @@ export async function verifyCanvasEditing(page,source) {
 
   const activity='@startuml\nstart\nif (Ready?) then (yes)\n:Accept;\nelse (no)\n:Reject;\nendif\n:Continue;\nstop\n@enduml';
   await fillControl(page, source, activity);await paper.locator('.activity-Join').waitFor();
-  await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fitCanvas(page);
   const join=paper.locator('.activity-Join'),decision=paper.locator('.activity-Decision');
   const joinBefore=await measure(join),decisionBefore=await measure(decision);
   await drag(join,31,23,['Alt']);
@@ -234,7 +235,7 @@ export async function verifyCanvasEditing(page,source) {
   // A BOM remains at file start while the geometry comment moves before @start.
   // Rebuild literal offsets when that changes the renderer's page-relative input.
   const bom='\uFEFF@startdot\ndigraph G { A [label="Original"]; B; A -> B; }\n@enddot';
-  await fillControl(page, source, bom);await shape('node:A').waitFor();await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, bom);await shape('node:A').waitFor();await fitCanvas(page);
   await waitSource(bom);
   assert.equal(await source.inputValue(),bom,'The native source editor retains the BOM before canvas edits');
   const bomDrawing=await paper.locator('svg').first().elementHandle(),bomBefore=await measure(shape('node:A'));

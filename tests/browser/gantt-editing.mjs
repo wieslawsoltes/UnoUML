@@ -1,3 +1,4 @@
+import { fitCanvas } from './canvas-frame.mjs';
 import { activateControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
@@ -16,7 +17,7 @@ export async function verifyGanttEditing(page,source) {
   await fillControl(page, source, fixture);
   await task('Build').waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
-  await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fitCanvas(page);
 
   // Real pointer movement changes dates, propagates a dependent milestone and
   // remains one undo transaction without introducing generic canvas metadata.
@@ -33,7 +34,7 @@ export async function verifyGanttEditing(page,source) {
 
   // The right grip changes duration while keeping the dependency; the left
   // grip keeps the finish date and establishes an explicit new start.
-  await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fitCanvas(page);
   await activateControl(page, task('Build').locator('.gantt-bar'));
   let handle=page.locator('.gantt-handle[data-gantt-handle="end"]');
   await handle.waitFor({state:'visible'});box=await handle.boundingBox();
@@ -44,7 +45,7 @@ export async function verifyGanttEditing(page,source) {
   assert.ok((await source.inputValue()).includes("starts at [D]'s end"),'Finish resize retains the predecessor constraint');
   await undo(fixture);
 
-  await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fitCanvas(page);
   await activateControl(page, task('Build').locator('.gantt-bar'));
   handle=page.locator('.gantt-handle[data-gantt-handle="start"]');box=await handle.boundingBox();
   day=await task('Build').evaluate(e=>Number(e.dataset.ganttUnit)*e.ownerSVGElement.getScreenCTM().a);
@@ -94,7 +95,7 @@ export async function verifyGanttEditing(page,source) {
   // Every bar in a shared `then` statement must select its own task, including
   // the inspector and Delete path; source-line selection alone is ambiguous.
   const chained='@startgantt\n[A] lasts 2 days then [B] lasts 3 days then [C] lasts 1 day\n@endgantt';
-  await fillControl(page, source, chained);await task('B').waitFor();await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, chained);await task('B').waitFor();await fitCanvas(page);
   await activateControl(page, task('B').locator('.gantt-bar'));
   await activateControl(page, page.getByRole('button', {name:'Rename schedule task…',exact:true}));
   dialog=page.getByRole('dialog',{name:'Rename schedule task',exact:true});
@@ -119,7 +120,7 @@ export async function verifyGanttEditing(page,source) {
   // the preceding fixture can measure its old SVG before the source debounce
   // renders the new DPI, then send the pointer to stale screen coordinates.
   const scaled='@startgantt\nskinparam dpi 192\n[Scaled A] as [SA] lasts 2 days\n[Scaled B] as [SB] starts at [SA]\'s end and lasts 3 days\n@endgantt';
-  await fillControl(page, source, scaled);await task('SB').waitFor();await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, scaled);await task('SB').waitFor();await fitCanvas(page);
   bar=task('SB').locator('.gantt-bar');box=await bar.boundingBox();
   day=await task('SB').evaluate(e=>Number(e.dataset.ganttUnit)*e.getScreenCTM().a);
   await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();
@@ -128,7 +129,7 @@ export async function verifyGanttEditing(page,source) {
   await undo(scaled);
 
   const generated="@startgantt\n[Plan /'comment-like'/ stage] as [A] lasts 2 days\n@endgantt";
-  await fillControl(page, source, generated);await task('A').waitFor();await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, generated);await task('A').waitFor();await fitCanvas(page);
   await activateControl(page, task('A').locator('.gantt-bar'));
   assert.equal(await page.locator('.gantt-handle:visible').count(),0,'Generated task geometry has no editable resize affordances');
   bar=task('A').locator('.gantt-bar');box=await bar.boundingBox();
