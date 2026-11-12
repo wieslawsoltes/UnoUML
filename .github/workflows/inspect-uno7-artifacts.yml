@@ -16,7 +16,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: workspace-checks
-          run-id: 43138641183
+          run-id: 43142118043
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: diagnostics
       - name: Summarize bounded public test diagnostics
@@ -35,7 +35,7 @@ jobs:
               finalState:d.finalState,pageErrors:d.pageErrors,requestFailures:d.requestFailures,
               console:d.console?.slice(-48),nativeActions:d.nativeActions?.slice(-12)}).slice(0,48000));
           }
-          for(const name of ['canvas-editing-failure.puml','files-editing-failure.puml']) {
+          for(const name of ['unouml-failure.puml','canvas-editing-failure.puml','files-editing-failure.puml']) {
             if(!files.includes(name))continue;
             const source=await readFile(root+'/'+name,'utf8');
             console.log('SOURCE '+name+' '+JSON.stringify({length:source.length,bom:source.charCodeAt(0)===65279,
