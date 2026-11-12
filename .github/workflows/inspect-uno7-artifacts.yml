@@ -1,4 +1,4 @@
-name: Validate Uno 7 retained canvas overlay integration
+name: Inspect Uno 7 WebGPU quality evidence
 on:
   push:
     branches: [codex/uno7-artifact-inspection]
@@ -6,43 +6,84 @@ permissions:
   contents: read
   actions: read
 jobs:
-  overlay-backend:
+  quality-evidence:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     env:
-      UNOUML_EXPECTED_COMMIT: '8bfba53aec62df83b0f8fb156334c3bab2317efa'
+      UNOUML_RUN_ID: '43161371840'
+      UNOUML_ARTIFACT_ID: '13918181993'
+      UNOUML_EXPECTED_HEAD: '68dce30536672fa6e9464516cfecda2877eb577e'
+      UNOUML_ARTIFACT_DIRECTORY: ${{ runner.temp }}/unouml-gpu-metrics
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.UNOUML_EXPECTED_COMMIT }}
-          persist-credentials: false
-      - name: Verify and record the exact application revision
-        run: |
-          app_checkout_sha="$(git rev-parse HEAD)"
-          test "$app_checkout_sha" = "$UNOUML_EXPECTED_COMMIT"
-          echo "Application checkout: $app_checkout_sha"
-          echo "UNOUML_CHECKOUT_COMMIT=$app_checkout_sha" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/gpu-checks"
-          echo "$app_checkout_sha" > "$RUNNER_TEMP/gpu-checks/app-commit.txt"
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci --ignore-scripts
-      - name: Compile and run GPU scene model contracts
-        run: dotnet run --project tests/UnoUML.Gpu.Tests/UnoUML.Gpu.Tests.csproj -c Release
-      - name: Validate production WGSL and offscreen pixel output
+      - name: Verify the exact application run and artifact provenance
         env:
-          SCREENSHOT_DIR: ${{ runner.temp }}/gpu-checks
+          GH_TOKEN: ${{ github.token }}
         run: |
-          CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/gpu-shaders.mjs
-          CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/gpu-scene.mjs
-      - uses: actions/upload-artifact@v4
-        if: always()
+          node --input-type=module <<'NODE'
+          const repository=process.env.GITHUB_REPOSITORY;
+          const runId=Number(process.env.UNOUML_RUN_ID);
+          const artifactId=Number(process.env.UNOUML_ARTIFACT_ID);
+          const expected=process.env.UNOUML_EXPECTED_HEAD;
+          async function api(path) {
+            const response=await fetch(process.env.GITHUB_API_URL+'/repos/'+repository+path,{
+              headers:{Accept:'application/vnd.github+json',Authorization:'Bearer '+process.env.GH_TOKEN,
+                'X-GitHub-Api-Version':'2022-11-28'}});
+            if(!response.ok)throw new Error('Read-only GitHub API request failed: '+response.status);
+            return response.json();
+          }
+          const run=await api('/actions/runs/'+runId);
+          if(run.id!==runId||run.head_sha!==expected)throw new Error('Workflow run does not match the requested application revision');
+          const artifact=await api('/actions/artifacts/'+artifactId);
+          if(artifact.id!==artifactId||artifact.name!=='gpu-workspace'||artifact.expired||
+            artifact.workflow_run?.id!==runId||artifact.workflow_run?.head_sha!==expected)
+            throw new Error('Artifact identity or workflow provenance did not match');
+          console.log('METRIC_PROVENANCE '+JSON.stringify({runId,headSha:run.head_sha,status:run.status,
+            conclusion:run.conclusion,artifactId,name:artifact.name,sizeInBytes:artifact.size_in_bytes}));
+          NODE
+      - uses: actions/download-artifact@v4
         with:
-          name: gpu-checks
-          path: ${{ runner.temp }}/gpu-checks/
-          if-no-files-found: warn
+          artifact-ids: ${{ env.UNOUML_ARTIFACT_ID }}
+          run-id: ${{ env.UNOUML_RUN_ID }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: ${{ env.UNOUML_ARTIFACT_DIRECTORY }}
+      - name: Print bounded baseline and selection-mask metrics
+        run: |
+          node --input-type=module <<'NODE'
+          import {readdir,readFile,stat} from 'node:fs/promises';
+          import {resolve,relative,basename,join} from 'node:path';
+          const root=resolve(process.env.UNOUML_ARTIFACT_DIRECTORY);
+          const files=[];let entries=0;
+          async function visit(directory,depth=0) {
+            if(depth>6)throw new Error('Artifact directory exceeds the inspection depth budget');
+            for(const item of await readdir(directory,{withFileTypes:true})) {
+              if(++entries>4096)throw new Error('Artifact exceeds the inspection entry budget');
+              const path=join(directory,item.name);
+              if(item.isDirectory())await visit(path,depth+1);
+              else if(item.isFile()&&(item.name.endsWith('-quality.json')||item.name==='gpu-presentation.json'))files.push(path);
+            }
+          }
+          await visit(root);
+          if(files.length>12)throw new Error('Unexpected number of quality reports');
+          for(const required of ['gpu-starter-quality.json','gpu-selection-overlay-quality.json','gpu-presentation.json'])
+            if(!files.some(path=>basename(path)===required))throw new Error('Missing requested quality evidence: '+required);
+          let outputBytes=0;
+          for(const path of files.sort()) {
+            const size=(await stat(path)).size;
+            if(size>512*1024)throw new Error('Quality report exceeds the bounded JSON read budget: '+basename(path));
+            const value=JSON.parse(await readFile(path,'utf8'));
+            let evidence=value;
+            if(basename(path)==='gpu-presentation.json') {
+              const {samples,...summary}=value;
+              evidence={...summary,samples:{count:Array.isArray(samples)?samples.length:0,
+                first:samples?.[0]??null,last:samples?.at(-1)??null}};
+            }
+            const record=JSON.stringify({file:relative(root,path),bytes:size,evidence});
+            const bytes=Buffer.byteLength(record);
+            if(bytes>24000||outputBytes+bytes>64000)throw new Error('Quality output exceeds its log budget: '+basename(path));
+            outputBytes+=bytes;
+            console.log('QUALITY_EVIDENCE '+record);
+          }
+          console.log('QUALITY_EVIDENCE_COMPLETE '+JSON.stringify({files:files.length,outputBytes,
+            note:'CPU encode and camera wall durations are separate measurements; no GPU timing or hardware FPS claim.'}));
+          NODE
