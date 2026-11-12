@@ -38,6 +38,8 @@ internal static class Program
             ("camera changes and numerical validation", CameraUpdates),
             ("camera-only transactions retain exact resource collections", CameraTransactions),
             ("conservative transformed bounds and culling", BoundsAndCulling),
+            ("viewport overlays retain pixel geometry across camera changes", ViewportOverlays),
+            ("coordinate-space validation is atomic", CoordinateSpaceValidation),
             ("gradient and clipping protocol", PaintAndClip),
             ("bounded command and texture payloads", Budgets),
             ("reset replaces the retained scene", ResetScene)
@@ -330,6 +332,75 @@ internal static class Program
         Check(!new GpuRect(0, 100, 10, 10).Intersects(100, 100), "Below-viewport command must cull");
         Check(!new GpuRect(-20, 0, 10, 10).Intersects(100, 100), "Left-of-viewport command must cull");
         Check(!new GpuRect(0, 0, 0, 10).Intersects(100, 100), "Degenerate command must cull");
+    }
+
+
+    private static void ViewportOverlays()
+    {
+        var model = Seed();
+        GpuCommand triangle = model.Commands["triangle"];
+        GpuImage glyph = model.Images["glyph"];
+        Equal(triangle.Space, GpuCoordinateSpace.World);
+        Equal(triangle.ViewportBounds(model.Camera), new GpuRect(12, 14, 40, 20));
+        Check(triangle.ViewportClip(model.Camera) is null, "An unclipped world command stays unclipped");
+        Accept(model, """
+            {"revision":2,"commands":[{"id":"handle","kind":"mesh","space":"viewport",
+              "vertices":[0,0,8,0,0,8,0,8,8,0,8,8],"bounds":[0,0,8,8],
+              "matrix":[1,0,0,1,40,50],"clip":[40,50,6,7]}],
+              "order":["triangle","label","handle"]}
+            """);
+        GpuCommand handle = model.Commands["handle"];
+        Equal(handle.Space, GpuCoordinateSpace.Viewport);
+        Equal(handle.ViewportBounds(model.Camera), new GpuRect(40, 50, 8, 8));
+        Equal(handle.ViewportClip(model.Camera), (GpuRect?)new GpuRect(40, 50, 6, 7));
+        Check(ReferenceEquals(model.Commands["triangle"], triangle), "Adding an overlay retains the diagram command");
+        Check(ReferenceEquals(model.Images["glyph"], glyph), "Adding an overlay retains the text texture");
+
+        var commands = model.Commands;
+        var images = model.Images;
+        Accept(model, """{"revision":3,"camera":[0,4,-4,0,400,-100]}""");
+        Check(ReferenceEquals(model.Commands, commands), "Camera updates retain the combined command collection");
+        Check(ReferenceEquals(model.Images, images), "Camera updates retain the combined texture collection");
+        Equal(handle.ViewportBounds(model.Camera), new GpuRect(40, 50, 8, 8));
+        Equal(handle.ViewportClip(model.Camera), (GpuRect?)new GpuRect(40, 50, 6, 7));
+        Equal(triangle.ViewportBounds(model.Camera), new GpuRect(360, -100, 40, 80));
+        Check(handle.ViewportBounds(model.Camera).Intersects(640, 480), "Visible overlay ignores the offscreen diagram camera");
+        Check(!triangle.ViewportBounds(model.Camera).Intersects(640, 480), "World geometry still culls after camera movement");
+
+        Accept(model, """{"revision":4,"commands":[{"id":"handle","matrix":[0,1,-1,0,60,70]}]}""");
+        GpuCommand moved = model.Commands["handle"];
+        Equal(moved.Space, GpuCoordinateSpace.Viewport);
+        Equal(moved.ViewportBounds(model.Camera), new GpuRect(52, 70, 8, 8));
+        Equal(moved.ViewportClip(model.Camera), (GpuRect?)new GpuRect(40, 50, 6, 7));
+        Check(ReferenceEquals(moved.Vertices, handle.Vertices), "Overlay position updates retain exact pixel geometry");
+        Check(ReferenceEquals(moved.Paint, handle.Paint), "Overlay position updates retain paint");
+
+        Accept(model, """{"revision":5,"commands":[{"id":"handle","space":"world"}]}""");
+        Equal(model.Commands["handle"].Space, GpuCoordinateSpace.World);
+        Equal(model.Commands["handle"].ViewportClip(model.Camera), (GpuRect?)new GpuRect(172, 60, 28, 24));
+        Check(ReferenceEquals(model.Commands["handle"].Vertices, handle.Vertices), "Changing coordinate space preserves geometry");
+
+        Accept(model, """{"revision":6,"commands":[{"id":"handle","space":"viewport"}]}""");
+        Accept(model, """{"revision":7,"commands":[{"id":"handle","kind":"image","image":"glyph","bounds":[0,0,1,1]}]}""");
+        GpuCommand replaced = model.Commands["handle"];
+        Equal(replaced.Space, GpuCoordinateSpace.World);
+        Equal(replaced.Matrix, Matrix3x2.Identity);
+        Check(replaced.Clip is null, "Full replacement resets an omitted viewport clip");
+        Accept(model, """{"revision":8,"remove":["handle"]}""");
+        Equal(model.CommandCount, 2);
+        Equal(model.VertexBytes, 24L);
+        Check(ReferenceEquals(model.Commands["triangle"], triangle), "Removing overlay chrome retains diagram geometry");
+        Check(ReferenceEquals(model.Images["glyph"], glyph), "Removing overlay chrome retains diagram textures");
+    }
+
+    private static void CoordinateSpaceValidation()
+    {
+        var model = Seed();
+        foreach (string space in new[] { "\"screen\"", "\"\"", "\"VIEWPORT\"", "null", "42", "true", "{}", "[]" })
+            Reject(model, """{"revision":2,"commands":[{"id":"triangle","matrix":[1,0,0,1,9,8],"space":""" + space + "}]}");
+        Accept(model, """{"revision":2,"commands":[{"id":"triangle","space":"world"},{"id":"label","space":"viewport"}]}""");
+        Equal(model.Commands["triangle"].Space, GpuCoordinateSpace.World);
+        Equal(model.Commands["label"].Space, GpuCoordinateSpace.Viewport);
     }
 
     private static void PaintAndClip()
