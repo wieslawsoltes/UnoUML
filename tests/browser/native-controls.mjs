@@ -364,10 +364,30 @@ export async function activateControl(page, locator, options = {}) {
 
 /** Replace native TextBox text through the same selection path as keyboard users. */
 export async function fillControl(page, locator, value, options = {}) {
-  await locator.waitFor({ state: 'attached', timeout: options.timeout });
-  if (!await locator.evaluate(element => !!element.closest('#uno-semantics-root'))) {
-    return locator.fill(value, options);
+  const timeout = options.timeout ?? 30_000;
+  const deadline = timeout === 0 ? Infinity : Date.now() + timeout;
+  const remaining = () => timeout === 0 ? 0 : Math.max(1, deadline - Date.now());
+  let state;
+  while (Date.now() < deadline) {
+    try {
+      await locator.waitFor({ state: 'attached', timeout: remaining() });
+      state = await locator.evaluate(element => ({
+        attached: element.isConnected,
+        native: !!element.closest('#uno-semantics-root')
+      }));
+      if (state.attached) break;
+    } catch (error) {
+      if (!/element is not attached to the DOM/i.test(error.message)) throw error;
+      state = { attached: false };
+    }
+    // A native relayout can detach the sampled semantic subtree between the
+    // attached wait and ancestry read. Never classify that missing ancestry as
+    // a DOM editor: locator.fill would re-resolve and bypass native Select All.
+    // Re-resolve only before either edit path has dispatched any input.
+    await page.waitForTimeout(Math.min(25, remaining() || 25));
   }
+  assert.ok(state?.attached, `Textbox was not attached for fill classification: ${JSON.stringify(state)}`);
+  if (!state.native) return locator.fill(value, options);
 
   return traceNativeInput(page, locator, 'native-fill', () => fillNativeControl(page, locator, value, options),
     { failureOnly: true });
