@@ -42,13 +42,16 @@ export async function verifyAccessibility(page) {
     const picker = dialog.getByRole('combobox', { name: 'Starting diagram', exact: true });
     await picker.press('Enter');
     const choices = page.getByRole('listbox', { name: 'Starting diagram', exact: true });
-    await choices.waitFor({ state: 'visible' });
+    // Uno's virtualized listbox is a logical accessibility root without a box.
+    // Role resolution still excludes aria-hidden; native option focus + Enter
+    // performs the actual selection even if its semantic bounds are pending.
+    await choices.waitFor({ state: 'attached' });
     // Uno 7 uses the ARIA combobox relationship (controls + activedescendant),
     // replacing the native-DOM adapter's aria-owns workaround for portalled lists.
     assert.equal(await picker.getAttribute('aria-controls'), await choices.getAttribute('id'));
     assert.equal(await picker.getAttribute('aria-haspopup'), 'listbox');
     const checkout = choices.getByRole('option', { name: 'Checkout flow', exact: true, selected: true });
-    await checkout.waitFor({ state: 'visible' });
+    await checkout.waitFor({ state: 'attached' });
     assert.equal(await picker.getAttribute('aria-activedescendant'), await checkout.getAttribute('id'),
       'The combobox exposes its selected option through the live listbox');
     assert.equal(await checkout.getAttribute('aria-posinset'), '1');
@@ -58,17 +61,21 @@ export async function verifyAccessibility(page) {
       const popup = document.getElementById(element.getAttribute('aria-controls'));
       return !!(element.closest('[role="dialog"]')?.contains(focused) || popup?.contains(focused));
     }), true, 'Keyboard focus remains in the modal or its controlled popup');
-    await choices.getByRole('option', { name: 'Domain model', exact: true }).press('Enter');
-    await choices.waitFor({ state: 'hidden' });
+    const domain = choices.getByRole('option', { name: 'Domain model', exact: true });
+    await domain.focus();
+    assert.equal(await domain.evaluate(element => document.activeElement === element), true,
+      'Logical option focus enters the native ComboBoxItem before committing');
+    await page.keyboard.press('Enter');
+    await choices.waitFor({ state: 'detached' });
     await dialog.getByRole('combobox', { name: 'Starting diagram', expanded: false }).waitFor();
     assert.equal(await picker.getAttribute('aria-controls'), null, 'Closing the popup releases its list relationship');
     await picker.press('Enter');
     const selected = choices.getByRole('option', { name: 'Domain model', exact: true, selected: true });
-    await selected.waitFor({ state: 'visible' });
+    await selected.waitFor({ state: 'attached' });
     assert.equal(await picker.getAttribute('aria-activedescendant'), await selected.getAttribute('id'));
-    await choices.getByRole('option', { name: 'Checkout flow', exact: true, selected: false }).waitFor({ state: 'visible' });
+    await choices.getByRole('option', { name: 'Checkout flow', exact: true, selected: false }).waitFor({ state: 'attached' });
     await picker.press('Escape');
-    await choices.waitFor({ state: 'hidden' });
+    await choices.waitFor({ state: 'detached' });
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).press('Enter');
     await dialog.waitFor({ state: 'hidden' });
     await button('New').waitFor({ state: 'visible' });

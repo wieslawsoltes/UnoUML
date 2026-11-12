@@ -33,6 +33,7 @@ public sealed partial class MainPage : Page
     {
         InitializeComponent();
         BrowserSourceText.Attach(SourceEditor);
+        BrowserAccessibility.AttachComboBox(PagePicker);
         BuildCommands();
         ViewportHost.Children.Add(viewport);
         SourceEditor.SelectionChanged += (_, _) => OnSourceSelection();

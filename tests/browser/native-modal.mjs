@@ -194,6 +194,76 @@ export async function verifyNativeModal(page, { artifactDir } = {}) {
     equal(await frame.locator('#uno-semantics-application').getAttribute('aria-hidden'), null, 'The final scope restores accessible ancestry');
     report.cases.push('generation-safe reopened dialog');
 
+    // Native virtualized options have logical roles even when their visual
+    // bounds have not been projected. Their selected state comes exclusively
+    // from the public ComboBox.SelectedIndex snapshot, never focused-item IDs.
+    const comboScope = (operation, generation, selectedIndex) => frame.evaluate(({ operation, generation, selectedIndex }) =>
+      modalModule[operation]('selection-picker', generation, selectedIndex), { operation, generation, selectedIndex });
+    await frame.evaluate(() => {
+      const root = document.getElementById('uno-semantics-root');
+      root.innerHTML = '<div id="uno-semantics-selection-head" role="combobox" aria-label="Selection picker" aria-expanded="true" aria-activedescendant="uno-semantics-selection-a" xamlautomationid="selection-picker" tabindex="0"></div>';
+      globalThis.selectionFixture = { root, options: '<div id="uno-semantics-selection-list" role="listbox" aria-label="Selection choices" style="position:absolute"><div id="uno-semantics-selection-a" role="option" aria-label="Alpha" aria-posinset="1" aria-setsize="3" tabindex="-1" style="position:absolute;width:0;height:0"></div><div id="uno-semantics-selection-b" role="option" aria-label="Beta" aria-posinset="2" aria-setsize="3" tabindex="-1" style="position:absolute;width:0;height:0"></div></div>' };
+    });
+    await comboScope('beginComboScope', 1, 1);
+    await frame.evaluate(() => selectionFixture.root.insertAdjacentHTML('beforeend', selectionFixture.options));
+    equal(await frame.locator('#uno-semantics-selection-b').getAttribute('aria-selected'), null,
+      'Unrelated logical options are not projected before the live controls relationship');
+    await frame.evaluate(() => document.getElementById('uno-semantics-selection-head').setAttribute('aria-controls', 'uno-semantics-selection-list'));
+    const alpha = selected => frame.getByRole('option', { name: 'Alpha', exact: true, selected });
+    const beta = selected => frame.getByRole('option', { name: 'Beta', exact: true, selected });
+    await beta(true).waitFor({ state: 'attached' });
+    equal(await alpha(false).count(), 1, 'Initial public selected index projects false onto other options');
+    equal(await frame.locator('#uno-semantics-selection-head').getAttribute('aria-activedescendant'), 'uno-semantics-selection-a',
+      'Selection projection leaves a different native focused option unchanged');
+    report.cases.push('initial ComboBox selection with late logical popup relationship');
+
+    await comboScope('updateComboScope', 1, 0);
+    await alpha(true).waitFor({ state: 'attached' });
+    equal(await beta(false).count(), 1, 'A public selection change clears the previously selected option');
+    await comboScope('updateComboScope', 1, -1);
+    equal(await alpha(false).count(), 1, 'SelectedIndex minus one clears the first option');
+    equal(await beta(false).count(), 1, 'SelectedIndex minus one clears every option');
+    await comboScope('updateComboScope', 1, 2);
+    await frame.evaluate(() => document.getElementById('uno-semantics-selection-list').insertAdjacentHTML('beforeend', '<div id="uno-semantics-selection-c" role="option" aria-label="Gamma" aria-posinset="3" aria-setsize="3" tabindex="-1" style="position:absolute;width:0;height:0"></div>'));
+    await frame.getByRole('option', { name: 'Gamma', exact: true, selected: true }).waitFor({ state: 'attached' });
+    equal(await alpha(false).count(), 1, 'Late realization applies the current snapshot without changing other options');
+    await frame.evaluate(() => {
+      document.getElementById('uno-semantics-selection-a').setAttribute('aria-posinset', '3');
+      document.getElementById('uno-semantics-selection-c').setAttribute('aria-posinset', '1');
+    });
+    await alpha(true).waitFor({ state: 'attached' });
+    equal(await frame.getByRole('option', { name: 'Gamma', exact: true, selected: false }).count(), 1,
+      'Virtualized positions, not DOM order or focus, define the selected index');
+    report.cases.push('ComboBox selection changes, empty selection and late/reordered options');
+
+    await comboScope('updateComboScope', 1, 1);
+    await frame.evaluate(() => {
+      selectionFixture.oldOption = document.getElementById('uno-semantics-selection-b');
+      document.getElementById('uno-semantics-selection-list').remove();
+      selectionFixture.root.insertAdjacentHTML('beforeend', selectionFixture.options);
+    });
+    await beta(true).waitFor({ state: 'attached' });
+    equal(await frame.evaluate(() => !selectionFixture.oldOption.isConnected), true,
+      'The selection scope projects onto replacement option objects');
+    await comboScope('beginComboScope', 2, 0);
+    equal(await comboScope('updateComboScope', 1, 1), false, 'A stale selection update cannot change a reopened ComboBox');
+    equal(await comboScope('endComboScope', 1), false, 'A stale popup close cannot release the current ComboBox scope');
+    equal(await alpha(true).count(), 1, 'The newer opening retains its authoritative selected index');
+    await frame.evaluate(() => document.getElementById('uno-semantics-selection-b').setAttribute('aria-selected', 'true'));
+    await comboScope('endComboScope', 2);
+    equal(await frame.locator('#uno-semantics-selection-a').getAttribute('aria-selected'), null,
+      'Closing releases unchanged bridge metadata to its original baseline');
+    equal(await frame.locator('#uno-semantics-selection-b').getAttribute('aria-selected'), 'true',
+      'Closing preserves a later native or external selected-state value');
+    await frame.evaluate(async () => {
+      document.getElementById('uno-semantics-selection-list').remove();
+      selectionFixture.root.insertAdjacentHTML('beforeend', selectionFixture.options);
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    equal(await frame.locator('#uno-semantics-selection-a').getAttribute('aria-selected'), null,
+      'No ComboBox observer continues projecting after the final close');
+    report.cases.push('ComboBox replacement, generation safety and scoped metadata cleanup');
+
     // Model the tagged Uno event ordering: the public enable handler removes
     // its element and focuses a native control before document key forwarding.
     await frame.evaluate(() => {
