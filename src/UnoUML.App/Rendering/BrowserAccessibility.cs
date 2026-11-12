@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices.JavaScript;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -49,12 +50,29 @@ internal static partial class BrowserAccessibility
         }
         BrowserInputDiagnostics.Attach(text, automationId);
         int generation = 0;
+        long readOnlyCallback = 0;
         bool loaded = false;
         void Begin()
         {
             if (loaded) return;
             loaded = true;
             int current = ++generation;
+            bool lastReadOnly = text.IsReadOnly;
+            // Uno 7's TextBox setter omits the live IsReadOnly automation event.
+            // Its existing browser peer handler projects both readOnly and ARIA;
+            // initial/recreated semantic elements already read the current value.
+            readOnlyCallback = text.RegisterPropertyChangedCallback(TextBox.IsReadOnlyProperty, (_, _) =>
+            {
+                bool previous = lastReadOnly, value = text.IsReadOnly;
+                lastReadOnly = value;
+                if (!loaded || current != generation || !text.IsLoaded || previous == value) return;
+                try
+                {
+                    FrameworkElementAutomationPeer.FromElement(text)?.RaisePropertyChangedEvent(
+                        ValuePatternIdentifiers.IsReadOnlyProperty, previous, value);
+                }
+                catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+            });
             try
             {
                 BeginTextBoxScope(automationId, current, text.IsEnabled, () =>
@@ -75,6 +93,8 @@ internal static partial class BrowserAccessibility
         {
             if (!loaded) return;
             loaded = false;
+            text.UnregisterPropertyChangedCallback(TextBox.IsReadOnlyProperty, readOnlyCallback);
+            readOnlyCallback = 0;
             try { EndTextBoxScope(automationId, generation); }
             catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
         };
