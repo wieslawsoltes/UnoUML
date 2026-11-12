@@ -1,4 +1,4 @@
-import { clickControl, fillControl } from './native-controls.mjs';
+import { activateControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyDotEditing(page, source) {
@@ -15,17 +15,17 @@ export async function verifyDotEditing(page, source) {
   await node('b').filter({hasText:'Changed'}).waitFor();
   await surface.press('Control+z');
   assert.equal(await source.inputValue(),dot);
-  await clickControl(page, node('a'));
+  await activateControl(page, node('a'));
   await page.getByRole('button',{name:'Connect selected object',exact:true}).press('Enter');
-  await clickControl(page, node('c'));
+  await activateControl(page, node('c'));
   await page.waitForFunction(() => [...document.querySelectorAll('textarea')].some(el=>el.value.includes('a -> c;')));
   assert.match(await source.inputValue(),/a -> c;/);
   await surface.press('Control+z');
   assert.equal(await source.inputValue(),dot);
   const edge = paper.locator('[data-dot-id="edge:0"]');
-  await clickControl(page, edge.locator('text').filter({hasText:'Calls'}));
+  await activateControl(page, edge.locator('text').filter({hasText:'Calls'}));
   await page.getByRole('button',{name:'Reattach target endpoint',exact:true}).press('Enter');
-  await clickControl(page, node('c'));
+  await activateControl(page, node('c'));
   await page.waitForFunction(() => [...document.querySelectorAll('textarea')].some(el=>el.value.includes('a -> c [label="Calls"]')));
   assert.equal(await source.inputValue(),dot.replace('a -> b [label="Calls"]','a -> c [label="Calls"]'));
   await surface.press('Control+z');
@@ -33,7 +33,7 @@ export async function verifyDotEditing(page, source) {
   await fillControl(page, editor, 'Sends');
   await editor.press('Enter');
   assert.equal(await source.inputValue(),dot.replace('"Calls"','"Sends"'));
-  await clickControl(page, edge.locator('text').filter({hasText:'Sends'}));
+  await activateControl(page, edge.locator('text').filter({hasText:'Sends'}));
   await surface.press('Delete');
   assert.doesNotMatch(await source.inputValue(),/a -> b/);
   await surface.press('Control+z');
@@ -71,7 +71,7 @@ export async function verifyDotEditing(page, source) {
   const strict = '@startdot\nstrict digraph { a -> b [label="First"]; a -> b [color=red]; c; }\n@enddot';
   await fillControl(page, source, strict);
   const merged = paper.locator('[data-dot-kind="edge"][data-dot-merged="true"]');
-  await clickControl(page, merged.locator('text').filter({hasText:'First'}));
+  await activateControl(page, merged.locator('text').filter({hasText:'First'}));
   await page.getByRole('button',{name:'Reattach target endpoint',exact:true}).waitFor({state:'visible'});
   await surface.press('Delete');
   await merged.waitFor({state:'detached'});
@@ -123,8 +123,8 @@ async function verifyDotStructure(page, source) {
     assert.equal(await paper.getAttribute('data-renderer'),'managed');
   };
   const pair = async (first, second) => {
-    await clickControl(page, node(first));
-    await clickControl(page, node(second), {modifiers:['Shift']});
+    await activateControl(page, node(first));
+    await activateControl(page, node(second), {modifiers:['Shift']});
     await page.getByText('DOT MULTIPLE SELECTION',{exact:true}).waitFor();
     assert.equal(await paper.locator('.multi-mark').count(),1);
     assert.equal(await page.getByRole('button',{name:'Connect selected object',exact:true}).isVisible(),false);
@@ -147,11 +147,11 @@ async function verifyDotStructure(page, source) {
   await surface.press('Control+g');
   await page.getByRole('dialog',{name:'Group selected DOT nodes',exact:true}).waitFor();
   await fillControl(page, page.locator('textarea:visible').last(), 'Canvas group');
-  await clickControl(page, page.getByRole('button', {name:'Group',exact:true}));
+  await activateControl(page, page.getByRole('button', {name:'Group',exact:true}));
   const cluster = paper.locator('[data-dot-id="cluster:cluster_Group"]');
   await cluster.locator('text').filter({hasText:'Canvas group'}).waitFor();
   assert.match(await source.inputValue(),/label="Canvas group"/);
-  await clickControl(page, cluster.locator('text').filter({hasText:'Canvas group'}));
+  await activateControl(page, cluster.locator('text').filter({hasText:'Canvas group'}));
   await page.getByRole('button',{name:'Ungroup cluster',exact:true}).waitFor();
   await surface.press('Control+Shift+g');
   await cluster.waitFor({state:'detached'});
@@ -163,7 +163,7 @@ async function verifyDotStructure(page, source) {
   await sourceValue(original);
   await cluster.waitFor({state:'detached'});
 
-  await clickControl(page, node('a'));
+  await activateControl(page, node('a'));
   await surface.press('Delete');
   await node('a').waitFor({state:'detached'});
   assert.equal(await paper.locator('[data-dot-kind="node"]').count(),2);
@@ -193,7 +193,7 @@ async function verifyDotStructure(page, source) {
 
   const chain = '@startdot\ndigraph { node[color=blue]; a -> b -> c -> d [color=red,label="Chain"]; }\n@enddot';
   await load(chain);
-  await clickControl(page, node('b')); await surface.press('Delete');
+  await activateControl(page, node('b')); await surface.press('Delete');
   await node('b').waitFor({state:'detached'});
   assert.equal(await paper.locator('[data-dot-kind="node"]').count(),3);
   assert.equal(await paper.locator('[data-dot-from-id="c"][data-dot-to-id="d"]').count(),1);
@@ -226,11 +226,11 @@ async function verifyDotStructure(page, source) {
 
   const product = '@startdot\ndigraph { subgraph cluster_left { a; } -> subgraph cluster_right { b; } [label="Product"]; }\n@enddot';
   await load(product);
-  await clickControl(page, node('a'));
+  await activateControl(page, node('a'));
   assert.equal(await page.getByRole('button',{name:'Duplicate node',exact:true}).count(),0);
   await surface.press('Control+d');
   assert.equal(await source.inputValue(),product);
-  await clickControl(page, node('a')); await surface.press('Delete');
+  await activateControl(page, node('a')); await surface.press('Delete');
   await node('a').waitFor({state:'detached'});
   assert.equal(await paper.locator('[data-dot-kind="edge"]').count(),0);
   await node('b').waitFor();

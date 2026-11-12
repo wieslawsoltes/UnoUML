@@ -1,4 +1,4 @@
-import { clickControl, fillControl } from './native-controls.mjs';
+import { activateControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyCanvasEvents(page, render) {
@@ -31,15 +31,15 @@ export async function verifyCanvasEvents(page, render) {
   await field.press('Control+Enter');
   assert.deepEqual(await page.evaluate(() => log.at(-1)), {kind:'label', revision:43, text:'edited\nreference\n'});
   await page.evaluate(() => ui.beginLabelEdit('diagram', 'x^2', 44, false, 'asciimath'));
-  await clickControl(page, page.getByRole('button', {name:'Insert fraction', exact:true}));
+  await activateControl(page, page.getByRole('button', {name:'Insert fraction', exact:true}));
   assert.equal(await field.inputValue(), '(x^2)/(b)');
-  await clickControl(page, page.getByRole('button', {name:'Apply diagram label (Enter)', exact:true}));
+  await activateControl(page, page.getByRole('button', {name:'Apply diagram label (Enter)', exact:true}));
   assert.deepEqual(await page.evaluate(() => log.at(-1)), {kind:'label', revision:44, text:'(x^2)/(b)'});
   assert.equal(await page.getByRole('toolbar', {name:'Diagram editing tools'}).count(), 0);
   await page.evaluate(() => ui.beginLabelEdit('diagram', 'Customer', 45, false, 'creole'));
   await field.press('Control+b');
   assert.equal(await field.inputValue(), '**Customer**');
-  await clickControl(page, page.getByRole('button', {name:'Italic (Ctrl+I)', exact:true}));
+  await activateControl(page, page.getByRole('button', {name:'Italic (Ctrl+I)', exact:true}));
   assert.equal(await field.inputValue(), '//**Customer**//');
   await field.press('Control+i');
   assert.equal(await field.inputValue(), '**Customer**');
@@ -106,7 +106,7 @@ export async function verifyStudioEditing(page, source) {
   assert.equal(await source.inputValue(), previous);
 
   const message = page.locator('.paper .message text').filter({hasText:/Authorize payment/}).first();
-  await clickControl(page, message);
+  await activateControl(page, message);
   const targetPort = page.getByRole('button', {name:'Reattach target endpoint'});
   const orders = page.locator('.paper [data-qualified-name="Orders"] text').filter({hasText:/^Orders$/}).first();
   const start = await targetPort.boundingBox(), end = await orders.boundingBox();
@@ -126,7 +126,7 @@ export async function verifyStudioEditing(page, source) {
   await field.press('Enter');
   assert.equal(await source.inputValue(), json.replace('"right":"same"', '"right":"second"'));
   const number = page.locator('.paper text[data-json-kind="scalar"]').filter({hasText:/^12$/});
-  await clickControl(page, number);
+  await activateControl(page, number);
   await surface.press('F2');
   await fillControl(page, field, '1e-');
   await field.press('Enter');

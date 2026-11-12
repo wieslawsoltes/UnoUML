@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { activateAccessibility, clickControl, fillControl } from './native-controls.mjs';
+import { activateAccessibility, activateControl, fillControl } from './native-controls.mjs';
 
 async function state(page) {
   return page.locator('.surface').first().evaluate(async surface => {
@@ -170,7 +170,7 @@ export async function verifyGpuFallback(browser, url) {
     assert.equal(value.backend, 'svg', 'Unavailable WebGPU must preserve a visible SVG diagram.');
     assert.equal(await page.locator('.paper').first().evaluate(element => getComputedStyle(element).opacity), '1');
     await activateAccessibility(page);
-    await clickControl(page, page.getByRole('button', {name:'Split',exact:true}));
+    await activateControl(page, page.getByRole('button', {name:'Split',exact:true}));
     const source = page.getByRole('textbox', {name:'PlantUML source',exact:true});
     const original = await source.inputValue();
     await fillControl(page, source, original.replace('Storefront','Fallback storefront'));

@@ -1,4 +1,4 @@
-import { activateAccessibility, clickControl, fillControl, getNativeControlDiagnostics } from './native-controls.mjs';
+import { activateAccessibility, activateControl, clickControl, fillControl, getNativeControlDiagnostics } from './native-controls.mjs';
 import { verifyGpuScene } from './gpu-scene.mjs';
 import { publishedPrefix, servePublishedSite } from './published-site.mjs';
 import { graphicsLaunchOptions } from './graphics-options.mjs';
@@ -101,7 +101,7 @@ async function verifyIndependentAuthoring(browser, url) {
       phase('waiting for startup and accessibility');
       await activateAccessibility(check);
       phase('opening split editor');
-      await clickControl(check, check.getByRole('button', {name:'Split',exact:true}));
+      await activateControl(check, check.getByRole('button', {name:'Split',exact:true}));
       const source = check.getByRole('textbox', {name:'PlantUML source',exact:true});
       await source.waitFor({state:'visible'});
       phase('running authoring scenario');
@@ -199,7 +199,7 @@ try {
   page.on('console', message => {
     if (graphicsLog.length < 1000) graphicsLog.push(message.type() + ': ' + message.text());
   });
-  const click = name => clickControl(page, page.getByRole('button', {name,exact:true}));
+  const click = name => activateControl(page, page.getByRole('button', {name,exact:true}));
   const paper = page.locator('.paper svg').first();
   const store = page.locator('.paper text').filter({ hasText: /^Storefront$/ }).first();
   const screenshot = async name => {
@@ -216,10 +216,18 @@ try {
   assert.equal(page.frames().filter(f => f.url().includes('/uml/engine.html')).length, 0, 'The managed path must leave the JS engine unloaded');
   await verifyGpuPresentation(page);
   await verifyGpuScene(page);
+  // Keep explicit native pointer coverage on the fixed toolbar. Dynamic native
+  // commands use their public keyboard path because Uno's semantic bounds can
+  // stay stale after ancestor layout; canvas gestures remain real pointer input.
+  await clickControl(page, page.getByRole('button', {name:'Split',exact:true}));
+  const pointerSource = page.getByRole('textbox', {name:'PlantUML source',exact:true});
+  await pointerSource.waitFor({state:'visible'});
+  await clickControl(page, page.getByRole('button', {name:'Design',exact:true}));
+  await pointerSource.waitFor({state:'hidden'});
   await screenshot('unouml-desktop');
   const textbox = await verifyAccessibility(page);
   // Normal pointer clicks exercise the Uno native-host presenter and hit testing in the shadow SVG.
-  await clickControl(page, store);
+  await activateControl(page, store);
   await page.getByRole('button', { name: 'Apply label', exact: true }).waitFor();
   await verifyStudioEditing(page, textbox);
   const modified = (await textbox.inputValue()).replace('Place order', 'Confirm basket');
@@ -247,13 +255,13 @@ try {
   await page.getByRole('combobox', { name: 'Diagram page', exact: true }).waitFor({ state: 'visible' });
   const node = name => page.locator(`.paper [data-qualified-name="${name}"] text`).filter({ hasText: new RegExp('^' + name + '$') }).first();
   const selectPair = async () => {
-    await clickControl(page, node('Order'));
-    await clickControl(page, node('LineItem'), { modifiers: ['Shift'] });
+    await activateControl(page, node('Order'));
+    await activateControl(page, node('LineItem'), { modifiers: ['Shift'] });
     await page.getByText('MULTIPLE SELECTION', { exact: true }).waitFor();
   };
   // A new page must become selectable after a manual zoom. This is a normal, unforced click
   // and Playwright waits for the camera update before hit testing.
-  await clickControl(page, node('Order'));
+  await activateControl(page, node('Order'));
   await surface.press('0');
   await selectPair();
   await page.keyboard.press('Control+d');
@@ -268,7 +276,7 @@ try {
   const search = page.getByRole('textbox', { name: 'Search include paths', exact: true });
   await search.waitFor();
   await fillControl(page, search, 'c4_context');
-  await clickControl(page, page.getByRole('option', { name: 'c4/c4_context', exact: true }));
+  await activateControl(page, page.getByRole('option', { name: 'c4/c4_context', exact: true }));
   await click('Insert include');
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1')).Source.includes('!include <c4/c4_context>'));
   const download = page.waitForEvent('download');
