@@ -54,7 +54,14 @@ internal static partial class BrowserAccessibility
         {
             if (loaded) return;
             loaded = true;
-            try { BeginTextBoxScope(automationId, ++generation, text.IsEnabled); }
+            int current = ++generation;
+            try
+            {
+                BeginTextBoxScope(automationId, current, text.IsEnabled, () =>
+                    loaded && generation == current && text.IsLoaded && text.IsEnabled &&
+                    text.XamlRoot is { } root &&
+                    ReferenceEquals(FocusManager.GetFocusedElement(root), text));
+            }
             catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
         }
         text.Loaded += (_, _) => Begin();
@@ -264,7 +271,8 @@ internal static partial class BrowserAccessibility
     private static partial void FocusComboScope(string automationId, int generation, int focusRevision, int focusedIndex);
 
     [JSImport("beginTextBoxScope", Module)]
-    private static partial void BeginTextBoxScope(string automationId, int generation, bool isEnabled);
+    private static partial void BeginTextBoxScope(string automationId, int generation, bool isEnabled,
+        [JSMarshalAs<JSType.Function<JSType.Boolean>>] Func<bool> readNativeFocus);
 
     [JSImport("updateTextBoxScope", Module)]
     private static partial void UpdateTextBoxScope(string automationId, int generation, bool isEnabled);
