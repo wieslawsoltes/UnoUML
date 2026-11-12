@@ -13,7 +13,35 @@ export async function verifyCanvasEditing(page,source) {
   const metadata=async()=>JSON.parse((await source.inputValue()).replace(/^\uFEFF/,'').split('\n')[0].slice("' @unouml:canvas ".length));
   // Uno may replace its semantic textarea while updating the native editor.
   // Observe the current public input rather than retaining a stale DOM proxy.
-  const waitSource=expected=>page.waitForFunction(expected=>document.querySelector('textarea[aria-label="PlantUML source"]')?.value===expected,expected);
+  const waitSource=async expected=>{
+    try {
+      await page.waitForFunction(expected=>document.querySelector('textarea[aria-label="PlantUML source"]')?.value===expected,expected);
+    } catch(cause) {
+      const observed=await page.evaluate(expected=>{
+        const normalized=value=>value.replace(/\r\n?/g,'\n');
+        const describeValue=value=>{
+          if(typeof value!=='string')return null;
+          let difference=0;while(difference<Math.min(value.length,expected.length)&&value[difference]===expected[difference])difference++;
+          return {length:value.length,prefix:value.slice(0,120),firstCodeUnits:Array.from({length:Math.min(12,value.length)},(_,i)=>value.charCodeAt(i)),
+            firstDifference:difference,matchesExpected:value===expected,normalizedMatchesExpected:normalized(value)===normalized(expected),
+            missingOnlyLeadingBom:expected.startsWith('\uFEFF')&&value===expected.slice(1),
+            cr:(value.match(/\r/g)||[]).length,lf:(value.match(/\n/g)||[]).length};
+        };
+        let draft;try{draft=JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1'));}catch{}
+        const inputs=[...document.querySelectorAll('textarea[aria-label="PlantUML source"]')].slice(0,4).map(input=>{
+          const rect=input.getBoundingClientRect(),hidden=input.closest('[aria-hidden="true"],[hidden],[inert]');
+          return {id:input.id,automationId:input.getAttribute('xamlautomationid'),focused:document.activeElement===input,
+            hiddenBy:hidden?{id:hidden.id,role:hidden.getAttribute('role')}:null,
+            rect:[rect.x,rect.y,rect.width,rect.height],selection:[input.selectionStart,input.selectionEnd],value:describeValue(input.value)};
+        });
+        const active=document.activeElement;
+        return {expected:describeValue(expected),inputs,documentFocused:document.hasFocus(),
+          active:active?{id:active.id,tag:active.localName,name:active.getAttribute('aria-label')}:null,
+          draft:draft?{fileName:draft.FileName,dirty:draft.Dirty,source:describeValue(draft.Source)}:null};
+      },expected).catch(error=>({diagnosticError:error.message}));
+      throw new Error('Canvas source projection did not settle: '+JSON.stringify(observed),{cause});
+    }
+  };
   const waitMetadata=expected=>page.waitForFunction(expected=>{
     try {
       const input=document.querySelector('textarea[aria-label="PlantUML source"]');
