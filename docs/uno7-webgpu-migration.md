@@ -45,6 +45,13 @@ accessibility entry with Enter. Keyboard checks use native role-based controls;
 mouse checks validate semantic bounds and click the actual canvas. SVG and HTML
 editor controls retain ordinary browser hit testing.
 
+Automation waits for Uno's visible startup cover to disappear and re-resolves
+native semantic controls if a framework subtree rebuild replaces them. Native
+text replacement uses the real Select All keyboard command before insertion,
+then verifies the complete resulting value. This updates the managed TextBox
+selection as well as its DOM projection; a browser-only selection could instead
+prepend text to the existing document.
+
 Two narrowly scoped compatibility repairs cover native accessibility defects
 observed in Uno 7.0.32:
 
@@ -59,11 +66,18 @@ observed in Uno 7.0.32:
   native dispatch. Text inputs deliberately suppress browser insertion before
   managed editing, so their `defaultPrevented` events must continue to reach Uno.
 - The modal focus trap sets `aria-hidden=true` on the dialog's own Popup and
-  application ancestors. After `ContentDialog.Opened`, a public AutomationId
-  resolves the active dialog and the bridge removes that attribute only from its
-  semantic ancestors. Background controls, nested dialogs, focus trapping and
-  Uno's original-state restoration remain under framework control. Generation
-  checks prevent a late callback from repairing a closed dialog.
+  application ancestors. An active native scope can also become inconsistent
+  with newly created semantic nodes: the visible dialog retains its role while
+  `aria-modal` and background isolation are missing. Public
+  `ContentDialog.Opened`/`Closed` events bound a reconciliation scope identified
+  by AutomationId. It restores current modal attributes, exposes the required
+  ancestry and isolates background nodes as the semantic subtree changes. The
+  observer is confined to Uno's stable semantic root and exists only while app
+  dialogs are open; live `aria-controls` relationships admit owned popup regions.
+  Pre-native attribute baselines and conditional restoration handle replacement
+  nodes and nested/out-of-order closure without restoring stale hidden states or
+  overwriting later external attribute changes. Generation checks reject stale
+  callbacks. Native Tab trapping and focus restoration remain in place.
 
 The bridge does not invoke private framework callbacks or replace its focus trap.
 Its small module is installed before the native host starts, so keyboard
