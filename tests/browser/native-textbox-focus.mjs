@@ -228,6 +228,34 @@ export async function verifyNativeTextBoxFocus(page, { artifactDir } = {}) {
       equal(await active(),'body','A new load with the same public ID cannot inherit an old focus witness');
     });
 
+    await run('modal isolation and disabled scopes reject replacement focus', async () => {
+      for (const attribute of ['hidden','inert','aria-hidden']) {
+        await prepare();
+        await frame.evaluate(attribute => {
+          const wrapper = document.createElement('div');
+          wrapper.setAttribute(attribute,attribute === 'aria-hidden' ? 'true' : '');
+          wrapper.append(focusFixture.create('new-editor'));
+          document.getElementById('old-editor').replaceWith(wrapper);
+        },attribute);
+        await settle();
+        equal(await active(),'body','A native owner cannot restore focus through modal ' + attribute + ' isolation');
+      }
+      await prepare();
+      await frame.evaluate(() => {
+        const scope = focusFixture.scope;
+        textBoxFocusModule.updateTextBoxScope(scope.id,scope.generation,false);
+      });
+      await replace();
+      await settle();
+      equal(await active(),'body','Disabling the effective scope cancels its pending replacement focus');
+      await frame.evaluate(() => {
+        const scope = focusFixture.scope;
+        textBoxFocusModule.updateTextBoxScope(scope.id,scope.generation,true);
+      });
+      await settle();
+      equal(await active(),'body','Re-enabling the scope must not revive a cancelled focus witness');
+    });
+
     await run('ambiguous duplicate identities do not choose a focus recipient', async () => {
       await prepare();
       await frame.evaluate(() => {
