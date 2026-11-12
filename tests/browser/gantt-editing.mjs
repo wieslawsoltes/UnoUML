@@ -62,6 +62,10 @@ export async function verifyGanttEditing(page,source) {
   await clickControl(page, task('Build').locator('.gantt-bar'));
   await surface.focus();await page.keyboard.down('ArrowRight');await page.keyboard.down('ArrowRight');await page.keyboard.up('ArrowRight');
   await paper.locator('g.task[data-gantt-id="Build"][data-gantt-start="5"]').waitFor();
+  // The SVG is installed before the managed render continuation restores the
+  // selected task and enables authoring. Its visible resize handles witness
+  // that completion before the next independent keyboard transaction.
+  await page.locator('.gantt-handle[data-gantt-handle="end"]').waitFor({state:'visible'});
   const nudged=await source.inputValue();
   await surface.press('ArrowRight');
   await paper.locator('g.task[data-gantt-id="Build"][data-gantt-start="6"]').waitFor();
