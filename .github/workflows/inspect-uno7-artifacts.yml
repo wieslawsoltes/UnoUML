@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: e3bc416796c6c05ef5022d20cd5d842f86b51087
+          ref: 305214610251f601cc59a3a408287d0542ab4e25
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
@@ -33,7 +33,7 @@ jobs:
           dotnet publish src/UnoUML.App -f net10.0-browserwasm -c Release -o "$RUNNER_TEMP/dot-site"
           node scripts/verify-uno7-assets.mjs src/UnoUML.App/obj/project.assets.json
           node scripts/stage-pages.mjs "$RUNNER_TEMP/dot-site/wwwroot" "$RUNNER_TEMP/dot-pages"
-      - name: Run the unchanged DOT scenario with bounded diagnostics
+      - name: Run DOT structural authoring with bounded diagnostics
         env:
           SCREENSHOT_DIR: ${{ runner.temp }}/uno7-dot-probe
         run: |
