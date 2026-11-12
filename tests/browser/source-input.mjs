@@ -194,6 +194,63 @@ export async function verifySourceInput(page, { artifactDir } = {}) {
     equal(await editor.inputValue(), source.slice(1), 'An old queued microtask/frame cannot restore a BOM into a renewed plain-source registration');
     await recordCase('queued managed projection lifetime');
 
+    const projectionSource = source + Array.from({ length: 32 }, (_, index) => 'late line ' + index + '\n').join('');
+    const projectionCaret = source.indexOf('🙂') + 2;
+    await reset(false);
+    await frame.evaluate(({ value, start }) => {
+      document.getElementById('uno-semantics-root').replaceChildren();
+      sourceModule.syncSourceText(sourceInputFixture.owner, JSON.stringify(value), false, start, 2);
+    }, { value: projectionSource, start: projectionCaret });
+    // Drain the original microtask/frame repair before exposing accessibility.
+    // The new node must be handled by its semantic-tree lifecycle alone.
+    await settle();
+    const lateScroll = await frame.evaluate(value => {
+      const input = sourceInputFixture.create('source-editor', sourceInputFixture.owner);
+      input.value = value.slice(1);
+      const group = document.createElement('div');
+      group.append(input);
+      document.getElementById('uno-semantics-root').append(group);
+      input.scrollTop = 80;
+      input.setSelectionRange(0, 0);
+      return [input.scrollTop, input.scrollLeft];
+    }, projectionSource);
+    await settle();
+    equal(await editor.inputValue(), projectionSource, 'A semantic source created after the initial frame retains its authoritative BOM');
+    equal(await editor.evaluate(input => [input.selectionStart, input.selectionEnd]), [projectionCaret, projectionCaret + 2],
+      'Late semantic creation restores the authoritative UTF-16 selection');
+    equal(await editor.evaluate(input => [input.scrollTop, input.scrollLeft]), lateScroll,
+      'Late projection preserves the new editor scroll position');
+    check(await editor.evaluate(input => document.activeElement !== input), 'Semantic projection never manufactures editor focus');
+
+    await frame.evaluate(value => {
+      const previous = document.getElementById('source-editor');
+      sourceInputFixture.oldInput = previous;
+      previous.value = value.slice(1);
+      const replacement = sourceInputFixture.create('source-editor', sourceInputFixture.owner);
+      replacement.value = value.slice(1);
+      previous.replaceWith(replacement);
+    }, projectionSource);
+    await settle();
+    equal(await editor.inputValue(), projectionSource, 'A replacement semantic node receives the current expected BOM');
+    equal(await frame.evaluate(() => sourceInputFixture.oldInput.isConnected), false, 'The previous semantic node is actually detached');
+    equal(await frame.evaluate(() => sourceInputFixture.oldInput.value), projectionSource.slice(1), 'The detached semantic node is never repaired');
+    equal(await editor.evaluate(input => [input.selectionStart, input.selectionEnd]), [projectionCaret, projectionCaret + 2],
+      'Replacement preserves the current managed selection contract');
+    await recordCase('late semantic creation and replacement after initial frame');
+
+    await frame.evaluate(value => {
+      sourceModule.syncSourceText(sourceInputFixture.owner, '""', false);
+      const replacement = sourceInputFixture.create('source-editor', sourceInputFixture.owner);
+      replacement.value = value.slice(1);
+      replacement.setSelectionRange(3, 3);
+      document.getElementById('source-editor').replaceWith(replacement);
+    }, projectionSource);
+    await settle();
+    equal(await editor.inputValue(), projectionSource.slice(1), 'A plain-source refresh disconnects the old BOM projection before node replacement');
+    equal(await editor.evaluate(input => [input.selectionStart, input.selectionEnd]), [3, 3],
+      'A plain replacement retains its own caret without an old managed expectation');
+    await recordCase('late plain semantic replacement rejects old BOM expectation');
+
     await reset();
     await frame.evaluate(() => {
       const input = sourceInputFixture.create('foreign-editor', 'another-source');
