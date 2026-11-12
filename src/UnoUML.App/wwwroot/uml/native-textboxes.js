@@ -70,9 +70,16 @@ function witnessCurrentFocus(state, scope, input, verifyNative = false) {
     setFocusWitness(scope, input);
 }
 
-function recordDomFocus(state, input) {
-  clearFocusWitnesses(state);
+function recordDomFocus(state, input, reuseWitness = false) {
   const scope = inputScope(state, input);
+  // Ordinary typing in the same witnessed input must not force style/layout
+  // reads. Real focusin events still renew the epoch, even for the same node,
+  // so a queued earlier focusout cannot cancel a newly established focus.
+  if (reuseWitness && scope?.focusWitness === input && scope.isEnabled &&
+      typeof scope.readNativeFocus === 'function' && !input.disabled &&
+      !state.composing.has(input) && state.document.activeElement === input &&
+      state.document.hasFocus()) return;
+  clearFocusWitnesses(state);
   if (scope) witnessCurrentFocus(state, scope, input);
 }
 
@@ -129,7 +136,7 @@ function installFocusWitnesses(state) {
   state.pointerDown = event => recordDomFocus(state, event.target);
   state.keyDown = event => {
     if (event.key === 'Tab') clearFocusWitnesses(state);
-    else recordDomFocus(state, event.target);
+    else recordDomFocus(state, event.target, true);
   };
   state.compositionStart = event => {
     state.composing.add(event.target);
