@@ -162,6 +162,14 @@ published application gate checks keyboard activation, reopening, popup selectio
 modal background isolation and focus restoration. These compatibility repairs
 should be re-evaluated when upgrading the pinned Uno packages.
 
+Arrange, Export and Library share a public `MenuFlyout` lifecycle coordinator.
+Uno 7.0.32's `FlyoutBase.RemoveFromOpenFlyouts` raises `Closed` in a queued
+callback and then hides the next open flyout. An immediately opened replacement
+could therefore disappear after successful activation. The coordinator retains the
+latest requested menu until a dispatcher continuation after the complete close,
+creates its contents at that point, and cancels pending work on page/target unload.
+The existing real-browser Collapse-to-Expand sequence exercises this ordering.
+
 Source text uses public automation identity and managed focus ownership.
 A string-only JSON envelope preserves a leading U+FEFF in the managed-to-browser
 projection. A trusted browser-input trace also exposed a synchronous native echo:
@@ -381,7 +389,7 @@ Verified rendering gates:
 - Release Uno browser build and native graphics link succeeded.
 - Restored Uno framework packages are 7.0.32; Silk.NET.WebGPU is 2.23.0.
 - GPU model tests passed 738 assertions in 12 cases.
-- Geometry tests passed 16 cases; source-input projection passed 16 cases; presentation-host tests passed eight cases.
+- Geometry, source-input projection and presentation-host tests cover 16, 18 and eight cases respectively. The source cases include stale BOM invalidation and equivalent LF/CRLF refresh without a native text-change event.
 - Native semantic fixtures passed 82 assertions across 22 cases, including modal, ComboBox focus/selection and TextBox enabled-state lifecycles. The published application passed the corresponding reopened-dialog and renderer-toggle checks.
 - The complete structured-diagram and Gantt authoring suites passed after the migration, including chart axes, task dragging/resizing, dependency propagation and atomic undo.
 - The Core suite passed 4,065 assertions, including 103 new source-projection checks and unchanged startup history for all 33 starter templates.
@@ -421,6 +429,7 @@ guarantee or completed “AAA” hardware qualification is claimed without measu
 - [Uno 7.0.32 semantic element identity](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/SemanticElementFactory.cs)
 - [Uno 7.0.32 native state updates](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/WebAssemblyAccessibility.cs)
 - [Uno 7.0.32 native focus synchronization](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/FocusSynchronizer.cs)
+- [Uno 7.0.32 deferred flyout close](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI/UI/Xaml/Controls/Flyout/FlyoutBase.cs)
 - [Uno 7.0.32 public focus manager](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI/UI/Xaml/Input/FocusManager.cs)
 - [Uno 7.0.32 modal focus isolation](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/FocusTrap.ts)
 - [Uno WebGPU backend](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/features/using-webgpu-rendering.md)
