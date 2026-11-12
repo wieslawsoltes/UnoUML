@@ -4,7 +4,9 @@
 // JSON preserves a leading U+FEFF across runtime string marshalling.
 const registrations = new Map();
 const composing = new WeakSet();
-const events = ['focusin', 'input', 'compositionstart', 'compositionend'];
+const commits = new WeakMap();
+const events = ['focusin', 'beforeinput', 'input', 'compositionstart', 'compositionend'];
+const commitEvents = ['input', 'compositionend'];
 
 function semanticInput(entry) {
   return document.querySelector('textarea[xamlautomationid="' + CSS.escape(entry.id) + '"]');
@@ -29,14 +31,18 @@ function repair(entry) {
   const expected = entry.expected;
   for (const input of inputs(entry)) {
     if (composing.has(input) || input.value !== expected.slice(1)) continue;
-    const top = input.scrollTop, left = input.scrollLeft, direction = input.selectionDirection;
-    input.value = expected;
     // Offsets arrive from the authoritative managed TextBox. CRLF normalization
     // changes DOM offsets, so syncSourceText maps them before applying them.
-    input.setSelectionRange(entry.start, entry.end, direction);
-    input.scrollTop = top;
-    input.scrollLeft = left;
+    restore(input, expected, entry.start, entry.end, input.selectionDirection);
   }
+}
+
+function restore(input, value, start, end, direction) {
+  const top = input.scrollTop, left = input.scrollLeft;
+  input.value = value;
+  input.setSelectionRange(start, end, direction);
+  input.scrollTop = top;
+  input.scrollLeft = left;
 }
 
 function schedule(entry) {
@@ -63,6 +69,11 @@ function onEditorEvent(event) {
   if (!(input instanceof HTMLTextAreaElement)) return;
   if (event.type === 'compositionstart') composing.add(input);
   if (event.type === 'compositionend') composing.delete(input);
+  const committed = commitEvents.includes(event.type) && event.isTrusted && !event.isComposing && !composing.has(input);
+  const captured = committed && input.value.startsWith('\uFEFF') ? {
+    input, value: input.value, start: input.selectionStart, end: input.selectionEnd,
+    direction: input.selectionDirection, owners: []
+  } : null;
   for (const entry of registrations.values()) {
     if (!inputs(entry).has(input)) continue;
     if (event.type === 'focusin') {
@@ -72,14 +83,35 @@ function onEditorEvent(event) {
       // before Uno handles the event; a subsequent managed Text change supplies
       // the new source. Intentional BOM removal is never undone by a queued repair.
       entry.expected = null;
+      if (captured) captured.owners.push(entry);
     }
   }
+  if (captured?.owners.length) commits.set(event, captured);
+}
+
+function onEditorCommit(event) {
+  const captured = commits.get(event);
+  if (!captured) return;
+  commits.delete(event);
+  const { input, value, start, end, direction, owners } = captured;
+  // Uno imports the correct committed value, but its synchronous outgoing string
+  // projection can consume U+FEFF. Chromium emits multiple input events for one
+  // multiline insertion, so repair that exact echo before the next event reads
+  // it back. A microtask can run before Uno's target listener and is too early.
+  // This never generates another input event or revives a removed source editor.
+  if (!input.isConnected || composing.has(input) || input.value !== value.slice(1)) return;
+  if (!owners.some(entry => registrations.get(entry.id) === entry && inputs(entry).has(input))) return;
+  restore(input, value, start, end, direction);
 }
 
 function setListeners(add) {
   for (const type of events) {
     if (add) document.addEventListener(type, onEditorEvent, true);
     else document.removeEventListener(type, onEditorEvent, true);
+  }
+  for (const type of commitEvents) {
+    if (add) document.addEventListener(type, onEditorCommit);
+    else document.removeEventListener(type, onEditorCommit);
   }
 }
 
@@ -92,11 +124,6 @@ export function syncSourceText(id, json, focused = false, selectionStart = 0, se
   if (typeof id !== 'string' || !id.trim()) throw new TypeError('An automation id is required.');
   const source = JSON.parse(json);
   if (typeof source !== 'string') throw new TypeError('Source text must be a JSON string.');
-  if (!source.startsWith('\uFEFF')) {
-    removeSourceText(id);
-    return;
-  }
-
   let entry = registrations.get(id);
   if (!entry) {
     if (registrations.size === 0) setListeners(true);
@@ -106,12 +133,12 @@ export function syncSourceText(id, json, focused = false, selectionStart = 0, se
   const start = Math.max(0, Math.min(source.length, Math.trunc(Number(selectionStart) || 0)));
   const length = Math.max(0, Math.trunc(Number(selectionLength) || 0));
   Object.assign(entry, {
-    expected: source.replace(/\r\n?/g, '\n'),
+    expected: source.startsWith('\uFEFF') ? source.replace(/\r\n?/g, '\n') : null,
     focused: focused === true,
     start: domOffset(source, start),
     end: domOffset(source, Math.min(source.length, start + length))
   });
-  schedule(entry);
+  if (entry.expected) schedule(entry);
 }
 
 export function removeSourceText(id) {

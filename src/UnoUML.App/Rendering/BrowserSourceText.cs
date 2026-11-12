@@ -67,16 +67,17 @@ internal static partial class BrowserSourceText
                 await BrowserBridge.ReadyAsync();
                 if (!owner.IsLoaded || generation != current) return;
                 string source = owner.Text;
-                if (!source.StartsWith('\uFEFF'))
-                {
-                    if (mounted) { Remove(automationId); mounted = false; }
-                    return;
-                }
-
                 // JSON starts with a quote, so string marshalling cannot consume
                 // the document's leading U+FEFF. AutomationId is a public XAML
                 // contract; UIElement.Handle no longer represents a DOM element.
-                Sync(automationId, "\"" + JsonEncodedText.Encode(source).ToString() + "\"",
+                // Keep the source identity registered before its first BOM paste:
+                // a multiline native insertion can emit several input events in
+                // one task, before a queued managed projection can repair an echo.
+                // Ordinary source needs identity/focus only, not a full text copy.
+                string json = source.StartsWith('\uFEFF')
+                    ? "\"" + JsonEncodedText.Encode(source).ToString() + "\""
+                    : "\"\"";
+                Sync(automationId, json,
                     owner.FocusState != FocusState.Unfocused, owner.SelectionStart, owner.SelectionLength);
                 mounted = true;
             }
