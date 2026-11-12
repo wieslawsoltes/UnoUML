@@ -3,12 +3,14 @@ import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {verifyNativeModal} from './native-modal.mjs';
 import {verifySourceInput} from './source-input.mjs';
+import {verifyCanvasCoordinates} from './canvas-coordinates.mjs';
 
 // Run against attached SVGs so Chromium supplies real CSS, CTMs, text shaping,
 // clipping and SVG image decoding. Fixtures never alter the editor document.
 export async function verifyGpuScene(page,{artifactDir=process.env.SCREENSHOT_DIR}={}) {
   await verifyNativeModal(page,{artifactDir});
   await verifySourceInput(page,{artifactDir});
+  await verifyCanvasCoordinates(page,{artifactDir});
   const report=await page.evaluate(async()=>{
     const {compileScene,diffCommands,ScenePresentation}=await import(new URL('uml/gpu/scene.js',document.baseURI).href);
     const {RasterCache,bytesToBase64}=await import(new URL('uml/gpu/resources.js',document.baseURI).href);
@@ -475,7 +477,11 @@ if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.u
       if(path==='/'){
         response.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
         response.end('<!doctype html><meta charset="utf-8"><title>UnoUML SVG compiler validation</title>');
-      }else if(/^\/uml\/gpu\/[a-z-]+\.js$/.test(path)||/^\/uml\/native-(accessibility|dialogs|combos|textboxes)\.js$/.test(path)||path==='/uml/source-text.js'){
+      }else if(path==='/uml/preview.css'){
+        const content=await readFile(new URL('../../src/UnoUML.App/wwwroot'+path,import.meta.url));
+        response.writeHead(200,{'Content-Type':'text/css; charset=utf-8'});response.end(content);
+      }else if(/^\/uml\/gpu\/[a-z-]+\.js$/.test(path)||/^\/uml\/native-(accessibility|dialogs|combos|textboxes)\.js$/.test(path)
+        ||/^\/uml\/canvas-(editing|scene|geometry)\.js$/.test(path)||path==='/uml/source-text.js'){
         const content=await readFile(new URL('../../src/UnoUML.App/wwwroot'+path,import.meta.url));
         response.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8'});response.end(content);
       }else{response.writeHead(404);response.end();}
