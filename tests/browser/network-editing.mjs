@@ -1,3 +1,4 @@
+import { fitCanvas } from './canvas-frame.mjs';
 import { activateControl, fillControl } from './native-controls.mjs';
 import { traceNativeInput } from './native-input-trace.mjs';
 import assert from 'node:assert/strict';
@@ -13,7 +14,7 @@ export async function verifyNetworkEditing(page, source) {
   await traceNativeInput(page, source, 'network-source', () => fillControl(page, source, fixture));
   await paper.locator('g.entity[data-qualified-name="shared"]').waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
-  await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fitCanvas(page);
 
   // Author actual geometry before renaming. This catches identity remapping in
   // the production .NET/browser bridge, not only in an isolated source API.
@@ -108,7 +109,7 @@ export async function verifyNetworkEditing(page, source) {
   const sameLine = '@startnwdiag\nnetwork direct { a [description="First"]; b [description="Second"]; }\n@endnwdiag';
   await fillControl(page, source, sameLine);
   await paper.locator('g.entity[data-qualified-name="b"]').waitFor();
-  await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fitCanvas(page);
   // Both host declarations and the bus header have the same source line. Hit
   // the actual body, outside its exact label token, to exercise object picking.
   await activateControl(page, paper.locator('g.entity[data-qualified-name="b"] > rect'), {position:{x:8,y:8}});

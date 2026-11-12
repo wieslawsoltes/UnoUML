@@ -97,6 +97,49 @@ export async function activateAccessibility(page) {
   await root.locator('button, [role="button"], input, textarea').first().waitFor({ state: 'visible' });
 }
 
+async function clickDomControl(page, locator, options) {
+  try {
+    return await locator.click(options);
+  } catch (error) {
+    // Observe the failed ordinary pointer action without forcing or retrying it.
+    // These bounds distinguish camera clipping, host layout and actual overlays.
+    const snapshot = await locator.evaluate((element, position) => {
+      const doc = element.ownerDocument, root = element.getRootNode();
+      const bounds = node => {
+        const r = node?.getBoundingClientRect();
+        return r ? { x:r.x, y:r.y, width:r.width, height:r.height } : null;
+      };
+      const describe = node => node ? {
+        tag:node.localName, id:node.id, role:node.getAttribute('role'),
+        name:node.getAttribute('aria-label'), className:node.getAttribute('class'), rect:bounds(node)
+      } : null;
+      const rect = bounds(element);
+      const point = { x:rect.x + (position?.x ?? rect.width / 2), y:rect.y + (position?.y ?? rect.height / 2) };
+      const surface = element.closest('.surface');
+      const svg = element.ownerSVGElement ?? (element.localName === 'svg' ? element : null);
+      const matrix = svg?.getScreenCTM(), box = svg?.viewBox.baseVal;
+      const ancestors = [];
+      for (let node = element; node && ancestors.length < 12; node = node.parentElement ?? node.getRootNode().host) {
+        const style = getComputedStyle(node);
+        ancestors.push({...describe(node), display:style.display, visibility:style.visibility,
+          pointerEvents:style.pointerEvents, overflow:style.overflow,
+          scroll:[node.scrollLeft,node.scrollTop], client:[node.clientWidth,node.clientHeight]});
+      }
+      return {target:describe(element), point, viewport:[innerWidth,innerHeight],
+        surface:describe(surface), active:describe(doc.activeElement),
+        documentHit:describe(doc.elementFromPoint(point.x,point.y)),
+        rootHit:describe(root.elementFromPoint?.(point.x,point.y)),
+        matrix:matrix ? [matrix.a,matrix.b,matrix.c,matrix.d,matrix.e,matrix.f] : null,
+        viewBox:box ? [box.x,box.y,box.width,box.height] : null, ancestors};
+    }, options.position ?? null, {timeout:1000}).catch(diagnosticError => ({
+      diagnosticError:String(diagnosticError.message).slice(0,2048)
+    }));
+    recordNativeAction(page, 'DOM pointer failure', snapshot);
+    console.error('DOM pointer failure geometry: ' + JSON.stringify(snapshot));
+    throw error;
+  }
+}
+
 /**
  * Uno draws native controls on its canvas. Their public semantic elements have
  * pointer-events:none, so use their bounds to send real browser pointer input
@@ -120,7 +163,7 @@ export async function clickControl(page, locator, options = {}) {
       if (!target.attached) {
         state = { detached: true };
       } else if (!target.native) {
-        return locator.click(options);
+        return clickDomControl(page, locator, options);
       } else {
         assert.ok(!options.force, 'Native controls must pass visibility, enabled, stability and canvas hit checks');
         if (target.virtualOption) {

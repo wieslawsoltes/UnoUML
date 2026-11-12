@@ -360,7 +360,9 @@ Verified rendering gates:
 - Release Uno browser build and native graphics link succeeded.
 - Restored Uno framework packages are 7.0.32; Silk.NET.WebGPU is 2.23.0.
 - GPU model tests passed 738 assertions in 12 cases.
-- Geometry tests passed 16 cases; source projection passed nine cases; presentation-host tests passed eight cases.
+- Geometry tests passed 16 cases; source-input projection passed 16 cases; presentation-host tests passed eight cases.
+- Native semantic fixtures passed 82 assertions across 22 cases, including modal, ComboBox focus/selection and TextBox enabled-state lifecycles. The published application passed the corresponding reopened-dialog and renderer-toggle checks.
+- The complete structured-diagram and Gantt authoring suites passed after the migration, including chart axes, task dragging/resizing, dependency propagation and atomic undo.
 - The Core suite passed 4,065 assertions, including 103 new source-projection checks and unchanged startup history for all 33 starter templates.
 - Production WGSL passed six pipeline creations and 17 offscreen pixel checks.
 - The attached Chromium compiler suite passed 159 assertions and a native non-scaling-stroke measurement, across 14 scenarios.
