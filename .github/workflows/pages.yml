@@ -69,7 +69,9 @@ jobs:
           if-no-files-found: ignore
   browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Native/software-GPU authoring includes the primary desktop/mobile flow and
+    # every isolated scenario. Keep enough budget for their complete coverage.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
