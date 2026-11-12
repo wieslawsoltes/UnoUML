@@ -70,27 +70,32 @@ export async function verifyImportedPageRouting(page, source) {
     await item.locator('text').filter({hasText:currentLabel}).dblclick();
     assert.equal(await editor.inputValue(),currentLabel);
     await fillControl(page, editor, pendingLabel);
-    const sourceElement = await source.elementHandle();
+    const sourceId = await source.getAttribute('xamlautomationid');
+    assert.ok(sourceId, 'The source editor exposes its stable public automation identity');
     let dialog;
     try {
-      try {
-        await holdImportedConflict(page,concurrent);
-        await editor.press('Enter');
-        await editor.waitFor({state:'detached'});
-        await page.waitForFunction(async expected =>
-          (await import(new URL('uml/viewport.js',document.baseURI))).readInclude('multiple.puml') === expected,pending);
-        assert.equal(await sourceElement.evaluate(element => element.readOnly),true,'The imported write remains pending behind the held transaction');
-        if (scenario === 'selection') await activateControl(page, target);
-        else {
-          await activateControl(page, page.getByRole('button', {name:'Edit included source…',exact:true}));
-          dialog = page.getByRole('dialog',{name:'Edit imported include',exact:true});
-          await dialog.waitFor({state:'visible'});
-        }
-      } finally {
-        await page.evaluate(async () => { await globalThis.releaseImportedConflict?.(); });
+      await holdImportedConflict(page,concurrent);
+      await editor.press('Enter');
+      await editor.waitFor({state:'detached'});
+      await page.waitForFunction(async expected =>
+        (await import(new URL('uml/viewport.js',document.baseURI))).readInclude('multiple.puml') === expected,pending);
+      assert.equal(await source.evaluate(element => element.readOnly),true,'The imported write remains pending behind the held transaction');
+      if (scenario === 'selection') await activateControl(page, target);
+      else {
+        await activateControl(page, page.getByRole('button', {name:'Edit included source…',exact:true}));
+        dialog = page.getByRole('dialog',{name:'Edit imported include',exact:true});
+        await dialog.waitFor({state:'visible'});
       }
-      await page.waitForFunction(element => !element.readOnly,sourceElement);
-    } finally { await sourceElement.dispose(); }
+    } finally {
+      await page.evaluate(async () => { await globalThis.releaseImportedConflict?.(); });
+    }
+    // A modal/inspector rebuild can replace the semantic textarea while the
+    // managed source editor remains loaded. Poll its current public identity,
+    // including while modal accessibility correctly hides the background.
+    await page.waitForFunction(id => {
+      const inputs = document.querySelectorAll('#uno-semantics-root textarea[xamlautomationid="' + CSS.escape(id) + '"]');
+      return inputs.length === 1 && !inputs[0].readOnly;
+    },sourceId);
     // Inspect the DOM as well as the accessible tree: a misplaced editor behind
     // the modal could be hidden from role locators while still stealing focus.
     assert.equal(await page.locator('.canvas-label-editor').count(),0,`A conflict must not reopen the previous editor after a ${scenario} change`);

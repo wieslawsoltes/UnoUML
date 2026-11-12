@@ -122,8 +122,9 @@ export async function verifyArchiveImport(page, source) {
   assert.equal(main,'@startuml\n!import resources.zip\n!include models/main.iuml\n@enduml');
   await activateControl(page, sibling.locator('text').filter({hasText:/^Archived child$/}));
   await activateControl(page, page.getByRole('button', {name:'Edit included source…',exact:true}));
-  await page.getByRole('dialog',{name:'Edit imported include',exact:true}).waitFor();
-  const member = page.locator('textarea').last();
+  const dialog = page.getByRole('dialog',{name:'Edit imported include',exact:true});
+  await dialog.waitFor();
+  const member = dialog.getByRole('textbox',{name:'Imported include source',exact:true});
   assert.equal(await member.inputValue(),'class "Archived child" as Sibling\n');
   const [download] = await Promise.all([page.waitForEvent('download'),activateControl(page, page.getByRole('button', {name:'Download ZIP',exact:true}))]);
   assert.equal(download.suggestedFilename(),'resources.zip');

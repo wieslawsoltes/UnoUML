@@ -16,7 +16,7 @@ export async function verifyDotEditing(page, source) {
   await surface.press('Control+z');
   assert.equal(await source.inputValue(),dot);
   await activateControl(page, node('a'));
-  await page.getByRole('button',{name:'Connect selected object',exact:true}).press('Enter');
+  await activateControl(page, page.getByRole('button',{name:'Connect selected object',exact:true}));
   await activateControl(page, node('c'));
   await page.waitForFunction(() => [...document.querySelectorAll('textarea')].some(el=>el.value.includes('a -> c;')));
   assert.match(await source.inputValue(),/a -> c;/);
@@ -24,7 +24,7 @@ export async function verifyDotEditing(page, source) {
   assert.equal(await source.inputValue(),dot);
   const edge = paper.locator('[data-dot-id="edge:0"]');
   await activateControl(page, edge.locator('text').filter({hasText:'Calls'}));
-  await page.getByRole('button',{name:'Reattach target endpoint',exact:true}).press('Enter');
+  await activateControl(page, page.getByRole('button',{name:'Reattach target endpoint',exact:true}));
   await activateControl(page, node('c'));
   await page.waitForFunction(() => [...document.querySelectorAll('textarea')].some(el=>el.value.includes('a -> c [label="Calls"]')));
   assert.equal(await source.inputValue(),dot.replace('a -> b [label="Calls"]','a -> c [label="Calls"]'));
