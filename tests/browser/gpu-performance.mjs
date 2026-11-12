@@ -23,7 +23,7 @@ await mkdir(output, {recursive:true});
 const configuration = {
   viewport:{width:1390,height:860}, deviceScaleFactor:1,
   colorScheme:'light', locale:'en-US', timezoneId:'UTC',
-  sampleCount:4, cameraScale:.9, cameraWarmups:2, cameraSamples:6,
+  sampleCount:4, cameraScale:1.5, cameraWarmups:2, cameraSamples:6,
   editWarmups:2, editSamples:4, transformWarmups:2, transformSamples:4,
   requestedDriver:process.env.UNOUML_GPU_DRIVER || (process.platform === 'linux' ? 'software' : 'platform'),
   launch:graphicsLaunchOptions(true),
@@ -356,6 +356,25 @@ async function runWorkload(browser, url, side, pass, workload) {
     validateObserver(report.environment.observer);
     assert.ok(report.environment.observer.requests.some(request=>request.deviceId),
       'The observer must identify a device requested by the application itself.');
+    // Preserve the exact semantic/camera/font inputs before the reference
+    // capture, without changing the scene or adding another rendered frame.
+    const fixtureSnapshot=await page.locator('.surface').first().evaluate(surface=>{
+      const paper=surface.querySelector('.paper'),svg=paper.querySelector('svg');
+      const box=svg.viewBox.baseVal,rect=surface.getBoundingClientRect();
+      const matrix=value=>value?[value.a,value.b,value.c,value.d,value.e,value.f]:null;
+      return {
+        svg:svg.outerHTML,viewBox:{x:box.x,y:box.y,width:box.width,height:box.height},
+        paperMatrix:matrix(new DOMMatrixReadOnly(getComputedStyle(paper).transform)),
+        svgScreenMatrix:matrix(svg.getScreenCTM()),
+        surface:{x:rect.x,y:rect.y,width:rect.width,height:rect.height},
+        fonts:{status:document.fonts?.status??null,
+          faces:document.fonts?[...document.fonts].map(font=>({
+            family:font.family,style:font.style,weight:font.weight,status:font.status
+          })):[]}
+      };
+    });
+    report.fixtureSnapshot='initial-fixture.json';
+    await writeFile(resolve(directory,report.fixtureSnapshot),JSON.stringify(fixtureSnapshot,null,2));
     report.quality=await compareGpuPaint(page,'initial');
     for(let index=0;index<configuration.cameraWarmups+configuration.cameraSamples;index++){
       const result=await sample(page,'camera',index%2?1/1.002:1.002);
