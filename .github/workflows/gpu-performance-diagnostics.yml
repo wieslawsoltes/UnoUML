@@ -1,0 +1,79 @@
+name: Inspect paired WebGPU evidence
+on:
+  push:
+    branches: [codex/webgpu-performance-diagnostics]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BENCHMARK_RUN_ID: '43318194480'
+      BENCHMARK_ARTIFACT_ID: '13990221329'
+      BENCHMARK_ARTIFACT_NAME: gpu-performance-c119325f44af7b01a6a9d6dd1a0d892bd0684e0b
+    steps:
+      - name: Download the exact failed benchmark evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.BENCHMARK_ARTIFACT_NAME }}
+          run-id: ${{ env.BENCHMARK_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: evidence
+      - name: Print numeric quality and accepted-frame diagnostics
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readdir, readFile } from 'node:fs/promises';
+          import { join, relative } from 'node:path';
+          const root='evidence';
+          const files=[];
+          async function visit(directory) {
+            for(const entry of await readdir(directory,{withFileTypes:true})) {
+              const path=join(directory,entry.name);
+              if(entry.isDirectory())await visit(path);else files.push(path);
+            }
+          }
+          await visit(root);
+          files.sort();
+          console.log('GPU_EVIDENCE_ORIGIN '+JSON.stringify({
+            runId:process.env.BENCHMARK_RUN_ID,artifactId:process.env.BENCHMARK_ARTIFACT_ID,
+            artifactName:process.env.BENCHMARK_ARTIFACT_NAME,files:files.length
+          }));
+          const read=async path=>JSON.parse(await readFile(path,'utf8'));
+          for(const path of files.filter(path=>path.endsWith('/initial-quality.json')))
+            console.log('GPU_EVIDENCE_QUALITY '+JSON.stringify({file:relative(root,path),metrics:await read(path)}));
+          for(const path of files.filter(path=>path.endsWith('/report.json'))) {
+            const report=await read(path),observer=report.environment?.observer;
+            console.log('GPU_EVIDENCE_WORKLOAD '+JSON.stringify({
+              file:relative(root,path),side:report.side,pass:report.pass,workload:report.workload,
+              sha:report.sha,status:report.status,error:report.error,initial:report.initial,
+              environment:report.environment?{
+                userAgent:report.environment.userAgent,devicePixelRatio:report.environment.devicePixelRatio,
+                fixture:report.environment.fixture,observerAvailable:observer?.available,
+                requests:observer?.requests,observedEvents:observer?.events?.length,
+                scopeErrors:observer?.events?.filter(event=>event.error||event.rejected||event.thrown)
+              }:null,
+              phases:report.summary??null,
+              rawPhaseCounts:Object.fromEntries(Object.entries(report.phases??{}).map(([phase,samples])=>[phase,samples.length]))
+            }));
+          }
+          for(const path of files.filter(path=>
+            /^0-baseline-(starter|classes-64)\/initial-(webgpu|svg)\.png$/.test(relative(root,path)))) {
+            const bytes=await readFile(path),name=relative(root,path);
+            if(bytes.length<=100*1024)
+              console.log('GPU_DIAGNOSTIC_IMAGE '+JSON.stringify({name,mimeType:'image/png',
+                bytes:bytes.length,base64:bytes.toString('base64')}));
+            else console.log('GPU_DIAGNOSTIC_IMAGE_OMITTED '+JSON.stringify({name,bytes:bytes.length,limit:100*1024}));
+          }
+          const summaryPath=files.find(path=>path.endsWith('/gpu-performance.json'));
+          if(!summaryPath)throw new Error('The exact artifact is missing gpu-performance.json.');
+          const summary=await read(summaryPath);
+          console.log('GPU_EVIDENCE_RESULT '+JSON.stringify({
+            status:summary.status,baselineSha:summary.baselineSha,candidateSha:summary.candidateSha,
+            configuration:summary.configuration,runtime:summary.runtime,browserVersion:summary.browserVersion,
+            startedAt:summary.startedAt,completedAt:summary.completedAt,pairs:summary.pairs,failures:summary.failures,
+            cameraEvidence:'This run did not serialize the camera matrix. Its common harness explicitly normalized scale to 0.9 before initial capture; do not infer translations from native counters.'
+          }));
+          NODE
