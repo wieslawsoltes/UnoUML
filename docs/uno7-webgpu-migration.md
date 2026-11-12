@@ -512,18 +512,18 @@ Verified rendering gates:
 
 - Release Uno browser build and native graphics link succeeded.
 - Restored Uno framework packages are 7.0.32; Silk.NET.WebGPU is 2.23.0.
-- At `68dce305`, GPU model tests passed **878 assertions in 14 cases**, including viewport-space culling/clipping, sparse-patch and replacement semantics, resource retention and atomic rejection. The current 17-case suite additionally exercises per-slot uniform retention, gradient repacking, order changes and arena/device recreation.
+- At `a51d021`, GPU model tests passed **981 assertions in 17 cases**, including viewport-space culling/clipping, sparse-patch and replacement semantics, resource retention, atomic rejection, per-slot uniform retention, gradient repacking, order changes and arena/device recreation.
 - Geometry, source-input projection and presentation-host tests cover 16, 23 and eight cases respectively. The source cases include stale BOM invalidation, equivalent LF/CRLF refresh without a native text-change event, and semantic editors created after the initial frame.
 - Native semantic fixtures passed 82 assertions across 22 cases, including modal, ComboBox focus/selection and TextBox enabled-state lifecycles. The published application passed the corresponding reopened-dialog and renderer-toggle checks.
 - Separate native TextBox focus fixtures passed **30 assertions across 11 cases** in both the fast Chromium gate and the published application. They cover real replacement and delayed insertion, current selection/scroll and subsequent keyboard input, fresh native ownership, explicit user focus changes, composition, hidden/inert/disabled replacements and loaded-generation cleanup.
-- All six independent **Canvas, Files, DOT, structured-diagram, Network and Gantt** authoring suites passed together in CI #68, including free geometry and automatic layout, file-subtree operations, shared-edge/table restructuring, chart axes, task dragging/resizing, dependency propagation, byte-exact BOM/CRLF Save/Open/draft restoration and atomic undo.
-- The primary flow at `68dce305` passed the earlier mobile/Ports and DOT grouping boundaries, archive loading and archive-alias editing. It then exposed premature pending-import observation and the missing live read-only notification; both are addressed in the subsequent commits. Files, DOT, structured-diagram, Network and Gantt also passed with GPU overlays. Canvas's timeout reported a current accepted, correctly sized frame; its observer is now independent of RAF scheduling and records stability counters.
+- All six independent **Canvas, Files, DOT, structured-diagram, Network and Gantt** authoring suites passed together at `a51d021` in CI #71, including free geometry and automatic layout, file-subtree operations, shared-edge/table restructuring, chart axes, task dragging/resizing, dependency propagation, byte-exact BOM/CRLF Save/Open/draft restoration and atomic undo.
+- The primary flow at `68dce305` passed mobile/Ports, DOT grouping, archive loading and archive-alias editing before exposing premature pending-import observation and the missing live read-only notification. Both are addressed in subsequent commits. CI #71's primary flow stopped earlier with its native Group dialog still open; the source grouping validator had not run. The primary test now waits for the named modal's `aria-modal="true"` state, activates its Group button once and observes closure before the unchanged persisted-source assertion. Bounded failure diagnostics preserve native actions, focus, live field values and modal state. The old capture did not record the exact input-dispatch timeline, so an opening-focus race is not claimed as a proven cause. The later imported-resource and native-compatibility flow still requires a complete integrated pass.
 - The Core suite passed 4,065 assertions, including 103 new source-projection checks and unchanged startup history for all 33 starter templates.
 - Production WGSL passed **six pipeline creations and 29 offscreen pixel checks**, including mixed world/viewport drawing and double target pixel density.
 - The attached Chromium compiler suite passed 159 assertions and a native non-scaling-stroke measurement, across 14 scenarios.
 - The independent retained overlay fixture passed **67 assertions across 10 cases**, including real pointer input through a GPU-presented handle. The complete [shader/compiler job at `68dce305`](https://github.com/wieslawsoltes/UnoUML/actions/runs/43161371840/job/130993120769) passed with the unchanged camera-retention assertions.
 - The published Uno application presented through its shared WebGPU device and completed 24 camera updates without additional geometry, texture, paint or gradient uploads, or render-bundle rebuilds.
-- The live application selection check passed at `68dce305`: native viewport commands painted the outline while DOM paint was transparent, matched the positive reference better than the absent-outline control, and preserved source, draft and history after pointer selection and Escape.
+- The live application selection check passed at `68dce305`: native viewport commands painted the outline while DOM paint was transparent, matched the positive reference better than the absent-outline control, and preserved source, draft and history after pointer selection and Escape. Both independent GPU jobs passed at `a51d021` in CI #71, including the optimized selection-clear upload assertions.
 
 The starter sequence comparison at 928 × 614 pixels measured a mean absolute RGB
 channel error of 0.7336 on the 0–255 scale. A maximum channel difference above 64
@@ -538,7 +538,7 @@ selection mask had mean channel error 23.4842 against the painted reference,
 compared with 109.0545 for the absent-outline control; 98.1651% of mask pixels
 were closer to the painted reference. The selected frame contained ten visible
 viewport commands. Escape removed the selection while preserving the legitimate
-keyboard focus ring. [Recorded metrics and provenance](https://github.com/wieslawsoltes/UnoUML/actions/runs/43166031261).
+keyboard focus ring. [Current recorded metrics and provenance](https://github.com/wieslawsoltes/UnoUML/actions/runs/43170302022).
 
 The scene retained 35 geometry buffers, 17 image textures and 52 ordered render
 bundles. Across the 24 camera updates, geometry uploads remained 25,008 bytes,
@@ -548,12 +548,24 @@ upload counter was the camera buffer: 128 to 1,664 bytes, exactly 24 × 64 bytes
 Resolution-bucket changes can legitimately recompile curves and text at a higher
 quality level; this retention check stays within one bucket.
 
-The same software-adapter run recorded a final CPU encoding sample of 0.5 ms,
-but camera-acknowledgement wall time had median 782.1 ms and p95 1,474.7 ms.
+At `a51d021`, the software-adapter run recorded a final CPU encoding sample of
+0.7999 ms, while camera-acknowledgement wall time had median 1,484.4 ms and
+p95 1,956.2 ms.
 Those wall times include browser scheduling and software rendering; they are
 reported separately from command encoding. GPU execution time was not measured.
 The retention counters establish upload and allocation behavior, while interactive
 hardware performance remains a separate qualification.
+
+Clearing selection at `a51d021` changed ten viewport commands into one remaining
+keyboard focus ring. Draw-uniform upload was **256 bytes**, compared with
+**13,568 bytes** in the [prior measured implementation](https://github.com/wieslawsoltes/UnoUML/actions/runs/43166031261):
+53 times fewer bytes, or a 98.1% reduction for this operation. The clear phase
+retained all 35 diagram geometry buffers and 17 image textures, uploaded no new
+geometry or textures, kept draw/gradient capacities at 32,768/16,384 bytes, and
+rebuilt one shifted focus-ring bundle. Separate uploads were 64 camera bytes and
+32 gradient bytes. Compiler generation and source/view versions were unchanged.
+This is measured traffic reduction, not a frame-rate speedup; shared-arena growth
+continues to force conservative uploads and binding/bundle rebuilds.
 
 The final PR validation section records subsequent integrated browser results.
 Earlier layout benchmark numbers in README are historical source-layout timings,
