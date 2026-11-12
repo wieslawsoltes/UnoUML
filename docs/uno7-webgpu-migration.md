@@ -117,7 +117,7 @@ observed in Uno 7.0.32:
   input/textarea's reflected `disabled` property and `aria-disabled` attribute.
   `Unloaded` ends the scope. Pre-tree identity, generation checks, replacement
   node tracking and conditional restoration preserve lifecycle correctness;
-  readonly state, tab order, text, selection and focus remain native.
+  readonly state, tab order, text and selection remain native.
 
 ComboBox registration is idempotent and assigns `AutomationId` before the native
 semantic head is created: Uno 7.0.32 does not project subsequent AutomationId
@@ -131,6 +131,25 @@ named inspector fields attach before insertion; the source and library-search
 editors attach during page construction. Observation is confined to the stable
 semantic root while registered controls are loaded, so late accessibility
 activation and replaced semantic nodes receive the current effective state.
+
+Semantic TextBox replacement is distinct from a XAML control unload. A captured
+native input trace showed Select All succeeding in both managed and browser
+editors, followed by replacement of the semantic textarea with the same public
+identity. The new node retained its text and selection, while browser focus moved
+to the document body and the loaded XAML TextBox remained the current focus owner.
+
+Loaded TextBox scopes now retain evidence of actual DOM focus and consult a
+synchronous `Func<bool>` reader of public `FocusManager.GetFocusedElement` before
+transferring focus to a unique replacement. The reader verifies the captured load
+generation, loading and enabled state. The browser requires the old node to be
+disconnected, the new node to be exposed and enabled, and current focus to be the
+document fallback. Explicit blur, foreign focus, pointer or Tab navigation,
+window blur, active composition and unloaded/new generations cancel the old
+witness. A completed composition can re-arm only the still-focused editor after
+a fresh native-owner check. Transfer uses `focus({ preventScroll: true })` without
+rewriting value or selection. Ordinary typing reuses an established focus witness,
+avoiding style walks and layout reads on each key. The native focus authority and
+normal input dispatch remain unchanged.
 
 The framework's native focus resolver also omits ComboBox-specific virtualized
 regions and can focus a semantic ancestor instead of the actual option. While a
@@ -402,7 +421,8 @@ Verified rendering gates:
 - GPU model tests passed 738 assertions in 12 cases.
 - Geometry, source-input projection and presentation-host tests cover 16, 23 and eight cases respectively. The source cases include stale BOM invalidation, equivalent LF/CRLF refresh without a native text-change event, and semantic editors created after the initial frame.
 - Native semantic fixtures passed 82 assertions across 22 cases, including modal, ComboBox focus/selection and TextBox enabled-state lifecycles. The published application passed the corresponding reopened-dialog and renderer-toggle checks.
-- The complete structured-diagram and Gantt authoring suites passed after the migration, including chart axes, task dragging/resizing, dependency propagation and atomic undo.
+- Separate native TextBox focus fixtures cover real replacement and delayed insertion, current selection/scroll and subsequent keyboard input, fresh native ownership, explicit user focus changes, composition and loaded-generation cleanup. They run through the existing fast and published-browser gates.
+- Independent Canvas, DOT, structured-diagram, Network and Gantt authoring suites passed in CI #66, including free geometry and automatic layout, shared-edge and table restructuring, chart axes, task dragging/resizing, dependency propagation, byte-exact BOM/CRLF Save/Open/draft restoration and atomic undo.
 - The Core suite passed 4,065 assertions, including 103 new source-projection checks and unchanged startup history for all 33 starter templates.
 - Production WGSL passed six pipeline creations and 17 offscreen pixel checks.
 - The attached Chromium compiler suite passed 159 assertions and a native non-scaling-stroke measurement, across 14 scenarios.
