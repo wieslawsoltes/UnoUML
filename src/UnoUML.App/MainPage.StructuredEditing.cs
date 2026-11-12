@@ -114,6 +114,7 @@ public sealed partial class MainPage
     private static ComboBox StructuredPicker(string name, IEnumerable<string> values, int selected)
     {
         var input = new ComboBox { Header = name, ItemsSource = values.ToArray(), SelectedIndex = selected, MinWidth = 240 };
+        BrowserAccessibility.AttachComboBox(input);
         BrowserAccessibility.SetName(input, name); return input;
     }
     private static bool StructuredInteger(TextBox input, out int value) => int.TryParse(input.Text, NumberStyles.None, CultureInfo.InvariantCulture, out value);
