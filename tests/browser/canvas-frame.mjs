@@ -6,7 +6,9 @@ async function waitForCanvasFrame(page, centered) {
   await surface.waitFor({state:'visible'});
   const witness = await surface.evaluateHandle(async (surface, centered) => {
     const module = await import(new URL('uml/viewport.js', document.baseURI).href);
-    const witness = {surface, centered, rendererState:module.rendererState, signature:null, stable:0, last:null, svg:null};
+    const witness = {surface, centered, rendererState:module.rendererState, signature:null, stable:0, last:null, svg:null,
+      startedAt:performance.now(), sampleCount:0, lastSampleAt:null, lastSampleValidGeometry:false,
+      readySamples:0, signatureChanges:0, svgChanges:0};
     witness.diagnostics = () => {
       const host = surface.getRootNode().host;
       const canvas = document.getElementById('uno-canvas');
@@ -25,6 +27,12 @@ async function waitForCanvasFrame(page, centered) {
       }
       return {
         observed:witness.last,
+        polling:{intervalMilliseconds:50, sampleCount:witness.sampleCount, stable:witness.stable,
+          requiredStableIntervals:3, readySamples:witness.readySamples,
+          signatureChanges:witness.signatureChanges, svgChanges:witness.svgChanges,
+          lastSampleValidGeometry:witness.lastSampleValidGeometry,
+          elapsedMilliseconds:performance.now()-witness.startedAt,
+          lastSampleAgeMilliseconds:witness.lastSampleAt===null?null:performance.now()-witness.lastSampleAt},
         renderer:host ? witness.rendererState(host.id) : null,
         document:{visibility:document.visibilityState,hidden:document.hidden,hasFocus:document.hasFocus(),
           readyState:document.readyState,focus},
@@ -36,8 +44,14 @@ async function waitForCanvasFrame(page, centered) {
     return witness;
   }, centered);
   try {
+    // Observe the already acknowledged native frame independently of browser
+    // animation scheduling. Three unchanged intervals at 50 ms retain a stable
+    // coordinate witness without asking an idle/background compositor for RAFs.
     // Keep this predicate synchronous: a Promise itself is a truthy poll result.
     await page.waitForFunction(witness => {
+      witness.sampleCount++;
+      witness.lastSampleAt = performance.now();
+      witness.lastSampleValidGeometry = false;
       const {surface} = witness;
       const svg = surface.querySelector('.paper > svg');
       const rect = surface.getBoundingClientRect(), matrix = svg?.getScreenCTM();
@@ -64,6 +78,10 @@ async function waitForCanvasFrame(page, centered) {
       const signature = JSON.stringify([rect.left,rect.top,rect.width,rect.height,
         matrix.a,matrix.b,matrix.c,matrix.d,matrix.e,matrix.f,box.x,box.y,box.width,box.height,
         surface.scrollLeft,surface.scrollTop,gpu?.revision,gpu?.presentedRevision]);
+      witness.lastSampleValidGeometry = true;
+      if (ready && fitted) witness.readySamples++;
+      if (witness.signature !== null && witness.signature !== signature) witness.signatureChanges++;
+      if (witness.svg !== null && witness.svg !== svg) witness.svgChanges++;
       witness.last = {rect:{x:rect.x,y:rect.y,width:rect.width,height:rect.height},
         matrix:[matrix.a,matrix.b,matrix.c,matrix.d,matrix.e,matrix.f],centerError:error,
         scroll:{x:surface.scrollLeft,y:surface.scrollTop},ready,fitted,
@@ -72,7 +90,7 @@ async function waitForCanvasFrame(page, centered) {
       witness.svg = svg;
       witness.signature = signature;
       return witness.stable >= 3;
-    }, witness, {polling:'raf',timeout:35000});
+    }, witness, {polling:50,timeout:35000});
   } catch (cause) {
     const state = await witness.evaluate(witness => witness.diagnostics()).catch(error => ({diagnosticError:error.message}));
     // Diagnose the observed first-frame stall without accepting a late frame as
