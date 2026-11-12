@@ -10,9 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      UNOUML_RUN_ID: '43168063104'
-      UNOUML_ARTIFACT_ID: '13920443601'
-      UNOUML_EXPECTED_HEAD: '04ccf24d99a560a4ad691cc925841fe44b08903a'
+      UNOUML_RUN_ID: '43168711782'
+      UNOUML_ARTIFACT_ID: '13921630970'
+      UNOUML_EXPECTED_HEAD: 'a51d02188231600ce859e962fe758e5f35c59f4f'
     steps:
       - name: Verify the exact application run and artifact provenance
         env:
