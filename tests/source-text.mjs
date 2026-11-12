@@ -30,11 +30,15 @@ function fixture() {
       const id = selector.match(/^textarea\[xamlautomationid="([^"]+)"\]$/)?.[1];
       return semantic.get(id) ?? null;
     },
-    addEventListener(type, handler) {
-      if (!listeners.has(type)) listeners.set(type, new Set());
-      listeners.get(type).add(handler);
+    addEventListener(type, handler, options) {
+      if (!listeners.has(type)) listeners.set(type, { capture: new Set(), bubble: new Set() });
+      const phase = options === true || options?.capture ? 'capture' : 'bubble';
+      listeners.get(type)[phase].add(handler);
     },
-    removeEventListener(type, handler) { listeners.get(type)?.delete(handler); }
+    removeEventListener(type, handler, options) {
+      const phase = options === true || options?.capture ? 'capture' : 'bubble';
+      listeners.get(type)?.[phase].delete(handler);
+    }
   };
   Object.assign(globalThis, {
     document,
@@ -57,8 +61,12 @@ function fixture() {
     },
     remove(id) { removeSourceText(id); registrations.delete(id); },
     fire(type, target) {
-      for (const handler of listeners.get(type) ?? []) handler({ type, target });
+      const event = { type, target, isTrusted: false };
+      for (const phase of ['capture', 'bubble'])
+        for (const handler of listeners.get(type)?.[phase] ?? []) handler(event);
     },
+    listenerCounts: () => Object.fromEntries([...listeners].map(([type, phases]) =>
+      [type, { capture: phases.capture.size, bubble: phases.bubble.size }])),
     flush() {
       for (const callback of microtasks.splice(0)) callback();
       const callbacks = [...frames.values()];
@@ -122,7 +130,17 @@ test('a user can remove the BOM before queued projection work completes', () => 
     dom.flush();
     assert.equal(input.value, 'abc', 'Queued repair must not undo the native edit');
     dom.sync('source', 'abc', true);
-    assert.ok([...dom.listeners.values()].every(set => set.size === 0));
+    assert.deepEqual(dom.listenerCounts(), {
+      focusin: { capture: 1, bubble: 0 },
+      beforeinput: { capture: 1, bubble: 0 },
+      input: { capture: 1, bubble: 1 },
+      compositionstart: { capture: 1, bubble: 0 },
+      compositionend: { capture: 1, bubble: 1 }
+    }, 'Plain source retains one capture lifecycle and one commit-bubble repair until unload');
+    assert.equal(dom.frames.size, 0, 'Plain source registration does not start a repair frame');
+    dom.remove('source');
+    assert.ok([...dom.listeners.values()].every(phases => phases.capture.size === 0 && phases.bubble.size === 0),
+      'Unloading a plain-source registration removes both phases');
   } finally { dom.dispose(); }
 });
 
@@ -203,9 +221,15 @@ test('unload cancels frames and a replacement registration does not inherit pend
     dom.sync('source', '\uFEFFnew');
     dom.flush();
     assert.equal(input.value, 'old');
-    assert.ok([...dom.listeners.values()].every(set => set.size === 1));
+    assert.deepEqual(dom.listenerCounts(), {
+      focusin: { capture: 1, bubble: 0 },
+      beforeinput: { capture: 1, bubble: 0 },
+      input: { capture: 1, bubble: 1 },
+      compositionstart: { capture: 1, bubble: 0 },
+      compositionend: { capture: 1, bubble: 1 }
+    }, 'A replacement installs exactly one handler in each required event phase');
     dom.remove('source');
-    assert.ok([...dom.listeners.values()].every(set => set.size === 0));
+    assert.ok([...dom.listeners.values()].every(phases => phases.capture.size === 0 && phases.bubble.size === 0));
   } finally { dom.dispose(); }
 });
 
