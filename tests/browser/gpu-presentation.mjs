@@ -357,3 +357,10 @@ export async function verifyGpuFallback(browser, url) {
     console.log('Verified Uno Skia/SVG startup and source editing without navigator.gpu.');
   } finally { await context.close(); }
 }
+
+// Shared quality/acknowledgment gates for the immutable paired benchmark.
+export {
+  presented as waitForGpuPresentation,
+  comparePaint as compareGpuPaint,
+  verifySelectionOverlay
+};

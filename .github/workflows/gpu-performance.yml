@@ -1,0 +1,77 @@
+name: Paired WebGPU performance
+on:
+  # Push an exact reviewed candidate here to request an expensive comparison.
+  # Normal PR pushes keep the existing shader/workspace/browser gates only.
+  push:
+    branches: [codex/webgpu-performance-benchmark]
+permissions:
+  contents: read
+concurrency:
+  group: unouml-paired-webgpu-performance
+  cancel-in-progress: true
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      UNOUML_REQUIRE_WEBGPU: '1'
+      UNOUML_GPU_DRIVER: software
+      UNOUML_BASELINE_SHA: b25c990167b13db19dca318ca2f25420085e3518
+      UNOUML_CANDIDATE_SHA: ${{ github.sha }}
+    steps:
+      - name: Check out the immutable candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: candidate
+          persist-credentials: false
+      - name: Check out the immutable baseline
+        uses: actions/checkout@v4
+        with:
+          ref: b25c990167b13db19dca318ca2f25420085e3518
+          path: baseline
+          persist-credentials: false
+      - name: Verify both source revisions
+        shell: bash
+        run: |
+          test "$(git -C baseline rev-parse HEAD)" = "$UNOUML_BASELINE_SHA"
+          test "$(git -C candidate rev-parse HEAD)" = "$UNOUML_CANDIDATE_SHA"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: candidate/package-lock.json
+      - name: Install WebAssembly native tools
+        run: dotnet workload install wasm-tools --skip-manifest-update
+      - name: Build and stage the baseline independently
+        working-directory: baseline
+        run: |
+          npm ci --ignore-scripts
+          npm run prepare:renderer
+          dotnet publish src/UnoUML.App -f net10.0-browserwasm -c Release -o "$RUNNER_TEMP/perf-baseline-site"
+          node scripts/verify-uno7-assets.mjs src/UnoUML.App/obj/project.assets.json
+          node scripts/stage-pages.mjs "$RUNNER_TEMP/perf-baseline-site/wwwroot" "$RUNNER_TEMP/perf-baseline-pages"
+      - name: Build and stage the candidate independently
+        working-directory: candidate
+        run: |
+          npm ci --ignore-scripts
+          npm run prepare:renderer
+          dotnet publish src/UnoUML.App -f net10.0-browserwasm -c Release -o "$RUNNER_TEMP/perf-candidate-site"
+          node scripts/verify-uno7-assets.mjs src/UnoUML.App/obj/project.assets.json
+          node scripts/stage-pages.mjs "$RUNNER_TEMP/perf-candidate-site/wwwroot" "$RUNNER_TEMP/perf-candidate-pages"
+      - name: Compare warmed ABBA runs using one common harness
+        working-directory: candidate
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/gpu-performance
+        run: |
+          CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/gpu-performance.mjs "$RUNNER_TEMP/perf-baseline-pages" "$RUNNER_TEMP/perf-candidate-pages"
+      - name: Preserve paired measurements and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-performance-${{ github.sha }}
+          path: ${{ runner.temp }}/gpu-performance/
+          if-no-files-found: warn
