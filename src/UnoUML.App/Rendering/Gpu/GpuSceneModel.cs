@@ -6,6 +6,7 @@ namespace UnoUML.App.Rendering.Gpu;
 /// <summary>Bounded, atomic retained display-list updates. This model has no UI or GPU dependency.</summary>
 public sealed class GpuSceneModel
 {
+    public const int ProtocolVersion = 2;
     public const int MaxCommands = 32768;
     public const int MaxVertexFloats = 8 * 1024 * 1024;
     public const int MaxTextureSide = 8192;
@@ -30,7 +31,7 @@ public sealed class GpuSceneModel
         try
         {
             if (value.ValueKind != JsonValueKind.Object) throw Invalid("The scene update must be an object.");
-            if (value.TryGetProperty("version", out var version) && version.GetInt32() != 1)
+            if (value.TryGetProperty("version", out var version) && version.GetInt32() is not (1 or ProtocolVersion))
                 throw Invalid("Unsupported GPU scene protocol.");
             long revision = value.GetProperty("revision").GetInt64();
             if (revision < 0) throw Invalid("Invalid scene revision.");

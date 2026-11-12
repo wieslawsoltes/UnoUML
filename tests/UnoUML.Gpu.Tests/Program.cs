@@ -104,7 +104,7 @@ internal static class Program
         string[] failures =
         [
             """[]""",
-            """{"version":2,"revision":2}""",
+            """{"version":3,"revision":2}""",
             """{"revision":-1}""",
             """{"revision":2,"width":0}""",
             """{"revision":2,"height":1e99}""",
@@ -398,7 +398,7 @@ internal static class Program
         var model = Seed();
         foreach (string space in new[] { "\"screen\"", "\"\"", "\"VIEWPORT\"", "null", "42", "true", "{}", "[]" })
             Reject(model, """{"revision":2,"commands":[{"id":"triangle","matrix":[1,0,0,1,9,8],"space":""" + space + "}]}");
-        Accept(model, """{"revision":2,"commands":[{"id":"triangle","space":"world"},{"id":"label","space":"viewport"}]}""");
+        Accept(model, """{"version":2,"revision":2,"commands":[{"id":"triangle","space":"world"},{"id":"label","space":"viewport"}]}""");
         Equal(model.Commands["triangle"].Space, GpuCoordinateSpace.World);
         Equal(model.Commands["label"].Space, GpuCoordinateSpace.Viewport);
     }
