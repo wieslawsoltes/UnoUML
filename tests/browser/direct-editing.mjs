@@ -1,4 +1,4 @@
-import { clickControl } from './native-controls.mjs';
+import { clickControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyCanvasEvents(page, render) {
@@ -8,23 +8,23 @@ export async function verifyCanvasEvents(page, render) {
   const field = page.getByRole('textbox', {name:'Edit diagram label'});
   const begin = () => page.evaluate(() => ui.beginLabelEdit('diagram', 'Customer', 42));
   assert.equal(await begin(), true);
-  await field.fill('Discarded');
+  await fillControl(page, field, 'Discarded');
   await field.press('Escape');
   assert.equal(await field.count(), 0);
   assert.equal(await page.evaluate(() => log.filter(x => x.kind === 'label').length), 0);
 
   await begin();
-  await field.fill('Client');
+  await fillControl(page, field, 'Client');
   await field.press('Enter');
   assert.deepEqual(await page.evaluate(() => log.at(-1)), {kind:'label', revision:42, text:'Client'});
   await begin();
-  await field.fill('Stale');
+  await fillControl(page, field, 'Stale');
   await render(source.replace('Customer','Buyer'));
   assert.equal(await field.count(), 0);
   assert.equal(await page.evaluate(() => log.filter(x => x.kind === 'label').length), 1);
 
   await page.evaluate(() => { ui.setSelection('diagram', 'A', 1); ui.beginLabelEdit('diagram', 'first\nsecond', 43, true); });
-  await field.fill('edited\nreference');
+  await fillControl(page, field, 'edited\nreference');
   await field.press('End');
   await field.press('Enter');
   assert.equal(await field.inputValue(), 'edited\nreference\n');
@@ -91,12 +91,12 @@ export async function verifyStudioEditing(page, source) {
   const label = page.locator('.paper text').filter({hasText:/^Storefront$/}).first();
   await label.dblclick();
   const field = page.getByRole('textbox', {name:'Edit diagram label'});
-  await field.fill('Draft name');
+  await fillControl(page, field, 'Draft name');
   await field.press('Escape');
   assert.equal(await source.inputValue(), previous);
   const surface = page.locator('.surface').first();
   await surface.press('F2');
-  await field.fill('Checkout UI');
+  await fillControl(page, field, 'Checkout UI');
   await field.press('Enter');
   assert.equal(await source.inputValue(), previous.replace('"Storefront" as Store','"Checkout UI" as Store'));
   await page.locator('.paper text').filter({hasText:/^Checkout UI$/}).first().waitFor();
@@ -119,24 +119,24 @@ export async function verifyStudioEditing(page, source) {
   await surface.press('Control+z');
   assert.equal(await source.inputValue(), previous);
   const json = '@startjson\n{"é🪴":"雪","left":"same","right":"same","n":12}\n@endjson';
-  await source.fill(json);
+  await fillControl(page, source, json);
   const duplicate = page.locator('.paper text[data-json-kind="string"]').filter({hasText:/^same$/});
   await duplicate.nth(1).dblclick();
-  await field.fill('second');
+  await fillControl(page, field, 'second');
   await field.press('Enter');
   assert.equal(await source.inputValue(), json.replace('"right":"same"', '"right":"second"'));
   const number = page.locator('.paper text[data-json-kind="scalar"]').filter({hasText:/^12$/});
   await clickControl(page, number);
   await surface.press('F2');
-  await field.fill('1e-');
+  await fillControl(page, field, '1e-');
   await field.press('Enter');
   assert.ok((await source.inputValue()).includes('"n":12'));
   await number.dblclick();
-  await field.fill('false');
+  await fillControl(page, field, 'false');
   await field.press('Enter');
   assert.ok((await source.inputValue()).includes('"n":false'));
   await surface.press('Control+z');
   await number.waitFor();
-  await source.fill(previous);
+  await fillControl(page, source, previous);
   await label.waitFor();
 }

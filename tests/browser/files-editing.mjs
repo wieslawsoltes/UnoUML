@@ -1,4 +1,4 @@
-import { clickControl } from './native-controls.mjs';
+import { clickControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 import {mkdir} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -21,7 +21,7 @@ export async function verifyFilesEditing(page, source) {
     return row&&row.dataset.canvasNode===row.dataset.canvasId;
   },{surface:await surface.elementHandle(),path});
   const input='\uFEFF@startfiles\n/src/A.cs\n/src/nested/B.cs\n/docs/\n@endfiles';
-  await source.fill(input);await row('/src/A.cs').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, input);await row('/src/A.cs').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   assert.equal(await paper.locator('[data-files-path]').count(),5,'Implicit directories have distinct selectable rows');
   const oldIds=new Map();
@@ -42,7 +42,7 @@ export async function verifyFilesEditing(page, source) {
   await clickControl(page, row('/src/'));await surface.press('F2');
   const editor=page.getByRole('textbox',{name:'Edit diagram label',exact:true});
   await editor.waitFor();assert.equal(await editor.inputValue(),'src');
-  await editor.fill('library');await editor.press('Enter');
+  await fillControl(page, editor, 'library');await editor.press('Enter');
   await row('/library/nested/B.cs').waitFor();await waitApplied('/library/A.cs');
   assert.equal((await snapshot()).body,input.replaceAll('/src/','/library/'));
   for(const [path,oldId] of oldIds){
@@ -57,12 +57,12 @@ export async function verifyFilesEditing(page, source) {
   await clickControl(page, row('/src/nested/'));
   await clickControl(page, page.getByRole('button', {name:'Move file or folder…',exact:true}));
   let dialog=page.getByRole('dialog',{name:'Move file or folder',exact:true});
-  await dialog.getByRole('textbox',{name:'Destination path',exact:true}).fill('/docs/');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Destination path',exact:true}), '/docs/');
   await clickControl(page, dialog.getByRole('button',{name:'Move',exact:true}));await dialog.waitFor({state:'hidden'});
   assert.equal(await source.inputValue(),arrangedSource,'Existing folders are not silently merged');
   await clickControl(page, row('/src/nested/'));await clickControl(page, page.getByRole('button', {name:'Move file or folder…',exact:true}));
   dialog=page.getByRole('dialog',{name:'Move file or folder',exact:true});
-  await dialog.getByRole('textbox',{name:'Destination path',exact:true}).fill('/docs/models/');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Destination path',exact:true}), '/docs/models/');
   await clickControl(page, dialog.getByRole('button',{name:'Move',exact:true}));await dialog.waitFor({state:'hidden'});
   await row('/docs/models/B.cs').waitFor();
   assert.equal((await snapshot()).body,input.replace('/src/nested/B.cs','/docs/models/B.cs'));
@@ -91,7 +91,7 @@ export async function verifyFilesEditing(page, source) {
 
   await clickControl(page, row('/docs/nested/'));await clickControl(page, page.getByRole('button', {name:'Insert file…',exact:true}));
   dialog=page.getByRole('dialog',{name:'Insert file',exact:true});
-  await dialog.getByRole('textbox',{name:'Path',exact:true}).fill('/docs/nested/New.cs');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Path',exact:true}), '/docs/nested/New.cs');
   await clickControl(page, dialog.getByRole('button',{name:'Insert',exact:true}));await dialog.waitFor({state:'hidden'});
   await row('/docs/nested/New.cs').waitFor();
   assert.ok((await snapshot()).body.includes('/docs/nested/New.cs\n@endfiles'));

@@ -1,4 +1,4 @@
-import { clickControl } from './native-controls.mjs';
+import { clickControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyImportedPageRouting(page, source) {
@@ -12,19 +12,19 @@ export async function verifyImportedPageRouting(page, source) {
   // A cancelled editor belongs to the old diagram. Its pending DOT selection
   // must never consume the next imported-source label commit.
   const cancelledDot = '@startdot\ndigraph { pending [label="Cancelled DOT"]; }\n@enddot';
-  await source.fill(cancelledDot);
+  await fillControl(page, source, cancelledDot);
   await paper.locator('[data-dot-id="node:pending"]').dblclick();
-  await editor.fill('Do not save');
+  await fillControl(page, editor, 'Do not save');
   await editor.press('Escape');
   await editor.waitFor({state:'detached'});
   assert.equal(await source.inputValue(),cancelledDot);
   const input = '@startuml\n!include multiple.puml!second\n@enduml';
-  await source.fill(input);
+  await fillControl(page, source, input);
   const item = paper.locator('[data-qualified-name="Shared"][data-source-file="multiple.puml"]').first();
   await item.locator('text').filter({hasText:'Second page'}).dblclick();
   assert.equal(await item.getAttribute('data-file-line'),'4');
   assert.equal(await editor.inputValue(),'Second page');
-  await editor.fill('Changed second');
+  await fillControl(page, editor, 'Changed second');
   await editor.press('Enter');
   await item.locator('text').filter({hasText:'Changed second'}).waitFor();
   assert.equal(await source.inputValue(),input);
@@ -35,11 +35,11 @@ export async function verifyImportedPageRouting(page, source) {
   assert.equal(await read(),original);
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   const baseline = '@startuml\nclass PreviousMain\n@enduml';
-  await source.fill(baseline);
+  await fillControl(page, source, baseline);
   await paper.locator('[data-qualified-name="PreviousMain"]').waitFor();
-  await source.fill(input);
+  await fillControl(page, source, input);
   await item.locator('text').filter({hasText:'Second page'}).dblclick();
-  await editor.fill('Local change');
+  await fillControl(page, editor, 'Local change');
   await editor.press('Enter');
   await item.locator('text').filter({hasText:'Local change'}).waitFor();
   const replacement = original.replace('"Second page"','"Reimported change"');
@@ -65,11 +65,11 @@ export async function verifyImportedPageRouting(page, source) {
     const nextLabel = `Concurrent ${scenario} change`, pendingLabel = `Pending ${scenario} edit`;
     const concurrent = current.replace(`"${currentLabel}"`,`"${nextLabel}"`);
     const pending = current.replace(`"${currentLabel}"`,`"${pendingLabel}"`);
-    await source.fill(conflictInput);
+    await fillControl(page, source, conflictInput);
     await target.waitFor();
     await item.locator('text').filter({hasText:currentLabel}).dblclick();
     assert.equal(await editor.inputValue(),currentLabel);
-    await editor.fill(pendingLabel);
+    await fillControl(page, editor, pendingLabel);
     const sourceElement = await source.elementHandle();
     let dialog;
     try {

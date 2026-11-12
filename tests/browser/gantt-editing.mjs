@@ -1,4 +1,4 @@
-import { clickControl } from './native-controls.mjs';
+import { clickControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyGanttEditing(page,source) {
@@ -13,7 +13,7 @@ export async function verifyGanttEditing(page,source) {
     await page.waitForFunction(value=>[...document.querySelectorAll('textarea')].some(e=>e.getAttribute('aria-label')==='PlantUML source'&&e.value===value),expected);
     assert.equal(await source.inputValue(),expected);
   };
-  await source.fill(fixture);
+  await fillControl(page, source, fixture);
   await task('Build').waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
@@ -71,7 +71,7 @@ export async function verifyGanttEditing(page,source) {
   // F2 edits the actual task token and preserves an explicit alias.
   await clickControl(page, task('D').locator('[data-edit-kind="gantt-label"]'));await surface.press('F2');
   const labelEditor=page.getByRole('textbox',{name:'Edit diagram label',exact:true});
-  await labelEditor.waitFor({state:'visible'});await labelEditor.fill('Concept');await labelEditor.press('Enter');
+  await labelEditor.waitFor({state:'visible'});await fillControl(page, labelEditor, 'Concept');await labelEditor.press('Enter');
   await task('D').locator('text').filter({hasText:/^Concept$/}).waitFor();
   assert.equal(await source.inputValue(),fixture.replace('[Design]','[Concept]'));
   await undo(fixture);
@@ -79,9 +79,9 @@ export async function verifyGanttEditing(page,source) {
   await clickControl(page, task('Build').locator('[data-edit-kind="gantt-label"]'));
   await clickControl(page, page.getByRole('button', {name:'Edit task schedule…',exact:true}));
   let dialog=page.getByRole('dialog',{name:'Edit task schedule',exact:true});
-  await dialog.getByRole('textbox',{name:'Duration in days',exact:true}).fill('8');
-  await dialog.getByRole('textbox',{name:'Completion percent (optional)',exact:true}).fill('40');
-  await dialog.getByRole('textbox',{name:'Task color (#RRGGBB)',exact:true}).fill('#224466');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Duration in days',exact:true}), '8');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Completion percent (optional)',exact:true}), '40');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Task color (#RRGGBB)',exact:true}), '#224466');
   await clickControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));await dialog.waitFor({state:'hidden'});
   await paper.locator('g.task[data-gantt-id="Build"][data-gantt-duration="8"]').waitFor();
   assert.ok((await source.inputValue()).includes('is 40% completed and is colored in #224466'));
@@ -90,12 +90,12 @@ export async function verifyGanttEditing(page,source) {
   // Every bar in a shared `then` statement must select its own task, including
   // the inspector and Delete path; source-line selection alone is ambiguous.
   const chained='@startgantt\n[A] lasts 2 days then [B] lasts 3 days then [C] lasts 1 day\n@endgantt';
-  await source.fill(chained);await task('B').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, chained);await task('B').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
   await clickControl(page, task('B').locator('.gantt-bar'));
   await clickControl(page, page.getByRole('button', {name:'Rename schedule task…',exact:true}));
   dialog=page.getByRole('dialog',{name:'Rename schedule task',exact:true});
   assert.equal(await dialog.getByRole('textbox',{name:'Task name',exact:true}).inputValue(),'B');
-  await dialog.getByRole('textbox',{name:'Task name',exact:true}).fill('Middle');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Task name',exact:true}), 'Middle');
   await clickControl(page, dialog.getByRole('button',{name:'Rename',exact:true}));await dialog.waitFor({state:'hidden'});
   await task('Middle').waitFor();assert.equal(await source.inputValue(),chained.replace('[B]','[Middle]'));
   await undo(chained);
@@ -115,7 +115,7 @@ export async function verifyGanttEditing(page,source) {
   // the preceding fixture can measure its old SVG before the source debounce
   // renders the new DPI, then send the pointer to stale screen coordinates.
   const scaled='@startgantt\nskinparam dpi 192\n[Scaled A] as [SA] lasts 2 days\n[Scaled B] as [SB] starts at [SA]\'s end and lasts 3 days\n@endgantt';
-  await source.fill(scaled);await task('SB').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, scaled);await task('SB').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
   bar=task('SB').locator('.gantt-bar');box=await bar.boundingBox();
   day=await task('SB').evaluate(e=>Number(e.dataset.ganttUnit)*e.getScreenCTM().a);
   await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();
@@ -124,7 +124,7 @@ export async function verifyGanttEditing(page,source) {
   await undo(scaled);
 
   const generated="@startgantt\n[Plan /'comment-like'/ stage] as [A] lasts 2 days\n@endgantt";
-  await source.fill(generated);await task('A').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, generated);await task('A').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
   await clickControl(page, task('A').locator('.gantt-bar'));
   assert.equal(await page.locator('.gantt-handle:visible').count(),0,'Generated task geometry has no editable resize affordances');
   bar=task('A').locator('.gantt-bar');box=await bar.boundingBox();

@@ -1,4 +1,4 @@
-import { clickControl } from './native-controls.mjs';
+import { clickControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyYamlEditing(page, source) {
@@ -9,7 +9,7 @@ export async function verifyYamlEditing(page, source) {
   const editor = page.getByRole('textbox',{name:'Edit diagram label'});
   const render = async value => {
     const previous = await paper.locator('svg').elementHandle();
-    await source.fill(value);
+    await fillControl(page, source, value);
     if (previous) await page.waitForFunction(node => !node.isConnected,previous);
     await paper.locator('svg').waitFor();
     assert.equal(await paper.getAttribute('data-renderer'),'managed');
@@ -19,7 +19,7 @@ export async function verifyYamlEditing(page, source) {
   await render(folded);
   await paper.locator('[data-edit-kind="yaml-folded-text"]').dblclick();
   assert.equal(await editor.inputValue(),'First 🪴 second third');
-  await editor.fill('Updated\nline');
+  await fillControl(page, editor, 'Updated\nline');
   await editor.press('Control+Enter');
   const changed = folded.replace('First 🪴','"Updated\\nline"').replace("'second'",'').replace('"third"','');
   assert.equal(await source.inputValue(),changed);
@@ -36,7 +36,7 @@ export async function verifyYamlEditing(page, source) {
   const alias = literal.indexOf('*base');
   await paper.locator(`[data-edit-start="${alias}"][data-edit-role="value"]`).dblclick();
   assert.equal(await editor.inputValue(),'*base');
-  await editor.fill('*base next');
+  await fillControl(page, editor, '*base next');
   await editor.press('Enter');
   assert.equal(await source.inputValue(),literal.replace('copy: *base','copy: "*base next"'));
   await paper.locator('[data-edit-role="value"]').filter({hasText:/^\*base next$/}).waitFor();
@@ -47,7 +47,7 @@ export async function verifyYamlEditing(page, source) {
   await render(tags);
   await paper.locator('[data-edit-kind="yaml-folded-text"]').dblclick();
   assert.equal(await editor.inputValue(),'!!str 42 !local value');
-  await editor.fill('Tags remain text');
+  await fillControl(page, editor, 'Tags remain text');
   await editor.press('Control+Enter');
   assert.equal(await source.inputValue(),tags.replace('!!str 42','"Tags remain text"').replace('!local value',''));
   await paper.locator('[data-edit-kind="yaml-folded-text"]').filter({hasText:'Tags remain text'}).waitFor();
@@ -57,7 +57,7 @@ export async function verifyYamlEditing(page, source) {
   assert.equal(await paper.locator('[data-edit-role="value"]').filter({hasText:'previous'}).count(),0);
   const last = duplicate.indexOf('final');
   await paper.locator(`[data-edit-start="${last}"][data-edit-role="value"]`).dblclick();
-  await editor.fill('Latest');
+  await fillControl(page, editor, 'Latest');
   await editor.press('Enter');
   assert.equal(await source.inputValue(),duplicate.replace('first: final','first: Latest'));
   await paper.locator('[data-edit-role="value"]').filter({hasText:'Latest'}).waitFor();
@@ -68,7 +68,7 @@ export async function verifyYamlEditing(page, source) {
   await render(block);
   await paper.locator('[data-edit-kind="yaml-block"]').dblclick();
   assert.equal(await editor.inputValue(),'first second');
-  await editor.fill('Changed\nnext');
+  await fillControl(page, editor, 'Changed\nnext');
   await editor.press('Control+Enter');
   assert.equal(await source.inputValue(),block.replace('>-\n\t\tfirst\n\t\tsecond','"Changed\\nnext"'));
   await paper.locator('[data-edit-kind="yaml-double"]').filter({hasText:/Changed/}).waitFor();
@@ -79,7 +79,7 @@ export async function verifyYamlEditing(page, source) {
   await render(sequenceBlock);
   await paper.locator('[data-edit-kind="yaml-block"]').dblclick();
   assert.equal(await editor.inputValue(),'first second');
-  await editor.fill('Edited\nsequence body');
+  await fillControl(page, editor, 'Edited\nsequence body');
   await editor.press('Control+Enter');
   assert.equal(await source.inputValue(),sequenceBlock.replace('>2- # retained\n      first\n      second','"Edited\\nsequence body" # retained'));
   await paper.locator('[data-edit-kind="yaml-double"]').filter({hasText:/Edited/}).waitFor();

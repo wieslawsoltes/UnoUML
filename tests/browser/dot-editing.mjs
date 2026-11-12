@@ -1,4 +1,4 @@
-import { clickControl } from './native-controls.mjs';
+import { clickControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyDotEditing(page, source) {
@@ -6,10 +6,10 @@ export async function verifyDotEditing(page, source) {
   const editor = page.getByRole('textbox',{name:'Edit diagram label'});
   const node = id => paper.locator(`[data-dot-id="node:${id}"]`);
   const dot = '@startdot\ndigraph {\n  rankdir=LR;\n  a [label="Same",shape=box];\n  b [label="Same",shape=box];\n  c [label="Target",shape=box];\n  a -> b [label="Calls"];\n}\n@enddot';
-  await source.fill(dot);
+  await fillControl(page, source, dot);
   await node('b').dblclick();
   assert.equal(await editor.inputValue(),'Same');
-  await editor.fill('Changed');
+  await fillControl(page, editor, 'Changed');
   await editor.press('Enter');
   assert.equal(await source.inputValue(),dot.replace('b [label="Same"','b [label="Changed"'));
   await node('b').filter({hasText:'Changed'}).waitFor();
@@ -30,7 +30,7 @@ export async function verifyDotEditing(page, source) {
   assert.equal(await source.inputValue(),dot.replace('a -> b [label="Calls"]','a -> c [label="Calls"]'));
   await surface.press('Control+z');
   await edge.locator('text').filter({hasText:'Calls'}).dblclick();
-  await editor.fill('Sends');
+  await fillControl(page, editor, 'Sends');
   await editor.press('Enter');
   assert.equal(await source.inputValue(),dot.replace('"Calls"','"Sends"'));
   await clickControl(page, edge.locator('text').filter({hasText:'Sends'}));
@@ -40,36 +40,36 @@ export async function verifyDotEditing(page, source) {
   assert.match(await source.inputValue(),/label="Sends"/);
 
   const implicit = '@startdot\ndigraph { "a\\\\path":port -> b; }\n@enddot';
-  await source.fill(implicit);
+  await fillControl(page, source, implicit);
   await paper.locator('[data-dot-kind="node"][data-dot-explicit="false"]').first().dblclick();
-  await editor.fill('Visible');
+  await fillControl(page, editor, 'Visible');
   await editor.press('Enter');
   assert.match(await source.inputValue(),/"a\\\\path" \[label="Visible"\]/);
   await paper.locator('[data-dot-kind="node"]').filter({hasText:'Visible'}).waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
 
   const html = '@startdot\ndigraph { a [label=<<TABLE BORDER="1"><TR><TD PORT="left">Same</TD><TD>Same</TD></TR></TABLE>>]; }\n@enddot';
-  await source.fill(html);
+  await fillControl(page, source, html);
   const second = html.lastIndexOf('Same');
   await paper.locator(`[data-edit-start="${second}"][data-edit-kind="dot-html-text"]`).dblclick();
   assert.equal(await editor.inputValue(),'Same');
-  await editor.fill('A & B');
+  await fillControl(page, editor, 'A & B');
   await editor.press('Enter');
   assert.equal(await source.inputValue(),html.slice(0,second)+'A &amp; B'+html.slice(second+4));
   await paper.locator('[data-edit-kind="dot-html-text"]').filter({hasText:'A & B'}).waitFor();
   await surface.press('Control+z');
   assert.equal(await source.inputValue(),html);
   const record = '@startdot\ndigraph { a [shape=record,label="{<p> Same|Same}"]; }\n@enddot';
-  await source.fill(record);
+  await fillControl(page, source, record);
   const recordAt = record.lastIndexOf('Same');
   await paper.locator(`[data-edit-start="${recordAt}"][data-edit-kind="dot-record-text"]`).dblclick();
-  await editor.fill('New | field');
+  await fillControl(page, editor, 'New | field');
   await editor.press('Enter');
   assert.equal(await source.inputValue(),record.slice(0,recordAt)+'New \\| field'+record.slice(recordAt+4));
   await paper.locator('[data-edit-kind="dot-record-text"]').filter({hasText:'New | field'}).waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   const strict = '@startdot\nstrict digraph { a -> b [label="First"]; a -> b [color=red]; c; }\n@enddot';
-  await source.fill(strict);
+  await fillControl(page, source, strict);
   const merged = paper.locator('[data-dot-kind="edge"][data-dot-merged="true"]');
   await clickControl(page, merged.locator('text').filter({hasText:'First'}));
   await page.getByRole('button',{name:'Reattach target endpoint',exact:true}).waitFor({state:'visible'});
@@ -81,17 +81,17 @@ export async function verifyDotEditing(page, source) {
   await merged.locator('text').filter({hasText:'First'}).waitFor();
   assert.equal(await source.inputValue(),strict,'One undo restores every strict-edge declaration');
   await merged.locator('text').filter({hasText:'First'}).dblclick();
-  await editor.fill('Merged label');
+  await fillControl(page, editor, 'Merged label');
   await editor.press('Enter');
   await merged.locator('text').filter({hasText:'Merged label'}).waitFor();
   assert.equal(await source.inputValue(),'@startdot\nstrict digraph { a ; b ;\n  a -> b [label="First"];; a ; b ;\n  a -> b [color=red, label="Merged label"];; c; }\n@enddot');
   assert.equal(await paper.locator('[data-dot-kind="edge"]').count(),1);
   const sharedStrict = '@startdot\nstrict digraph { a->b->c[label=Shared]; a->b[color=red]; b->c[color=blue]; }\n@enddot';
-  await source.fill(sharedStrict);
+  await fillControl(page, source, sharedStrict);
   const firstShared = paper.locator('[data-dot-from-id="a"][data-dot-to-id="b"]');
   const secondShared = paper.locator('[data-dot-from-id="b"][data-dot-to-id="c"]');
   await firstShared.locator('text').filter({hasText:'Shared'}).dblclick();
-  await editor.fill('Only AB');
+  await fillControl(page, editor, 'Only AB');
   await editor.press('Enter');
   await firstShared.locator('text').filter({hasText:'Only AB'}).waitFor();
   await secondShared.locator('text').filter({hasText:'Shared'}).waitFor();
@@ -100,7 +100,7 @@ export async function verifyDotEditing(page, source) {
   await surface.press('Control+z');
   assert.equal(await source.inputValue(),sharedStrict);
   const sharedHtml = sharedStrict.replace('label=Shared','label=<Shared <B>edge</B>>');
-  await source.fill(sharedHtml);
+  await fillControl(page, source, sharedHtml);
   await firstShared.locator('text').filter({hasText:'edge'}).waitFor();
   assert.equal(await paper.locator('[data-dot-kind="edge"] [data-edit-start]').count(),0,
     'A shared HTML label cannot expose a token edit that changes other edges');
@@ -117,7 +117,7 @@ async function verifyDotStructure(page, source) {
   const node = id => paper.locator(`[data-dot-id=${JSON.stringify('node:' + id)}]`);
   const load = async input => {
     const previous = await paper.locator('svg').elementHandle();
-    await source.fill(input);
+    await fillControl(page, source, input);
     if (previous) await page.waitForFunction(svg => !svg.isConnected, previous);
     await paper.locator('svg').waitFor();
     assert.equal(await paper.getAttribute('data-renderer'),'managed');
@@ -146,7 +146,7 @@ async function verifyDotStructure(page, source) {
   await pair('a','b');
   await surface.press('Control+g');
   await page.getByRole('dialog',{name:'Group selected DOT nodes',exact:true}).waitFor();
-  await page.locator('textarea:visible').last().fill('Canvas group');
+  await fillControl(page, page.locator('textarea:visible').last(), 'Canvas group');
   await clickControl(page, page.getByRole('button', {name:'Group',exact:true}));
   const cluster = paper.locator('[data-dot-id="cluster:cluster_Group"]');
   await cluster.locator('text').filter({hasText:'Canvas group'}).waitFor();

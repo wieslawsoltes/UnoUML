@@ -1,4 +1,4 @@
-import { clickControl } from './native-controls.mjs';
+import { clickControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyNetworkEditing(page, source) {
@@ -9,7 +9,7 @@ export async function verifyNetworkEditing(page, source) {
   const fixture = '@startnwdiag\nnwdiag {\n  network dmz {\n    address = "192.0.2.0/24"; // subnet retained\n    shared [address=".1", description="Gateway", color="#112233"];\n    client [address=".2"];\n  }\n  network lan {\n    shared [address="10.0.0.1"];\n    db [shape=database];\n  }\n  network spare {\n  }\n}\n@endnwdiag';
   const semantic = text => text.startsWith("' @unouml:canvas ") ? text.slice(text.indexOf('\n') + 1) : text;
   const geometry = text => JSON.parse(text.slice("' @unouml:canvas ".length,text.indexOf('\n')));
-  await source.fill(fixture);
+  await fillControl(page, source, fixture);
   await paper.locator('g.entity[data-qualified-name="shared"]').waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
@@ -32,7 +32,7 @@ export async function verifyNetworkEditing(page, source) {
   await clickControl(page, paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^Gateway$/}));
   await clickControl(page, page.getByRole('button', {name:'Rename host identifier…',exact:true}));
   let dialog = page.getByRole('dialog',{name:'Rename host identifier',exact:true});
-  await dialog.getByRole('textbox',{name:'Host identifier',exact:true}).fill('gateway');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Host identifier',exact:true}), 'gateway');
   await clickControl(page, dialog.getByRole('button',{name:'Rename',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('g.entity[data-qualified-name="gateway"]').waitFor();
@@ -53,9 +53,9 @@ export async function verifyNetworkEditing(page, source) {
   await clickControl(page, paper.locator('[data-edit-kind="text"]').filter({hasText:/^dmz$/}));
   await clickControl(page, page.getByRole('button', {name:'Insert network host…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Insert network host',exact:true});
-  await dialog.getByRole('textbox',{name:'Host identifier',exact:true}).fill('cache');
-  await dialog.getByRole('textbox',{name:'Host description',exact:true}).fill('Cache');
-  await dialog.getByRole('textbox',{name:'Interface address',exact:true}).fill('.5');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Host identifier',exact:true}), 'cache');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Host description',exact:true}), 'Cache');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Interface address',exact:true}), '.5');
   await clickControl(page, dialog.getByRole('button',{name:'Insert',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('g.entity[data-qualified-name="cache"]').waitFor();
@@ -68,7 +68,7 @@ export async function verifyNetworkEditing(page, source) {
   await clickControl(page, paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^Gateway$/}));
   await clickControl(page, page.getByRole('button', {name:'Attach host to network…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Attach host to network',exact:true});
-  await dialog.getByRole('textbox',{name:'Interface address',exact:true}).fill('172.16.0.1');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Interface address',exact:true}), '172.16.0.1');
   await clickControl(page, dialog.getByRole('button',{name:'Attach',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^172\.16\.0\.1$/}).waitFor();
@@ -90,13 +90,13 @@ export async function verifyNetworkEditing(page, source) {
   // Wrapperless syntax, named colors and inline statements use the same native
   // parser as structural edits, so no formatting-dependent fallback is needed.
   const compact = '@startnwdiag\nnetwork direct { color = lightblue; gateway [address="203.0.113.1", description="Direct gateway", shape=node]; }\n@endnwdiag';
-  await source.fill(compact);
+  await fillControl(page, source, compact);
   await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^Direct gateway$/}).waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   await clickControl(page, paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^203\.0\.113\.1$/}));
   await clickControl(page, page.getByRole('button', {name:'Interface address…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Interface address',exact:true});
-  await dialog.getByRole('textbox',{name:'Interface address',exact:true}).fill('203.0.113.2');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Interface address',exact:true}), '203.0.113.2');
   await clickControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^203\.0\.113\.2$/}).waitFor();
@@ -105,7 +105,7 @@ export async function verifyNetworkEditing(page, source) {
   await paper.locator('[data-edit-kind="quoted"]').filter({hasText:/^203\.0\.113\.1$/}).waitFor();
   assert.equal(await source.inputValue(),compact);
   const sameLine = '@startnwdiag\nnetwork direct { a [description="First"]; b [description="Second"]; }\n@endnwdiag';
-  await source.fill(sameLine);
+  await fillControl(page, source, sameLine);
   await paper.locator('g.entity[data-qualified-name="b"]').waitFor();
   await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
   // Both host declarations and the bus header have the same source line. Hit
@@ -114,7 +114,7 @@ export async function verifyNetworkEditing(page, source) {
   await clickControl(page, page.getByRole('button', {name:'Rename host identifier…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Rename host identifier',exact:true});
   assert.equal(await dialog.getByRole('textbox',{name:'Host identifier',exact:true}).inputValue(),'b','Body picking resolves the second host, not the first statement on its line');
-  await dialog.getByRole('textbox',{name:'Host identifier',exact:true}).fill('secondHost');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Host identifier',exact:true}), 'secondHost');
   await clickControl(page, dialog.getByRole('button',{name:'Rename',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('g.entity[data-qualified-name="secondHost"]').waitFor();
@@ -148,7 +148,7 @@ export async function verifyNetworkEditing(page, source) {
   await clickControl(page, page.getByRole('button', {name:'Rename network identifier…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Rename network identifier',exact:true});
   assert.equal(await dialog.getByRole('textbox',{name:'Network identifier',exact:true}).inputValue(),'direct','Rail picking resolves the network that shares a line with its hosts');
-  await dialog.getByRole('textbox',{name:'Network identifier',exact:true}).fill('outside');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Network identifier',exact:true}), 'outside');
   await clickControl(page, dialog.getByRole('button',{name:'Rename',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('g.network[data-qualified-name="outside"]').waitFor();

@@ -1,4 +1,4 @@
-import { activateAccessibility, clickControl } from './native-controls.mjs';
+import { activateAccessibility, clickControl, fillControl } from './native-controls.mjs';
 import { verifyGpuScene } from './gpu-scene.mjs';
 import { publishedPrefix, servePublishedSite } from './published-site.mjs';
 import { graphicsLaunchOptions } from './graphics-options.mjs';
@@ -120,7 +120,7 @@ try {
   await page.getByRole('button', { name: 'Apply label', exact: true }).waitFor();
   await verifyStudioEditing(page, textbox);
   const modified = (await textbox.inputValue()).replace('Place order', 'Confirm basket');
-  await textbox.fill(modified);
+  await fillControl(page, textbox, modified);
   await page.locator('.paper text').filter({ hasText: /Confirm basket/ }).first().waitFor({ timeout: 25000 });
 
   await click('Actor');
@@ -164,7 +164,7 @@ try {
   await click('Standard library…');
   const search = page.getByRole('textbox', { name: 'Search include paths', exact: true });
   await search.waitFor();
-  await search.fill('c4_context');
+  await fillControl(page, search, 'c4_context');
   await clickControl(page, page.getByRole('option', { name: 'c4/c4_context', exact: true }));
   await click('Insert include');
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1')).Source.includes('!include <c4/c4_context>'));

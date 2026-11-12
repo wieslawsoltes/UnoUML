@@ -1,4 +1,4 @@
-import { clickControl } from './native-controls.mjs';
+import { clickControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyDotStructuralAuthoring(page, source) {
@@ -79,7 +79,7 @@ export async function verifyDotStructuralAuthoring(page, source) {
       await previous?.dispose();
     }
   };
-  const load = value => change(() => source.fill(value),value,'The fixture renders natively');
+  const load = value => change(() => fillControl(page, source, value),value,'The fixture renders natively');
   const undo = (value,message) => change(() => surface.press('Control+z'),value,message);
   const choose = async (name,caption) => {
     await clickControl(page, page.getByRole('combobox',{name,exact:true}));
@@ -136,7 +136,7 @@ export async function verifyDotStructuralAuthoring(page, source) {
   await undo(record,'One undo restores the original grouping operation');
 
   await clickControl(page, recordText('First'));
-  await field('Record field port').fill('renamed');
+  await fillControl(page, field('Record field port'), 'renamed');
   const renamedPort = record.replace('<p> First','<renamed> First').replace('a:p:e -> b [tailport="p:e"];',
     'a:renamed:e ; b ;\n  a:renamed:e -> b [tailport="renamed:e"];;');
   await change(() => clickControl(page, button('Apply field port')),renamedPort,'Port rename updates both endpoint and tailport syntax in one source transaction');

@@ -1,4 +1,4 @@
-import { clickControl } from './native-controls.mjs';
+import { clickControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyStructuredEditing(page, source) {
@@ -7,13 +7,13 @@ export async function verifyStructuredEditing(page, source) {
   await source.waitFor({state:'visible'});
   const paper = page.locator('.paper').first(), surface = page.locator('.surface').first();
   const packet = '@startpacketdiag\n{\n  colwidth = 16\n  0-7: Header  \' retained\n  8-15: Payload\n}\n@endpacketdiag';
-  await source.fill(packet);
+  await fillControl(page, source, packet);
   await paper.locator('.packet-field[data-packet-first="0"][data-packet-last="7"]').waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   await clickControl(page, paper.locator('.packet-field[data-packet-field-index="0"]'));
   await clickControl(page, page.getByRole('button', {name:'Resize packet field…',exact:true}));
   let dialog = page.getByRole('dialog',{name:'Resize packet field',exact:true});
-  await dialog.getByRole('textbox',{name:'Bit count',exact:true}).fill('12');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Bit count',exact:true}), '12');
   await clickControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('.packet-field[data-packet-first="12"][data-packet-last="19"]').waitFor();
@@ -25,8 +25,8 @@ export async function verifyStructuredEditing(page, source) {
   await clickControl(page, paper.locator('.packet-field[data-packet-field-index="0"]'));
   await clickControl(page, page.getByRole('button', {name:'Split packet field…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Split packet field',exact:true});
-  await dialog.getByRole('textbox',{name:'First part bit count',exact:true}).fill('3');
-  await dialog.getByRole('textbox',{name:'Second part label',exact:true}).fill('Flags');
+  await fillControl(page, dialog.getByRole('textbox',{name:'First part bit count',exact:true}), '3');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Second part label',exact:true}), 'Flags');
   // Keyboard acceptance follows the same modal path as clicking Split.
   await dialog.getByRole('button',{name:'Split',exact:true}).focus();
   await dialog.getByRole('button',{name:'Split',exact:true}).press('Enter');
@@ -40,8 +40,8 @@ export async function verifyStructuredEditing(page, source) {
   await clickControl(page, paper.locator('.packet-field[data-packet-field-index="0"]'));
   await clickControl(page, page.getByRole('button', {name:'Insert packet field…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Insert packet field',exact:true});
-  await dialog.getByRole('textbox',{name:'Field label',exact:true}).fill('Type');
-  await dialog.getByRole('textbox',{name:'Bit count',exact:true}).fill('4');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Field label',exact:true}), 'Type');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Bit count',exact:true}), '4');
   await clickControl(page, dialog.getByRole('button',{name:'Insert',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('.packet-field[data-packet-first="8"][data-packet-last="11"]').waitFor();
@@ -51,14 +51,14 @@ export async function verifyStructuredEditing(page, source) {
   assert.equal(await source.inputValue(),packet);
 
   const chart = '@startchart\nh-axis [A, B]\nv-axis 0 --> 20\nbar "One" [2, 4] #112233\nline "Two" [5, 6]\nlegend right\n@endchart';
-  await source.fill(chart);
+  await fillControl(page, source, chart);
   await paper.locator('[data-edit-kind="chart-category"]').filter({hasText:/^A$/}).waitFor();
   await clickControl(page, paper.locator('[data-edit-kind="chart-category"]').filter({hasText:/^A$/}));
   await clickControl(page, page.getByRole('button', {name:'Insert chart category…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Insert chart category',exact:true});
-  await dialog.getByRole('textbox',{name:'Category label',exact:true}).fill('C');
-  await dialog.getByRole('textbox',{name:'Value for One',exact:true}).fill('3');
-  await dialog.getByRole('textbox',{name:'Value for Two',exact:true}).fill('7');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Category label',exact:true}), 'C');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Value for One',exact:true}), '3');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Value for Two',exact:true}), '7');
   await clickControl(page, dialog.getByRole('button',{name:'Insert',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('[data-edit-kind="chart-category"]').filter({hasText:/^C$/}).waitFor();
@@ -69,14 +69,14 @@ export async function verifyStructuredEditing(page, source) {
   assert.equal(await source.inputValue(),chart,'One undo restores categories and every series');
 
   const coordinates = '@startchart\nh-axis -10 --> 10\nv-axis 0 --> 100\nscatter "Observed" [(-5, 20), (5, 80)] #blue\nlegend right\n@endchart';
-  await source.fill(coordinates);
+  await fillControl(page, source, coordinates);
   const firstPoint = paper.locator('g[data-point-x="-5"][data-point-y="20"] circle');
   await firstPoint.waitFor();
   await clickControl(page, firstPoint);
   await clickControl(page, page.getByRole('button', {name:'Edit chart data point…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Edit chart data point',exact:true});
-  await dialog.getByRole('textbox',{name:'X value',exact:true}).fill('-2');
-  await dialog.getByRole('textbox',{name:'Y value',exact:true}).fill('30');
+  await fillControl(page, dialog.getByRole('textbox',{name:'X value',exact:true}), '-2');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Y value',exact:true}), '30');
   await clickControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('g[data-point-x="-2"][data-point-y="30"] circle').waitFor();
@@ -86,7 +86,7 @@ export async function verifyStructuredEditing(page, source) {
   assert.equal(await source.inputValue(),coordinates,'Both coordinate values undo together');
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   const line = '@startchart\nh-axis 0 --> 2\nv-axis 0 --> 2\nline "Curve" [(0,0), (1,2), (2,0)]\n@endchart';
-  await source.fill(line);
+  await fillControl(page, source, line);
   await paper.locator('g[data-point-x="1"][data-point-y="2"] circle').waitFor();
   await clickControl(page, paper.locator('g[data-point-x="1"][data-point-y="2"] circle'));
   await clickControl(page, page.getByRole('button', {name:'Line interpolation and gaps…',exact:true}));
@@ -106,8 +106,8 @@ export async function verifyStructuredEditing(page, source) {
   dialog = page.getByRole('dialog',{name:'Chart axes',exact:true});
   await clickControl(page, dialog.getByRole('combobox',{name:'Axis',exact:true}));
   await clickControl(page, page.getByRole('listbox',{name:'Axis',exact:true}).getByRole('option',{name:'Vertical (v-axis)',exact:true}));
-  await dialog.getByRole('textbox',{name:'Axis label',exact:true}).fill('Value');
-  await dialog.getByRole('textbox',{name:'Axis maximum',exact:true}).fill('3');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Axis label',exact:true}), 'Value');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Axis maximum',exact:true}), '3');
   await clickControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('g.vertical-axis text').filter({hasText:/^Value$/}).waitFor();
@@ -119,7 +119,7 @@ export async function verifyStructuredEditing(page, source) {
   await clickControl(page, paper.locator('g[data-point-x="1"][data-point-y="2"] circle'));
   await clickControl(page, page.getByRole('button', {name:'Chart settings…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Chart settings',exact:true});
-  await dialog.getByRole('textbox',{name:'Chart title',exact:true}).fill('Trend');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Chart title',exact:true}), 'Trend');
   await clickControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));
   await dialog.waitFor({state:'hidden'});
   await paper.locator('g.title text').filter({hasText:/^Trend$/}).waitFor();
@@ -128,9 +128,9 @@ export async function verifyStructuredEditing(page, source) {
 
   await clickControl(page, page.getByRole('button', {name:'Chart annotations…',exact:true}));
   dialog = page.getByRole('dialog',{name:'Chart annotations',exact:true});
-  await dialog.getByRole('textbox',{name:'Annotation text',exact:true}).fill('Midpoint');
-  await dialog.getByRole('textbox',{name:'Annotation X',exact:true}).fill('1');
-  await dialog.getByRole('textbox',{name:'Annotation Y',exact:true}).fill('1');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Annotation text',exact:true}), 'Midpoint');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Annotation X',exact:true}), '1');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Annotation Y',exact:true}), '1');
   await dialog.getByRole('checkbox',{name:'Show annotation arrow',exact:true}).press('Space');
   await clickControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));
   await dialog.waitFor({state:'hidden'});

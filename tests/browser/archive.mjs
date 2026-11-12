@@ -1,4 +1,4 @@
-import { activateAccessibility, clickControl } from './native-controls.mjs';
+import { activateAccessibility, clickControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { inflateRawSync } from 'node:zlib';
@@ -99,7 +99,7 @@ export async function verifyArchiveImport(page, source) {
   await clickControl(page, page.getByRole('menuitem', {name:'Load ZIP archive…',exact:true}));
   await (await chooser).setFiles({name:'resources.zip',mimeType:'application/zip',buffer:archiveBytes});
   await page.waitForFunction(async () => (await import(new URL('uml/viewport.js',document.baseURI))).readArchiveVersion('resources.zip') > 0);
-  await source.fill('@startuml\n!import resources.zip\n!include models/main.iuml\n@enduml');
+  await fillControl(page, source, '@startuml\n!import resources.zip\n!include models/main.iuml\n@enduml');
   const paper = page.locator('.paper').first();
   await paper.locator('[data-qualified-name="Archived"] text').filter({hasText:/^Archived service$/}).waitFor();
   await paper.locator('[data-qualified-name="Sibling"]').waitFor();
@@ -115,7 +115,7 @@ export async function verifyArchiveImport(page, source) {
   assert.equal(await sibling.getAttribute('data-source-archive'),'resources.zip');
   await sibling.locator('text').filter({hasText:/^Sibling$/}).dblclick();
   const editor = page.getByRole('textbox',{name:'Edit diagram label'});
-  await editor.fill('Archived child');
+  await fillControl(page, editor, 'Archived child');
   await editor.press('Enter');
   await sibling.locator('text').filter({hasText:/^Archived child$/}).waitFor();
   const main = await page.evaluate(() => JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1')).Source);
@@ -153,7 +153,7 @@ export async function verifyArchiveAliasEditing(page, source) {
   await clickControl(page, page.getByRole('button', {name:'Split',exact:true}));
   const input = '@startuml\n!import resources.zip\n!include <models/sibling>\n@enduml';
   const previous = await page.locator('.paper svg').first().elementHandle();
-  await source.fill(input);
+  await fillControl(page, source, input);
   await page.waitForFunction(element => !element.isConnected, previous);
   await previous.dispose();
   const paper = page.locator('.paper').first();
@@ -163,7 +163,7 @@ export async function verifyArchiveAliasEditing(page, source) {
   assert.equal(await item.getAttribute('data-source-archive'),'resources.zip');
   const editor = page.getByRole('textbox',{name:'Edit diagram label'});
   assert.equal(await editor.inputValue(),'Archived child');
-  await editor.fill('Alias child');
+  await fillControl(page, editor, 'Alias child');
   await editor.press('Enter');
   await item.locator('text').filter({hasText:'Alias child'}).waitFor();
   assert.equal(await source.inputValue(),input);

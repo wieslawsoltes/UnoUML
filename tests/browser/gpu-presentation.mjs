@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { activateAccessibility, clickControl } from './native-controls.mjs';
+import { activateAccessibility, clickControl, fillControl } from './native-controls.mjs';
 
 async function state(page) {
   return page.locator('.surface').first().evaluate(async surface => {
@@ -173,7 +173,7 @@ export async function verifyGpuFallback(browser, url) {
     await clickControl(page, page.getByRole('button', {name:'Split',exact:true}));
     const source = page.getByRole('textbox', {name:'PlantUML source',exact:true});
     const original = await source.inputValue();
-    await source.fill(original.replace('Storefront','Fallback storefront'));
+    await fillControl(page, source, original.replace('Storefront','Fallback storefront'));
     await page.locator('.paper text').filter({hasText:/Fallback storefront/}).first().waitFor();
     assert.deepEqual(errors, []);
     await save('gpu-fallback.png', await page.screenshot());

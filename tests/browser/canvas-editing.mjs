@@ -1,4 +1,4 @@
-import { activateAccessibility, clickControl } from './native-controls.mjs';
+import { activateAccessibility, clickControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -52,7 +52,7 @@ export async function verifyCanvasEditing(page,source) {
     await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+dx,y+dy,{steps:8});await page.mouse.up();
     for(const key of modifiers.reverse())await page.keyboard.up(key);
   };
-  await source.fill(input);await shape('A').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, input);await shape('A').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   // Use the same DOM geometry API for snapshots and polling. Chromium's SVG
   // box-model protocol used by boundingBox() need not share these stroke bounds.
@@ -108,9 +108,9 @@ export async function verifyCanvasEditing(page,source) {
   await menu('Unlock selection');
   await menu('Exact position, size and rotation…');
   dialog=page.getByRole('dialog',{name:'Exact canvas geometry',exact:true});
-  await dialog.getByRole('textbox',{name:'X position',exact:true}).fill('-100');
-  await dialog.getByRole('textbox',{name:'Y position',exact:true}).fill('180');
-  await dialog.getByRole('textbox',{name:'Rotation in degrees',exact:true}).fill('30');
+  await fillControl(page, dialog.getByRole('textbox',{name:'X position',exact:true}), '-100');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Y position',exact:true}), '180');
+  await fillControl(page, dialog.getByRole('textbox',{name:'Rotation in degrees',exact:true}), '30');
   await clickControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));await dialog.waitFor({state:'hidden'});
   await waitMetadata({nodes:[{id:'B',x:-100,y:180,rotation:30}]});
   const exact=await metadata(),exactB=exact.nodes.find(n=>n.id==='B');
@@ -119,7 +119,7 @@ export async function verifyCanvasEditing(page,source) {
 
   const beforeSemantic=await measure(shape('B')),oldDrawing=await paper.locator('svg').first().elementHandle();
   const renamedSource=(await source.inputValue()).replace('class C','class "Renamed C" as C');
-  await source.fill(renamedSource);
+  await fillControl(page, source, renamedSource);
   await page.waitForFunction(el=>!el.isConnected,oldDrawing);
   await shape('C').locator('text').filter({hasText:/^Renamed C$/}).waitFor();
   await waitBounds('B',beforeSemantic);await waitSource(renamedSource);
@@ -138,7 +138,7 @@ export async function verifyCanvasEditing(page,source) {
   // The live Order-domain diagram exposed endpoint captions hidden under nodes
   // after Grid turns a vertical association into an orthogonal cross-row route.
   const cardinalities='@startuml\nclass Order {\n+id : UUID\n+total() : Money\n}\nclass LineItem {\n+quantity : int\n}\nOrder "1" *-- "many" LineItem : contains\nstruct Struct\nclass Class\nabstract class Abstractclass\n@enduml';
-  await source.fill(cardinalities);await shape('Order').waitFor();
+  await fillControl(page, source, cardinalities);await shape('Order').waitFor();
   const sourceCaption=paper.locator('[data-canvas-label-role="source"]'),targetCaption=paper.locator('[data-canvas-label-role="target"]');
   await sourceCaption.waitFor();await targetCaption.waitFor();
   await menu('Automatic layout…');dialog=page.getByRole('dialog',{name:'Automatic layout',exact:true});
@@ -181,7 +181,7 @@ export async function verifyCanvasEditing(page,source) {
 
   // Nested DOM ordering and collapse projection must not corrupt child geometry or manual paths.
   const grouped='@startuml\npackage ZGroup {\n class AChild\n class BChild\n AChild --> BChild : inner\n}\nclass Outside\nAChild --> Outside : outer\n@enduml';
-  await source.fill(grouped);await shape('ZGroup').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, grouped);await shape('ZGroup').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
   const beforeChild=await measure(shape('ZGroup.AChild')),group=shape('ZGroup').locator('text').filter({hasText:'ZGroup'}).first();
   await drag(group,42,24,['Alt']);
   const afterChild=await measure(shape('ZGroup.AChild'));assert.ok(Math.abs(afterChild.x-beforeChild.x-42)<2&&Math.abs(afterChild.y-beforeChild.y-24)<2,'Group drag translates children exactly once');
@@ -195,7 +195,7 @@ export async function verifyCanvasEditing(page,source) {
   assert.deepEqual((await metadata()).edges.map(e=>e.waypoints),routes,'Collapse is a transient projection and retains logical routes');
 
   const activity='@startuml\nstart\nif (Ready?) then (yes)\n:Accept;\nelse (no)\n:Reject;\nendif\n:Continue;\nstop\n@enduml';
-  await source.fill(activity);await paper.locator('.activity-Join').waitFor();
+  await fillControl(page, source, activity);await paper.locator('.activity-Join').waitFor();
   await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
   const join=paper.locator('.activity-Join'),decision=paper.locator('.activity-Decision');
   const joinBefore=await measure(join),decisionBefore=await measure(decision);
@@ -231,7 +231,7 @@ export async function verifyCanvasEditing(page,source) {
   // A BOM remains at file start while the geometry comment moves before @start.
   // Rebuild literal offsets when that changes the renderer's page-relative input.
   const bom='\uFEFF@startdot\ndigraph G { A [label="Original"]; B; A -> B; }\n@enddot';
-  await source.fill(bom);await shape('node:A').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, bom);await shape('node:A').waitFor();await clickControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
   await waitSource(bom);
   assert.equal(await source.inputValue(),bom,'The native source editor retains the BOM before canvas edits');
   const bomDrawing=await paper.locator('svg').first().elementHandle(),bomBefore=await measure(shape('node:A'));
@@ -246,7 +246,7 @@ export async function verifyCanvasEditing(page,source) {
   await surface.press('Control+y');await waitSource(beforeLabel);await waitBounds('node:A',bomMoved);
   await shape('node:A').locator('text').filter({hasText:/^Original$/}).dblclick();
   const label=page.getByRole('textbox',{name:'Edit diagram label',exact:true});await label.waitFor();
-  await label.fill('After geometry');await label.press('Control+Enter');await label.waitFor({state:'hidden'});
+  await fillControl(page, label, 'After geometry');await label.press('Control+Enter');await label.waitFor({state:'hidden'});
   const afterLabel=beforeLabel.replace('A [label="Original"]','A [label="After geometry"]');
   await waitSource(afterLabel);
   await shape('node:A').locator('text').filter({hasText:/^After geometry$/}).waitFor();
