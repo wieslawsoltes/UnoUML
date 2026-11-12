@@ -121,7 +121,10 @@ retains the last compilation snapshot without creating a new compilation.
 Baseline and candidate SVG reference pixels must match exactly, and paired GPU
 RGB channels may differ by at most one quantization unit. The existing GPU/SVG
 quality budgets remain unchanged. Timing distributions are descriptive; they are
-not a pass/fail performance threshold.
+not a pass/fail performance threshold. The paired harness uses nearest-rank
+p50/p95 order statistics. Its legacy JSON fields named `median` contain p50;
+with six/four measured samples, p50 selects the lower middle observation and
+p95 is the sample maximum. Raw samples remain available for other estimators.
 
 Measurements separate:
 
@@ -211,7 +214,7 @@ bundle is rebuilt. All 24 frames are submitted and acknowledged, with zero
 additional deferred render requests in this interval. This retention behavior
 was already established by the baseline and remains intact.
 
-| Candidate camera diagnostic | Median | p95 |
+| Candidate camera diagnostic | Recorded p50 | Recorded p95 |
 | --- | ---: | ---: |
 | Native encoding | 0.5999 ms | 2.2 ms |
 | Native scope callback interval | 42 ms | 212.1 ms |
@@ -219,7 +222,9 @@ was already established by the baseline and remains intact.
 | Operation-to-acknowledgement wall interval | 1,522.8 ms | 2,893.5 ms |
 
 These are descriptive samples from Chromium 156 on SwiftShader, not a paired
-latency comparison or a hardware FPS result. The boundaries differ and may overlap.
+latency comparison or a hardware FPS result. They preserve the existing smoke
+test's sorted-index convention, `floor(n / 2)` and `floor(0.95 * n)`, rather than
+recomputing its stored summaries with the paired harness's nearest-rank method. The boundaries differ and may overlap.
 For example, revision 22 has 2,893.5 ms wall time but only 35.9 ms scope and
 0.3999 ms dispatcher intervals; revision 14 has 1,522.8 ms wall time with 33.0999 ms
 scope and 0.2 ms dispatch. Removing the local validation gate would not explain

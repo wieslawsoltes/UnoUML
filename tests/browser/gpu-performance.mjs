@@ -155,6 +155,8 @@ function counters(before, after) {
 function distribution(values) {
   const sorted=values.filter(Number.isFinite).sort((a,b)=>a-b);
   if (!sorted.length) return null;
+  // Nearest-rank order statistics. The legacy median field is p50; for an
+  // even sample count it selects the lower middle observation without averaging.
   const quantile=p=>sorted[Math.min(sorted.length-1,Math.ceil(sorted.length*p)-1)];
   return {count:sorted.length,min:sorted[0],median:quantile(.5),
     p95:quantile(.95),max:sorted.at(-1)};
@@ -465,6 +467,7 @@ const report={
   runtime:{node:process.version,platform:process.platform,architecture:process.arch,
     runnerImage:process.env.ImageOS??null,runnerImageVersion:process.env.ImageVersion??null},
   interpretation:{
+    quantiles:'Nearest-rank p50 and p95. Fields named median or ending Median contain p50 order statistics. With six/four measured samples, p50 is the lower middle observation and p95 is the maximum. Raw samples are retained.',
     wall:'Operation to validated native acknowledgment, including timer polling, WebAssembly, shared-device scope completion and dispatcher latency.',
     operation:'Synchronous/asynchronous public viewport operation, including native source parsing/layout on uncached edits; excludes later presentation.',
     encode:'Native CPU command encoding for the acknowledged frame; not GPU execution time.',
@@ -552,8 +555,8 @@ try{
   const rows=['# Paired shared-device WebGPU measurements','',
     'Baseline: '+baselineSha,'Candidate: '+candidateSha,'',
     'Order: baseline → candidate → candidate → baseline. All frames require 4× MSAA and the existing pixel/error/resource gates.',
-    'Software-driver wall latency is not hardware FPS. Ratios below 1 indicate lower measured latency; small samples are descriptive.','',
-    '| Pair | Workload | Phase | Baseline wall median (ms) | Candidate wall median (ms) | Ratio | Baseline encode median (ms) | Candidate encode median (ms) |',
+    'Software-driver wall latency is not hardware FPS. Quantiles use nearest-rank p50/p95; ratios below 1 indicate lower measured latency. Small samples are descriptive.','',
+    '| Pair | Workload | Phase | Baseline wall p50 (ms) | Candidate wall p50 (ms) | Ratio | Baseline encode p50 (ms) | Candidate encode p50 (ms) |',
     '| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |'];
   const number=value=>Number.isFinite(value)?value.toFixed(3):'—';
   for(const pair of report.pairs)for(const [phase,value]of Object.entries(pair.phases))
