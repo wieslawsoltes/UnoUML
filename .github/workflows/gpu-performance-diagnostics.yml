@@ -146,3 +146,37 @@ jobs:
           const errors=JSON.parse(await readFile('passing-evidence/gpu-browser-errors.json','utf8'));
           console.log('GPU_PASSING_BROWSER_ERRORS '+JSON.stringify(errors));
           NODE
+  quality-contact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PROBE_RUN_ID: '43324405731'
+      PROBE_ARTIFACT_ID: '13991633630'
+      PROBE_ARTIFACT_NAME: gpu-quality-diagnostics-b04004eb4342347c50c8e198ea33882c123c31e6
+    steps:
+      - name: Download the exact scale and coverage evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PROBE_ARTIFACT_NAME }}
+          run-id: ${{ env.PROBE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: quality-evidence
+      - name: Print the bounded original coverage contact sheet
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFile } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          const report=JSON.parse(await readFile('quality-evidence/gpu-quality-diagnostics.json','utf8'));
+          const name='coverage-edges.png',bytes=await readFile('quality-evidence/'+name),limit=256*1024;
+          const sha256=createHash('sha256').update(bytes).digest('hex');
+          assert.ok(bytes.length<=limit,'Contact sheet exceeds the256KiB log-image bound');
+          assert.equal(bytes.length,report.contactSheet.bytes,'Contact sheet byte count changed');
+          assert.equal(sha256,report.contactSheet.sha256,'Contact sheet hash changed');
+          console.log('GPU_QUALITY_CONTACT_IMAGE '+JSON.stringify({
+            runId:process.env.PROBE_RUN_ID,artifactId:process.env.PROBE_ARTIFACT_ID,
+            artifactName:process.env.PROBE_ARTIFACT_NAME,name,mimeType:'image/png',
+            bytes:bytes.length,limit,sha256,base64:bytes.toString('base64')
+          }));
+          NODE
