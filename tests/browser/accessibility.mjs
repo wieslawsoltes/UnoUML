@@ -74,9 +74,14 @@ export async function verifyAccessibility(page) {
     assert.equal(await focusReady.jsonValue(), true, 'Keyboard focus remains in the modal or its controlled popup');
     await focusReady.dispose();
     const domain = choices.getByRole('option', { name: 'Domain model', exact: true });
-    await domain.focus();
-    assert.equal(await domain.evaluate(element => document.activeElement === element), true,
-      'Logical option focus enters the native ComboBoxItem before committing');
+    await traceNativeInput(page, source, 'native-option-focus', async () => {
+      await domain.focus();
+      // Native focused-item projection is queued. Re-resolve the current
+      // semantic option while acknowledging focus; do not request focus again.
+      await domain.and(page.locator(':focus')).waitFor({ state: 'attached' });
+      assert.equal(await domain.evaluate(element => document.activeElement === element), true,
+        'Logical option focus enters the native ComboBoxItem before committing');
+    }, { failureOnly: true });
     await page.keyboard.press('Enter');
     await choices.waitFor({ state: 'detached' });
     await dialog.getByRole('combobox', { name: 'Starting diagram', expanded: false }).waitFor();
