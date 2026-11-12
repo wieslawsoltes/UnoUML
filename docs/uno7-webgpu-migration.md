@@ -41,9 +41,24 @@ or private control implementation details.
 
 Native semantic controls carry accessible roles and names, while pointer events
 pass through to Uno's composition canvas. Browser tests activate the public
-accessibility entry with Enter. Keyboard checks use native role-based controls;
-mouse checks validate semantic bounds and click the actual canvas. SVG and HTML
-editor controls retain ordinary browser hit testing.
+accessibility entry with Enter. Native command checks resolve the live role,
+require exposed ancestry and enabled state, focus the actual control through its
+semantic element, verify that focus, and send one real Space or Enter key.
+`activateControl` never dispatches a synthetic click or repeats an activation
+after sending the key. SVG and HTML editor controls retain ordinary browser
+actionability; diagram dragging, resizing, docking and routing use real pointer
+input. A separate native toolbar check clicks Split and Design through the
+composition canvas and verifies the source pane opens and closes.
+
+Native semantic rectangles are not a reliable pointer target for every control
+in Uno 7.0.32. Captured ContentDialog buttons retained template-local coordinates
+at `(24, 25)` while their painted buttons were centered in the window. A dynamic
+inspector button retained a stale ancestor offset and pointed at the next row.
+These rectangles remained stable, so waiting for two equal layout samples could
+not validate their location. Native command automation therefore uses the public
+keyboard path; this does not claim to repair upstream semantic geometry. The
+explicit `clickControl` pointer helper still checks visibility, bounds stability,
+viewport inclusion and an actual hit on Uno's canvas for the toolbar smoke test.
 
 Automation waits for Uno's visible startup cover to disappear and re-resolves
 native semantic controls if a framework subtree rebuild replaces them. Native
@@ -52,7 +67,7 @@ then verifies the complete resulting value. This updates the managed TextBox
 selection as well as its DOM projection; a browser-only selection could instead
 prepend text to the existing document.
 
-Three scoped compatibility repairs cover native accessibility defects
+Scoped compatibility repairs cover native accessibility defects
 observed in Uno 7.0.32:
 
 - The public accessibility activation button handles Enter/Space, removes itself
@@ -118,8 +133,7 @@ for accessible roles, names, relationships and selected-state metadata on these
 logical nodes. Focusing an option invokes Uno's native `ComboBoxItem` focus path;
 a real Enter key commits the focused index through the native popup handler and
 closes it. Reopening verifies both the committed selection and deselected peers.
-Bounded native controls retain the canvas bounds, stability and hit-test checks
-used for physical pointer input.
+Command activation and pointer coverage follow the separate contracts above.
 
 The bridge does not invoke private framework callbacks or replace its focus trap.
 Its small module is installed before the native host starts, so keyboard
@@ -130,7 +144,8 @@ modal background isolation and focus restoration. These compatibility repairs
 should be re-evaluated when upgrading the pinned Uno packages.
 
 Source text uses public automation identity and managed focus ownership.
-A string-only JSON envelope preserves a leading U+FEFF. Repair is limited to the
+A string-only JSON envelope preserves a leading U+FEFF in the managed-to-browser
+projection. Repair is limited to the
 known missing-leading-BOM projection, preserves UTF-16 selection and scroll
 position, accounts for DOM CRLF normalization, and never rewrites active IME
 composition or an intentional user deletion. Lifecycle/text changes are coalesced
