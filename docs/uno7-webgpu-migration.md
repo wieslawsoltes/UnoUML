@@ -158,11 +158,22 @@ should be re-evaluated when upgrading the pinned Uno packages.
 
 Source text uses public automation identity and managed focus ownership.
 A string-only JSON envelope preserves a leading U+FEFF in the managed-to-browser
-projection. Repair is limited to the
-known missing-leading-BOM projection, preserves UTF-16 selection and scroll
-position, accounts for DOM CRLF normalization, and never rewrites active IME
-composition or an intentional user deletion. Lifecycle/text changes are coalesced
-onto the dispatcher so the browser receives final text, selection and focus state.
+projection. A trusted browser-input trace also exposed a synchronous native echo:
+the capture phase received the leading BOM, but Uno's UTF-16 decoder removed it
+before that same input event reached the bubble phase. The next input event then
+read the shortened value back into the document. Loaded source editors now retain
+a scoped input registration even when their current text has no BOM. It captures
+trusted committed input and repairs only that event's exact missing-leading-BOM
+echo before subsequent input can observe it. Ordinary registrations use a constant
+empty envelope rather than serializing the document on every text change.
+
+Both repair paths preserve UTF-16 selection and scroll position, account for DOM
+CRLF normalization, and leave active IME composition, deliberate BOM deletion,
+nonmatching transformations and untrusted input untouched. Element/registration
+identity guards reject stale work after replacement or unload. Queued managed
+projection remains coalesced on the dispatcher to observe final text, selection
+and focus. Browser fixtures use real keyboard insertion and Chromium composition,
+including a negative control with the native UTF-16 decoder's BOM behavior.
 
 Uno's multiline text box normalizes CRLF and LF to CR and delivers text changes
 asynchronously. The document therefore has a separate text projection: framework
@@ -177,6 +188,15 @@ semantic statement replacement retains the existing document newline policy.
 The viewport layers `DiagramGpuCanvas` below a native `BrowserHtmlElement`.
 The HTML host retains the installed SVG for precise measurement, source identity,
 pointer hit testing, label editing, editor controls and vector export.
+
+The camera owns the viewport's complete pan/zoom transform. The HTML surface uses
+`overflow: clip`: `overflow: hidden` would still permit programmatic or
+focus-driven scrolling, introducing a second transform that displaced selection
+handles from the GPU camera. A real-browser regression reproduces that displacement
+with hidden overflow, verifies clip rejects implicit scrolling, and checks pointer
+resize dimensions and the fixed opposite anchor. Integrated gesture checks wait
+for the current native GPU dimensions and accepted scene/camera revision before
+fitting, then require the actual fitted frame before measuring pointer motion.
 
 The installed, projected SVG is compiled into an incremental retained display list:
 
