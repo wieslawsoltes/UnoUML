@@ -35,9 +35,13 @@ internal static class Program
             ("transform updates retain geometry and images", RetainedResources),
             ("full replacements reset optional state and partial patches retain it", FullReplacementSemantics),
             ("texture replacement and removal", TextureLifetime),
+            ("regenerated owners retain referenced images until the last removal", TextureOwnerReplacement),
             ("camera changes and numerical validation", CameraUpdates),
             ("camera-only transactions retain exact resource collections", CameraTransactions),
             ("conservative transformed bounds and culling", BoundsAndCulling),
+            ("local bounds survive sparse patches and refresh with geometry", RetainedLocalBounds),
+            ("image-to-vector replacements require fresh conservative geometry", ImageToVectorBounds),
+            ("resource totals publish atomically across retained updates", ResourceTotals),
             ("viewport overlays retain pixel geometry across camera changes", ViewportOverlays),
             ("coordinate-space validation is atomic", CoordinateSpaceValidation),
             ("gradient and clipping protocol", PaintAndClip),
@@ -337,6 +341,160 @@ internal static class Program
         Check(!new GpuRect(0, 0, 0, 10).Intersects(100, 100), "Degenerate command must cull");
     }
 
+
+
+    private static void RetainedLocalBounds()
+    {
+        var model = Seed();
+        Accept(model, """{"revision":2,"commands":[{"id":"triangle","bounds":[-1,-2,1,2]}]}""");
+        var original = model.Commands["triangle"];
+        Equal(original.Bounds, new GpuRect(-1, -2, 21, 12));
+        Accept(model, """
+            {"revision":3,"commands":[{"id":"triangle","matrix":[0,1,-1,0,42,51],
+              "paint":{"kind":"solid","color":[0.2,0.4,0.8,1]},"clip":[0,0,100,100],"space":"viewport"}]}
+            """);
+        var moved = model.Commands["triangle"];
+        Equal(moved.Bounds, original.Bounds);
+        Check(ReferenceEquals(moved.Vertices, original.Vertices), "Sparse edits retain the geometry used to establish local bounds");
+        Equal(moved.ViewportBounds(model.Camera), new GpuRect(32, 50, 12, 21));
+
+        Accept(model, """{"revision":4,"commands":[{"id":"triangle","vertices":[-12,-14,3,0,0,4]}]}""");
+        Equal(model.Commands["triangle"].Bounds, new GpuRect(-12, -14, 32, 24));
+        Accept(model, """{"revision":5,"commands":[{"id":"triangle","bounds":[0,0,1,1]}]}""");
+        Equal(model.Commands["triangle"].Bounds, new GpuRect(-12, -14, 15, 18));
+        Accept(model, """{"revision":6,"commands":[{"id":"triangle","vertices":[1,1,2,1,1,2],"bounds":[1,1,1,1]}]}""");
+        Equal(model.Commands["triangle"].Bounds, new GpuRect(1, 1, 1, 1));
+        Reject(model, """{"revision":7,"commands":[{"id":"triangle","bounds":[0,0,-1,1]}]}""");
+    }
+
+    private static void ResourceTotals()
+    {
+        var model = Seed();
+        Equal(model.GradientStopCount, 0L);
+        Accept(model, """
+            {"revision":2,"commands":[
+              {"id":"triangle","vertices":[0,0,20,0,0,10,0,10,20,0,20,10],
+               "paint":{"kind":"linear","stops":[
+                 {"offset":0,"color":[1,0,0,1]},{"offset":0.5,"color":[0,1,0,1]},{"offset":1,"color":[0,0,1,1]}]}},
+              {"id":"label2","kind":"image","image":"glyph","bounds":[2,0,1,1]}],
+              "textures":[{"id":"unused","width":2,"height":1,"rgba":"AAAAAAAAAAA="}],
+              "order":["triangle","label","label2"]}
+            """);
+        Equal(model.VertexBytes, 48L);
+        Equal(model.GradientStopCount, 3L);
+        Equal(model.TextureBytes, 4L);
+        Equal(model.Images.Count, 1);
+        Accept(model, """
+            {"revision":3,"commands":[{"id":"aux","kind":"image","image":"auxiliary","bounds":[4,0,1,1]}],
+              "textures":[
+                {"id":"glyph","width":2,"height":1,"rgba":"AAAAAAAAAAA="},
+                {"id":"auxiliary","width":1,"height":1,"rgba":"AAAAAA=="}],
+              "order":["triangle","label","label2","aux"]}
+            """);
+        Equal(model.TextureBytes, 12L);
+        Equal(model.VertexBytes, 48L);
+        Equal(model.GradientStopCount, 3L);
+        Accept(model, """
+            {"revision":4,"remove":["triangle","label","label"],"commands":[
+              {"id":"triangle","kind":"mesh","vertices":[0,0,1,0,0,1],"bounds":[0,0,1,1]}]}
+            """);
+        Equal(model.VertexBytes, 24L);
+        Equal(model.GradientStopCount, 0L);
+        Equal(model.TextureBytes, 12L);
+        Check(model.Images.ContainsKey("glyph"), "A shared image survives removal of its first owner");
+        Accept(model, """{"revision":5,"remove":["label2"]}""");
+        Equal(model.TextureBytes, 4L);
+        Check(!model.Images.ContainsKey("glyph"), "The last owner releases the image and its accounted bytes");
+
+        // Geometry, stop and texture deltas are all staged before late viewport validation.
+        Reject(model, """
+            {"revision":6,"commands":[{"id":"triangle","vertices":[0,0,2,0,0,2,0,2,2,0,2,2],
+              "paint":{"kind":"linear","stops":[{"offset":0,"color":[1,0,0,1]},{"offset":1,"color":[0,0,1,1]}]}}],
+              "textures":[{"id":"auxiliary","width":2,"height":1,"rgba":"AAAAAAAAAAA="}],"height":0}
+            """);
+        Reject(model, """
+            {"revision":6,"remove":["triangle"],"textures":[
+              {"id":"auxiliary","width":2,"height":1,"rgba":"!!!!!!!!!!!!"}]}
+            """);
+        Accept(model, """
+            {"revision":6,"commands":[{"id":"triangle","vertices":[0,0,2,0,0,2,0,2,2,0,2,2],
+              "paint":{"kind":"linear","stops":[{"offset":0,"color":[1,0,0,1]},{"offset":1,"color":[0,0,1,1]}]}}],
+              "textures":[{"id":"auxiliary","width":2,"height":1,"rgba":"AAAAAAAAAAA="}]}
+            """);
+        Equal(model.VertexBytes, 48L);
+        Equal(model.GradientStopCount, 2L);
+        Equal(model.TextureBytes, 8L);
+        Accept(model, """{"revision":7,"camera":[2,0,0,2,10,20],"width":800,"height":600}""");
+        Equal(model.VertexBytes, 48L);
+        Equal(model.GradientStopCount, 2L);
+        Equal(model.TextureBytes, 8L);
+        Accept(model, """
+            {"revision":8,"reset":true,"commands":[
+              {"id":"replacement","kind":"mesh","vertices":[0,0,1,0,0,1],"bounds":[0,0,1,1]}]}
+            """);
+        Equal(model.VertexBytes, 24L);
+        Equal(model.GradientStopCount, 0L);
+        Equal(model.TextureBytes, 0L);
+        Accept(model, """{"revision":9,"reset":true}""");
+        Equal(model.VertexBytes, 0L);
+        Equal(model.GradientStopCount, 0L);
+        Equal(model.TextureBytes, 0L);
+    }
+
+
+    private static void TextureOwnerReplacement()
+    {
+        var model = Seed();
+        GpuImage original = model.Images["glyph"];
+        Accept(model, """
+            {"revision":2,"remove":["label"],"commands":[
+              {"id":"regenerated-label","kind":"image","image":"glyph","bounds":[4,5,1,1]}],
+              "order":["triangle","regenerated-label"]}
+            """);
+        Check(!model.Commands.ContainsKey("label"), "The old source owner must be removed");
+        Check(ReferenceEquals(model.Images["glyph"], original), "A replacement owner retains the exact native image without a texture payload");
+        Check(ReferenceEquals(model.Images["glyph"].Rgba, original.Rgba), "Owner replacement retains decoded pixels");
+        Equal(model.TextureBytes, 4L);
+        Accept(model, """{"revision":3,"remove":["regenerated-label"]}""");
+        Equal(model.Images.Count, 0);
+        Equal(model.TextureBytes, 0L);
+        Reject(model, """
+            {"revision":4,"commands":[{"id":"returning-label","kind":"image","image":"glyph","bounds":[4,5,1,1]}],
+              "order":["triangle","returning-label"]}
+            """);
+        Accept(model, """
+            {"revision":4,"commands":[{"id":"returning-label","kind":"image","image":"glyph","bounds":[4,5,1,1]}],
+              "textures":[{"id":"glyph","width":1,"height":1,"rgba":"/////w=="}],
+              "order":["triangle","returning-label"]}
+            """);
+        Equal(model.TextureBytes, 4L);
+        Check(!ReferenceEquals(model.Images["glyph"], original), "A pruned image must be supplied again when its owner returns");
+    }
+
+    private static void ImageToVectorBounds()
+    {
+        foreach (string kind in new[] { "mesh", "fill" })
+        {
+            var model = new GpuSceneModel();
+            Accept(model, """
+                {"revision":1,"commands":[{"id":"shape","kind":"image","image":"pixel","bounds":[0,0,1,1],
+                  "matrix":[1,0,0,1,-15,-20],"vertices":[-5,-7,20,0,0,30]}],
+                  "textures":[{"id":"pixel","width":1,"height":1,"rgba":"/////w=="}],"order":["shape"]}
+                """);
+            Equal(model.Commands["shape"].Bounds, new GpuRect(0, 0, 1, 1));
+            Check(!model.Commands["shape"].ViewportBounds(model.Camera).Intersects(10, 10), "Image geometry does not expand its sampling quad");
+            // A kind field is a full replacement, never a patch that can inherit
+            // image-only bounds or an otherwise unused image vertex payload.
+            Reject(model, "{\"revision\":2,\"commands\":[{\"id\":\"shape\",\"kind\":\"" + kind + "\"}]}");
+            Reject(model, "{\"revision\":2,\"commands\":[{\"id\":\"shape\",\"kind\":\"" + kind +
+                "\",\"vertices\":[-5,-7,20,0,0,30]}]}");
+            Accept(model, "{\"revision\":2,\"commands\":[{\"id\":\"shape\",\"kind\":\"" + kind +
+                "\",\"vertices\":[-5,-7,20,0,0,30],\"bounds\":[0,0,1,1],\"matrix\":[1,0,0,1,-15,-20]}]}");
+            Equal(model.Commands["shape"].Bounds, new GpuRect(-5, -7, 25, 37));
+            Check(model.Commands["shape"].ViewportBounds(model.Camera).Intersects(10, 10), "Complete vector replacement covers and culls every supplied vertex");
+            Equal(model.TextureBytes, 0L);
+        }
+    }
 
     private static void ViewportOverlays()
     {
@@ -639,11 +797,11 @@ internal static class Program
 
     private sealed record Snapshot(long Revision, Matrix3x2 Camera, double Width, double Height,
         Dictionary<string, GpuCommand> Commands, Dictionary<string, GpuImage> Images, string[] Order,
-        long VertexBytes, long TextureBytes)
+        long VertexBytes, long TextureBytes, long GradientStopCount)
     {
         internal static Snapshot Take(GpuSceneModel model) =>
             new(model.Revision, model.Camera, model.Width, model.Height,
-                model.Commands, model.Images, model.Order, model.VertexBytes, model.TextureBytes);
+                model.Commands, model.Images, model.Order, model.VertexBytes, model.TextureBytes, model.GradientStopCount);
 
         internal void AssertUnchanged(GpuSceneModel model)
         {
@@ -656,6 +814,7 @@ internal static class Program
             Check(ReferenceEquals(model.Order, Order), "Rejected update replaced painter order");
             Equal(model.VertexBytes, VertexBytes);
             Equal(model.TextureBytes, TextureBytes);
+            Equal(model.GradientStopCount, GradientStopCount);
         }
     }
 }

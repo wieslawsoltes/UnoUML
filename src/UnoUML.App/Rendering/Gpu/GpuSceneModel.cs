@@ -22,8 +22,9 @@ public sealed class GpuSceneModel
     public double Width { get; private set; } = 1;
     public double Height { get; private set; } = 1;
     public int CommandCount => Order.Length;
-    public long TextureBytes => Images.Values.Sum(image => (long)image.Rgba.Length);
-    public long VertexBytes => Commands.Values.Sum(command => (long)command.Vertices.Length * sizeof(float));
+    public long TextureBytes { get; private set; }
+    public long VertexBytes { get; private set; }
+    internal long GradientStopCount { get; private set; }
 
     public bool TryApply(JsonElement value, out string? error)
     {
@@ -51,10 +52,18 @@ public sealed class GpuSceneModel
             var commands = reset ? new Dictionary<string, GpuCommand>(StringComparer.Ordinal) : new Dictionary<string, GpuCommand>(Commands, StringComparer.Ordinal);
             var images = reset ? new Dictionary<string, GpuImage>(StringComparer.Ordinal) : new Dictionary<string, GpuImage>(Images, StringComparer.Ordinal);
 
+            // Publish resource totals only with an accepted transaction. Frame statistics
+            // read constants; sparse edits adjust geometry and gradient totals by delta.
+            long vertexFloats = reset ? 0 : VertexBytes / sizeof(float);
+            long gradientStops = reset ? 0 : GradientStopCount;
+            long textureBytes = reset ? 0 : TextureBytes;
             if (value.TryGetProperty("remove", out var remove))
-                foreach (var id in Array(remove, MaxCommands)) commands.Remove(Id(id));
-            long vertexFloats = commands.Values.Sum(command => (long)command.Vertices.Length);
-            long gradientStops = commands.Values.Sum(command => (long)command.Paint.Stops.Length);
+                foreach (var id in Array(remove, MaxCommands))
+                    if (commands.Remove(Id(id), out var removed))
+                    {
+                        vertexFloats -= removed.Vertices.Length;
+                        gradientStops -= removed.Paint.Stops.Length;
+                    }
             if (value.TryGetProperty("commands", out var additions))
             {
                 var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -79,13 +88,12 @@ public sealed class GpuSceneModel
                 throw Invalid("Invalid GPU painter order.");
             // Every retained command must have a defined painter-order position.
             if (order.Length != commands.Count) throw Invalid("The painter order omits retained commands.");
-            if (commands.Values.Sum(command => (long)command.Vertices.Length) > MaxVertexFloats)
+            if (vertexFloats > MaxVertexFloats)
                 throw Invalid("GPU geometry budget exceeded.");
 
             var usedImages = commands.Values.Where(command => command.Kind == GpuCommandKind.Image)
                 .Select(command => command.Image!).ToHashSet(StringComparer.Ordinal);
-            images = images.Where(pair => usedImages.Contains(pair.Key)).ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-            long textureBytes = images.Values.Sum(image => (long)image.Rgba.Length);
+            RemoveUnusedImages(images, usedImages, ref textureBytes);
             if (value.TryGetProperty("textures", out var textures))
             {
                 var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -107,13 +115,14 @@ public sealed class GpuSceneModel
                 }
             }
             if (usedImages.Any(id => !images.ContainsKey(id))) throw Invalid("A command references an unavailable texture.");
-            images = images.Where(pair => usedImages.Contains(pair.Key)).ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-            if (images.Values.Sum(image => (long)image.Rgba.Length) > MaxTextureBytes) throw Invalid("GPU texture budget exceeded.");
+            RemoveUnusedImages(images, usedImages, ref textureBytes);
+            if (textureBytes > MaxTextureBytes) throw Invalid("GPU texture budget exceeded.");
 
             Matrix3x2 camera = value.TryGetProperty("camera", out var cameraValue) ? Matrix(cameraValue) : Camera;
             double widthCss = value.TryGetProperty("width", out var w) ? Dimension(w) : Width;
             double heightCss = value.TryGetProperty("height", out var h) ? Dimension(h) : Height;
             Commands = commands; Images = images; Order = order;
+            VertexBytes = vertexFloats * sizeof(float); TextureBytes = textureBytes; GradientStopCount = gradientStops;
             Camera = camera; Width = widthCss; Height = heightCss; Revision = revision;
             return true;
         }
@@ -121,6 +130,15 @@ public sealed class GpuSceneModel
         {
             error = ex.Message;
             return false;
+        }
+    }
+
+    private static void RemoveUnusedImages(Dictionary<string, GpuImage> images, HashSet<string> usedImages, ref long textureBytes)
+    {
+        foreach (string id in images.Keys.Where(id => !usedImages.Contains(id)).ToArray())
+        {
+            textureBytes -= images[id].Rgba.LongLength;
+            images.Remove(id);
         }
     }
 
@@ -149,16 +167,18 @@ public sealed class GpuSceneModel
                 _ => throw Invalid("Unsupported GPU command kind.")
             }
             : old?.Kind ?? throw Invalid("A new command requires a kind.");
-        float[] vertices = value.TryGetProperty("vertices", out var vertexValue)
-            ? Numbers(vertexValue, -1, MaxVertexFloats) : old?.Vertices ?? [];
+        bool verticesChanged = value.TryGetProperty("vertices", out var vertexValue);
+        float[] vertices = verticesChanged ? Numbers(vertexValue, -1, MaxVertexFloats) : old?.Vertices ?? [];
         if (vertices.Length % 6 != 0 || kind != GpuCommandKind.Image && vertices.Length < 6)
             throw Invalid("Geometry must contain complete XY triangles.");
-        GpuRect bounds = value.TryGetProperty("bounds", out var boundsValue)
-            ? Rect(boundsValue) : old?.Bounds ?? throw Invalid("A new command requires bounds.");
-        if (kind != GpuCommandKind.Image)
+        bool boundsChanged = value.TryGetProperty("bounds", out var boundsValue);
+        GpuRect bounds = boundsChanged ? Rect(boundsValue) : old?.Bounds ?? throw Invalid("A new command requires bounds.");
+        if (kind != GpuCommandKind.Image && (verticesChanged || boundsChanged))
         {
             // The cover must clear every stencil sample written by the geometry.
-            // Union with actual vertices also makes malformed declared bounds safe.
+            // Previously accepted local bounds already include all retained vertices;
+            // matrix, paint, clip and coordinate-space patches reuse that exact union.
+            // New geometry or declared bounds must still be checked conservatively.
             float minX = bounds.X, minY = bounds.Y, maxX = bounds.Right, maxY = bounds.Bottom;
             for (int i = 0; i < vertices.Length; i += 2)
             {
