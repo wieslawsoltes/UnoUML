@@ -78,12 +78,27 @@ export async function verifyAccessibility(page) {
     // modal excludes that editor from the accessible interaction tree.
     const diagnosticSource = page.getByRole('textbox', { name: 'PlantUML source', exact: true, includeHidden: true });
     await traceNativeInput(page, diagnosticSource, 'native-option-focus', async () => {
+      const automationId = await picker.getAttribute('xamlautomationid');
       await domain.focus();
-      // Native focused-item projection is queued. Re-resolve the current
-      // semantic option while acknowledging focus; do not request focus again.
-      await domain.and(page.locator(':focus')).waitFor({ state: 'attached' });
-      assert.equal(await domain.evaluate(element => document.activeElement === element), true,
+      // Native projection can briefly focus a structural ancestor. Resolve the
+      // live controlled option and assert the same atomic observation, rather
+      // than sampling focus again after a successful readiness check.
+      const optionFocus = await page.waitForFunction(({automationId,name}) => {
+        const head = [...document.querySelectorAll('#uno-semantics-root [role="combobox"][xamlautomationid]')]
+          .find(element => element.getAttribute('xamlautomationid') === automationId);
+        const option = document.activeElement;
+        if (!head || head.getAttribute('aria-expanded') !== 'true' || !option?.isConnected
+            || option.getAttribute('role') !== 'option' || option.getAttribute('aria-label') !== name
+            || option.closest('[aria-hidden="true"],[hidden],[inert]')) return false;
+        return (head.getAttribute('aria-controls') ?? '').trim().split(/\s+/).some(id => {
+          const listbox = document.getElementById(id);
+          return listbox?.getAttribute('role') === 'listbox' && listbox.contains(option)
+            && option.closest('[role="listbox"]') === listbox;
+        });
+      }, {automationId,name:'Domain model'});
+      assert.equal(await optionFocus.jsonValue(), true,
         'Logical option focus enters the native ComboBoxItem before committing');
+      await optionFocus.dispose();
     }, { failureOnly: true });
     await page.keyboard.press('Enter');
     await choices.waitFor({ state: 'detached' });
