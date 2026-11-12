@@ -114,6 +114,11 @@ export async function verifyDotEditing(page, source) {
 async function verifyDotStructure(page, source) {
   await page.setViewportSize({width:1390,height:860});
   const paper = page.locator('.paper').first(), surface = page.locator('.surface').first();
+  const sourceAutomationId = await source.getAttribute('xamlautomationid');
+  assert.ok(sourceAutomationId, 'The source editor exposes a stable public XAML identity');
+  // Read-only observation follows semantic replacement while an owned modal
+  // correctly excludes the source from the accessible interaction tree.
+  const observedSource = page.locator('textarea[xamlautomationid=' + JSON.stringify(sourceAutomationId) + ']');
   const node = id => paper.locator(`[data-dot-id=${JSON.stringify('node:' + id)}]`);
   const load = async input => {
     const previous = await paper.locator('svg').elementHandle();
@@ -144,16 +149,17 @@ async function verifyDotStructure(page, source) {
   await node('aCopy').waitFor({state:'detached'});
 
   await pair('a','b');
+  const beforeGroup = await source.inputValue();
   await surface.press('Control+g');
   const groupDialog = page.getByRole('dialog',{name:'Group selected DOT nodes',exact:true});
   await groupDialog.waitFor();
-  const beforeGroup = await source.inputValue();
+  await source.waitFor({state:'hidden'});
   // Native Uno exposes this single-line TextBox as an input. The source editor
   // remains a CSS-visible textarea behind the modal, so target the named field.
   const clusterLabel = groupDialog.getByRole('textbox',{name:'Cluster label',exact:true});
   assert.equal(await clusterLabel.inputValue(), 'Group');
   await fillControl(page, clusterLabel, 'Canvas group');
-  assert.equal(await source.inputValue(), beforeGroup, 'Typing the dialog label does not replace the document');
+  assert.equal(await observedSource.inputValue(), beforeGroup, 'Typing the dialog label does not replace the document');
   await activateControl(page, groupDialog.getByRole('button', {name:'Group',exact:true}));
   const cluster = paper.locator('[data-dot-id="cluster:cluster_Group"]');
   await cluster.locator('text').filter({hasText:'Canvas group'}).waitFor();
