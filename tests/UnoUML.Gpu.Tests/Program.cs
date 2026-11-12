@@ -439,10 +439,10 @@ internal static class Program
         var label = model.Commands["label"];
         Accept(model, """
             {"revision":2,"commands":[
-              {"id":"overlay:selection","kind":"mesh","space":"viewport","vertices":[0,0,10,0,0,10]},
-              {"id":"overlay:shadow","kind":"fill","space":"viewport","vertices":[0,0,10,0,0,10],
+              {"id":"overlay:selection","kind":"mesh","space":"viewport","vertices":[0,0,10,0,0,10],"bounds":[0,0,10,10]},
+              {"id":"overlay:shadow","kind":"fill","space":"viewport","vertices":[0,0,10,0,0,10],"bounds":[0,0,10,10],
                "paint":{"kind":"linear","stops":[{"offset":0,"color":[0,0,0,0.3]},{"offset":1,"color":[0,0,0,0]}]}},
-              {"id":"overlay:focus","kind":"mesh","space":"viewport","vertices":[0,0,10,0,0,10]}
+              {"id":"overlay:focus","kind":"mesh","space":"viewport","vertices":[0,0,10,0,0,10],"bounds":[0,0,10,10]}
             ],"order":["triangle","label","overlay:selection","overlay:shadow","overlay:focus"]}
             """);
         Equal(upload.Upload(model), "overlay:selection,overlay:shadow,overlay:focus");
@@ -470,7 +470,7 @@ internal static class Program
 
         Accept(model, """
             {"revision":7,"commands":[{"id":"overlay:focus","kind":"mesh","space":"viewport",
-              "vertices":[0,0,10,0,0,10]}],"order":["triangle","label","overlay:focus"]}
+              "vertices":[0,0,10,0,0,10],"bounds":[0,0,10,10]}],"order":["triangle","label","overlay:focus"]}
             """);
         Equal(upload.Upload(model), "overlay:focus");
         Accept(model, """{"revision":8,"reset":true}""");
@@ -485,7 +485,7 @@ internal static class Program
             {"revision":2,"commands":[
               {"id":"triangle","paint":{"kind":"linear","stops":[
                 {"offset":0,"color":[1,0,0,1]},{"offset":1,"color":[0,0,1,1]}]}},
-              {"id":"tail","kind":"mesh","vertices":[0,0,10,0,0,10]}
+              {"id":"tail","kind":"mesh","vertices":[0,0,10,0,0,10],"bounds":[0,0,10,10]}
             ],"order":["triangle","label","tail"]}
             """);
         var upload = new UniformUploadProbe();
