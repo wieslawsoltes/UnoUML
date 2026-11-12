@@ -79,8 +79,11 @@ try {
       const stencil = own(device.createTexture({size:[64,64],sampleCount:4,format:'depth24plus-stencil8',usage:GPUTextureUsage.RENDER_ATTACHMENT}));
       const readback = own(device.createBuffer({size:64*64*4,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ}));
       const rect = (x,y,w,h) => [x,y,x+w,y,x,y+h,x,y+h,x+w,y,x+w,y+h];
-      async function draw(specifications, background = false) {
+      async function draw(specifications, background = false, camera = [1,0,0,1,0,0], cssSize = 64) {
         device.pushErrorScope('validation');
+        const globalData = new Float32Array([1,0,0,1,0,0,cssSize,cssSize,64,64,0,0,0,0,0,0]);
+        globalData.set(camera.slice(0,4),0); globalData.set(camera.slice(4),4);
+        device.queue.writeBuffer(globals,0,globalData);
         const commands = specifications.map(specification => {
           const data = new Float32Array(64), m = specification.matrix || [1,0,0,1,0,0];
           data.set(m.slice(0,4),0);data.set(m.slice(4),4);
@@ -93,6 +96,7 @@ try {
           const stops = specification.stops || [[0,[1,0,0,1]],[1,[0,0,1,1]]];
           data[34] = stops.length;
           if (specification.clip) data.set(specification.clip,36); else data[38]=-1;
+          data[40] = specification.space === 'viewport' ? 1 : 0;
           const stopData = new Float32Array(stops.length*8);
           stops.forEach(([offset,color],index) => { stopData[index*8]=offset;stopData.set(color,index*8+4); });
           const drawBuffer = buffer(data,GPUBufferUsage.UNIFORM);
@@ -182,6 +186,37 @@ try {
       sample = await draw([{bounds:[0,0,16,24],vertices:rect(0,0,16,24),matrix:[2,0,0,.5,4,10],color:[0,1,0,1]}]);
       pixel('Affine transform',sample(10,14),[0,255,0,255]);
       pixel('Affine bounds',sample(48,14),[255,255,255,255]);
+      sample = await draw([
+        {bounds:[0,0,8,8],vertices:rect(0,0,8,8),matrix:[1,0,0,1,4,4],color:[0,1,0,1]},
+        {space:'viewport',kind:'mesh',bounds:[0,0,8,8],vertices:rect(0,0,8,8),matrix:[1,0,0,1,4,4]}
+      ],false,[2,0,0,2,20,5]);
+      pixel('World geometry still follows a nonidentity camera',sample(32,18),[0,255,0,255]);
+      pixel('Viewport overlay ignores diagram zoom and translation',sample(8,8),[255,0,0,255]);
+      pixel('Viewport handle remains eight CSS pixels wide',sample(14,8),[255,255,255,255]);
+      sample = await draw([
+        {space:'viewport',bounds:[0,0,24,24],vertices:rect(0,0,24,24),matrix:[1,0,0,1,4,4],clip:[8,8,8,8]},
+        {space:'viewport',bounds:[0,0,8,8],vertices:rect(0,0,8,8),matrix:[1,0,0,1,40,40],color:[0,1,0,1]}
+      ],false,[0,-3,3,0,80,80]);
+      pixel('Viewport clip uses CSS coordinates under a rotated camera',sample(12,12),[255,0,0,255]);
+      pixel('Viewport clip excludes its exterior',sample(20,12),[255,255,255,255]);
+      pixel('Viewport clipping clears stencil for subsequent overlays',sample(44,44),[0,255,0,255]);
+      sample = await draw([
+        {space:'viewport',kind:'image',bounds:[0,0,10,10],matrix:[1,0,0,1,20,20],
+          pixels:[0,0,255,255],clip:[24,20,4,10]}
+      ],false,[4,0,0,4,100,100]);
+      pixel('Viewport image shares camera-independent projection',sample(25,25),[0,0,255,255]);
+      pixel('Viewport image shares the CSS clipping contract',sample(21,25),[255,255,255,255]);
+      sample = await draw([
+        {space:'viewport',kind:'mesh',bounds:[0,0,8,4],vertices:rect(0,0,8,4),
+          matrix:[0,1,-1,0,40,10],color:[0,0,1,1]}
+      ],false,[3,0,0,3,-200,400]);
+      pixel('Viewport geometry retains its local rotation',sample(38,14),[0,0,255,255]);
+      pixel('Rotated viewport geometry retains its local bounds',sample(42,14),[255,255,255,255]);
+      sample = await draw([
+        {space:'viewport',bounds:[0,0,8,8],vertices:rect(0,0,8,8),matrix:[1,0,0,1,4,4]}
+      ],false,[4,0,0,4,90,-50],32);
+      pixel('Viewport CSS geometry scales with target pixel density',sample(16,16),[255,0,0,255]);
+      pixel('Viewport CSS bounds remain exact at double pixel density',sample(26,16),[255,255,255,255]);
       sample = await draw([{}],true);
       pixel('Grid background',sample(2,2),[247,248,251,255]);
       pixel('Grid dot is centered in the 16px CSS tile',sample(8,8),[215,219,229,255],8);
@@ -198,7 +233,7 @@ try {
     }
   }, shader);
   assert.equal(report.pipelines,6);
-  assert.ok(report.checks.length >= 17);
+  assert.ok(report.checks.length >= 29);
   assert.ok(report.checks.every(check=>check.pass));
   console.log(JSON.stringify(report,null,2));
   if (process.env.SCREENSHOT_DIR) {
