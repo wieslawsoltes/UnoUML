@@ -13,7 +13,6 @@ jobs:
       UNOUML_RUN_ID: '43161371840'
       UNOUML_ARTIFACT_ID: '13918181993'
       UNOUML_EXPECTED_HEAD: '68dce30536672fa6e9464516cfecda2877eb577e'
-      UNOUML_ARTIFACT_DIRECTORY: ${{ runner.temp }}/unouml-gpu-metrics
     steps:
       - name: Verify the exact application run and artifact provenance
         env:
@@ -46,8 +45,10 @@ jobs:
           run-id: ${{ env.UNOUML_RUN_ID }}
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          path: ${{ env.UNOUML_ARTIFACT_DIRECTORY }}
+          path: ${{ runner.temp }}/unouml-gpu-metrics
       - name: Print bounded baseline and selection-mask metrics
+        env:
+          UNOUML_ARTIFACT_DIRECTORY: ${{ runner.temp }}/unouml-gpu-metrics
         run: |
           node --input-type=module <<'NODE'
           import {readdir,readFile,stat} from 'node:fs/promises';
