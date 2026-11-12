@@ -234,6 +234,7 @@ function nativeCommandState(element) {
   return {
     native: !!root, attached: element.isConnected, exposed, enabled, focused,
     documentFocused: element.ownerDocument.hasFocus(),
+    visible: rect.width > 0 && rect.height > 0,
     supported: key !== null, key, role, tag, id: element.id,
     name: element.getAttribute('aria-label'),
     active: active ? { id: active.id, tag: active.localName, role: active.getAttribute('role') } : null,
@@ -266,7 +267,14 @@ export async function activateControl(page, locator, options = {}) {
         assert.equal(unsupportedOptions.length, 0,
           `Native keyboard activation does not accept pointer options: ${unsupportedOptions.join(', ')}`);
         assert.ok(state.supported, `Native control has no command activation contract: ${JSON.stringify(state)}`);
-        state.actionable = state.exposed && state.enabled && await locator.isEnabled();
+        // A native semantic head can precede its control template/layout. In
+        // particular, opening a zero-size ComboBox can precede item realization.
+        // Logical options have their separate validated path above; commands
+        // must be laid out before keyboard activation even when bounds are not
+        // reliable pointer coordinates.
+        await locator.waitFor({ state: 'visible', timeout: remaining() });
+        state = await locator.evaluate(nativeCommandState);
+        state.actionable = state.exposed && state.visible && state.enabled && await locator.isEnabled();
         if (state.actionable) {
           if (options.trial) return;
           await locator.focus({ timeout: remaining() });
@@ -275,7 +283,7 @@ export async function activateControl(page, locator, options = {}) {
           // key; retrying before dispatch cannot invoke the command twice.
           state = await locator.evaluate(nativeCommandState);
           state.actionable = state.native && state.attached && state.supported
-            && state.exposed && state.enabled && state.focused;
+            && state.exposed && state.visible && state.enabled && state.focused;
           if (state.actionable) break;
         }
       }
