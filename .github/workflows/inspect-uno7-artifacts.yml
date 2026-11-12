@@ -1,4 +1,4 @@
-name: Inspect Uno 7 WebGPU quality evidence
+name: Inspect Uno 7 workspace failure evidence
 on:
   push:
     branches: [codex/uno7-artifact-inspection]
@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 5
     env:
       UNOUML_RUN_ID: '43168711782'
-      UNOUML_ARTIFACT_ID: '13921630970'
+      UNOUML_ARTIFACT_ID: '13922261710'
       UNOUML_EXPECTED_HEAD: 'a51d02188231600ce859e962fe758e5f35c59f4f'
     steps:
       - name: Verify the exact application run and artifact provenance
@@ -33,7 +33,7 @@ jobs:
           const run=await api('/actions/runs/'+runId);
           if(run.id!==runId||run.head_sha!==expected)throw new Error('Workflow run does not match the requested application revision');
           const artifact=await api('/actions/artifacts/'+artifactId);
-          if(artifact.id!==artifactId||artifact.name!=='gpu-workspace'||artifact.expired||
+          if(artifact.id!==artifactId||artifact.name!=='workspace-checks'||artifact.expired||
             artifact.workflow_run?.id!==runId||artifact.workflow_run?.head_sha!==expected)
             throw new Error('Artifact identity or workflow provenance did not match');
           console.log('METRIC_PROVENANCE '+JSON.stringify({runId,headSha:run.head_sha,status:run.status,
@@ -46,45 +46,67 @@ jobs:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           path: ${{ runner.temp }}/unouml-gpu-metrics
-      - name: Print bounded baseline and selection-mask metrics
+      - name: Print bounded failure DOM, source and console evidence
         env:
           UNOUML_ARTIFACT_DIRECTORY: ${{ runner.temp }}/unouml-gpu-metrics
         run: |
-          node --input-type=module <<'NODE'
-          import {readdir,readFile,stat} from 'node:fs/promises';
-          import {resolve,relative,basename,join} from 'node:path';
-          const root=resolve(process.env.UNOUML_ARTIFACT_DIRECTORY);
-          const files=[];let entries=0;
-          async function visit(directory,depth=0) {
-            if(depth>6)throw new Error('Artifact directory exceeds the inspection depth budget');
-            for(const item of await readdir(directory,{withFileTypes:true})) {
-              if(++entries>4096)throw new Error('Artifact exceeds the inspection entry budget');
-              const path=join(directory,item.name);
-              if(item.isDirectory())await visit(path,depth+1);
-              else if(item.isFile()&&(item.name.endsWith('-quality.json')||item.name==='gpu-presentation.json'))files.push(path);
-            }
-          }
-          await visit(root);
-          if(files.length>12)throw new Error('Unexpected number of quality reports');
-          for(const required of ['gpu-starter-quality.json','gpu-selection-overlay-quality.json','gpu-presentation.json'])
-            if(!files.some(path=>basename(path)===required))throw new Error('Missing requested quality evidence: '+required);
-          let outputBytes=0;
-          for(const path of files.sort()) {
-            const size=(await stat(path)).size;
-            if(size>512*1024)throw new Error('Quality report exceeds the bounded JSON read budget: '+basename(path));
-            const value=JSON.parse(await readFile(path,'utf8'));
-            let evidence=value;
-            if(basename(path)==='gpu-presentation.json') {
-              const {samples,...summary}=value;
-              evidence={...summary,samples:{count:Array.isArray(samples)?samples.length:0,
-                first:samples?.[0]??null,last:samples?.at(-1)??null}};
-            }
-            const record=JSON.stringify({file:relative(root,path),bytes:size,evidence});
-            const bytes=Buffer.byteLength(record);
-            if(bytes>24000||outputBytes+bytes>64000)throw new Error('Quality output exceeds its log budget: '+basename(path));
-            outputBytes+=bytes;
-            console.log('QUALITY_EVIDENCE '+record);
-          }
-          console.log('QUALITY_EVIDENCE_COMPLETE '+JSON.stringify({files:files.length,outputBytes,
-            note:'CPU encode and camera wall durations are separate measurements; no GPU timing or hardware FPS claim.'}));
-          NODE
+          python3 - <<'PY'
+          import os,json
+          from pathlib import Path
+          from html.parser import HTMLParser
+          root=Path(os.environ['UNOUML_ARTIFACT_DIRECTORY']).resolve()
+          files=[];entries=0;output=0
+          def emit(kind,value):
+            global output
+            line=kind+' '+json.dumps(value,ensure_ascii=False,separators=(',',':'))
+            size=len(line.encode('utf8'))
+            if output+size>65536:
+              return False
+            print(line);output+=size;return True
+          for directory,dirs,names in os.walk(root):
+            if len(Path(directory).relative_to(root).parts)>6:
+              raise RuntimeError('Artifact depth budget exceeded')
+            entries+=len(dirs)+len(names)
+            if entries>4096:
+              raise RuntimeError('Artifact entry budget exceeded')
+            files.extend(Path(directory)/name for name in names)
+          emit('FAILURE_INVENTORY',[{'file':str(p.relative_to(root)),'bytes':p.stat().st_size} for p in files][:128])
+          class SemanticParser(HTMLParser):
+            def __init__(self):
+              super().__init__(convert_charrefs=True);self.stack=[];self.records=[]
+            def handle_starttag(self,tag,attrs):
+              a=dict(attrs);r=None
+              if a.get('role') or a.get('aria-label') or tag in ('input','textarea','button','select'):
+                kept={k:(v[:512] if v is not None else True) for k,v in attrs if k in ('id','role','name','type','value','aria-label','aria-labelledby','aria-describedby','aria-hidden','aria-modal','aria-disabled','aria-readonly','aria-expanded','disabled','readonly','inert','hidden','tabindex','class','style') or 'automation' in k}
+                r={'tag':tag,'attributes':kept,'text':'','ancestors':[{'tag':f['tag'],'id':f['attrs'].get('id'),'role':f['attrs'].get('role'),'ariaHidden':f['attrs'].get('aria-hidden'),'inert':'inert' in f['attrs'],'style':f['attrs'].get('style','')[:160]} for f in self.stack[-7:] if f['attrs'].get('id') or f['attrs'].get('role') or f['attrs'].get('aria-hidden') or 'inert' in f['attrs']]}
+                if len(self.records)<2048:self.records.append(r)
+              if tag not in ('area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'):
+                self.stack.append({'tag':tag,'attrs':a,'record':r})
+            def handle_endtag(self,tag):
+              for i in range(len(self.stack)-1,-1,-1):
+                if self.stack[i]['tag']==tag:
+                  del self.stack[i:];break
+            def handle_data(self,data):
+              for f in self.stack:
+                r=f['record']
+                if r is not None and len(r['text'])<512:r['text']=(r['text']+data)[:512]
+          required=False
+          for path in sorted(files,key=lambda p:(0 if p.name=='unouml-failure.puml' else 1 if p.name=='browser-console.txt' else 2,str(p))):
+            name=path.name
+            if name not in ('unouml-failure.html','unouml-failure.puml','browser-console.txt'):continue
+            if path.stat().st_size>4*1024*1024:raise RuntimeError('Failure file read budget exceeded: '+name)
+            text=path.read_text('utf8')
+            if name.endswith('.html'):
+              required=True;p=SemanticParser();p.feed(text)
+              def priority(r):
+                a=r['attributes'];s=(str(a.get('aria-label',''))+' '+r['text']).lower()
+                return (0 if a.get('role')=='dialog' or any(x.get('role')=='dialog' for x in r['ancestors']) else 1 if any(x in s for x in ('group','package','sibling','select','source','error')) else 2)
+              rows=sorted(p.records,key=priority)
+              for row in rows:
+                if output>60000 or not emit('FAILURE_SEMANTIC',row):break
+              emit('FAILURE_DOM_SUMMARY',{'file':name,'semanticRecords':len(p.records),'characters':len(text)})
+            else:
+              emit('FAILURE_TEXT',{'file':name,'characters':len(text),'text':text[:18000] if name.endswith('.puml') else text[-18000:]})
+          if not required:raise RuntimeError('Missing primary failure DOM')
+          emit('FAILURE_EVIDENCE_COMPLETE',{'files':len(files),'outputBytes':output})
+          PY
