@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { activateAccessibility } from './native-controls.mjs';
+import { activateAccessibility, fillControl } from './native-controls.mjs';
 
 export async function verifyAccessibility(page) {
   await activateAccessibility(page);
@@ -23,7 +23,7 @@ export async function verifyAccessibility(page) {
     assert.equal(await dialog.getAttribute('aria-modal'), 'true');
     const field = dialog.getByRole('textbox', { name: 'PlantUML to insert on this page', exact: true });
     assert.equal(await field.inputValue(), '', 'Reopening a dialog creates a fresh named editor');
-    await field.fill('class Cancelled');
+    await fillControl(page, field, 'class Cancelled');
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).press('Enter');
     await dialog.waitFor({ state: 'hidden' });
     assert.equal(await source.inputValue(), original, 'Cancelling a dialog preserves the document');
