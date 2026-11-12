@@ -56,11 +56,19 @@ export async function verifyAccessibility(page) {
       'The combobox exposes its selected option through the live listbox');
     assert.equal(await checkout.getAttribute('aria-posinset'), '1');
     assert.ok(Number(await checkout.getAttribute('aria-setsize')) >= 2);
-    assert.equal(await picker.evaluate(element => {
+    // The public native-focus snapshot is queued after OnOpen completes, and
+    // logical option DOM can arrive on a later frame. Wait for that projection
+    // while preserving the exact modal/controlled-popup focus requirement.
+    const focusReady = await page.waitForFunction(automationId => {
+      const element = [...document.querySelectorAll('[role="combobox"][xamlautomationid]')]
+        .find(candidate => candidate.getAttribute('xamlautomationid') === automationId);
+      if (!element) return false;
       const focused = document.activeElement;
       const popup = document.getElementById(element.getAttribute('aria-controls'));
       return !!(element.closest('[role="dialog"]')?.contains(focused) || popup?.contains(focused));
-    }), true, 'Keyboard focus remains in the modal or its controlled popup');
+    }, await picker.getAttribute('xamlautomationid'));
+    assert.equal(await focusReady.jsonValue(), true, 'Keyboard focus remains in the modal or its controlled popup');
+    await focusReady.dispose();
     const domain = choices.getByRole('option', { name: 'Domain model', exact: true });
     await domain.focus();
     assert.equal(await domain.evaluate(element => document.activeElement === element), true,

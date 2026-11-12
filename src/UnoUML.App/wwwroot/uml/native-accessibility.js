@@ -1,5 +1,5 @@
 export { beginDialogScope, activateDialogScope, endDialogScope } from './native-dialogs.js';
-export { beginComboScope, updateComboScope, endComboScope } from './native-combos.js';
+export { beginComboScope, updateComboScope, endComboScope, focusComboScope } from './native-combos.js';
 
 const keyboardBoundaries = new WeakMap();
 

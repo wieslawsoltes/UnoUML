@@ -10,10 +10,17 @@ export async function diagnoseNativeAccessibility(page, artifactDir = process.en
     const phases = [];
     const capture = (phase, error) => {
       const root = document.getElementById('uno-semantics-root');
+      const focus = [];
+      for (let element = document.activeElement; element && focus.length < 8; element = element.shadowRoot?.activeElement) {
+        focus.push({ tag: element.localName, id: element.id,
+          role: element.getAttribute('role'), name: element.getAttribute('aria-label'),
+          controls: element.getAttribute('aria-controls'), activeDescendant: element.getAttribute('aria-activedescendant') });
+      }
       let autoEnable;
       try { autoEnable = accessibility?.managedIsAutoEnableAccessibility?.(); }
       catch (failure) { autoEnable = String(failure); }
       phases.push({phase, error, autoEnable, rootPresent: !!root,
+        documentFocused: document.hasFocus(), focus,
         children: root?.childElementCount ?? 0,
         buttons: root?.querySelectorAll('button,[role="button"]').length ?? 0,
         html: root?.outerHTML.slice(0, 256 * 1024) ?? '',

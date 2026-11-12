@@ -96,6 +96,20 @@ children and panel children before `ShowAsync`; both inspector picker factories
 attach before insertion, and the persistent page picker attaches during page
 construction. The later dialog `Opened` traversal also names generated controls.
 
+The framework's native focus resolver also omits ComboBox-specific virtualized
+regions and can focus a semantic ancestor instead of the actual option. While a
+picker is open, public `FocusManager.GotFocus`/`LostFocus` events schedule a
+coalesced snapshot of `GetFocusedElement` for its XAML root. Projection requires
+an actual `ComboBoxItem`, matching `ItemsControlFromItemContainer` ownership and
+a `ContainerFromIndex` round trip. The focused index is independent of
+`SelectedIndex`; moving keyboard focus alone never changes selected metadata.
+Generation and focus-revision checks cancel stale callbacks, and foreign native
+focus clears pending work. Deferred DOM focus waits for the corresponding
+option, preserves scroll position and is cancelled by intervening DOM focus or
+window blur. The observer and public focus subscriptions end on popup close or
+unload. The real application test waits for this known queued projection while
+requiring focus to remain inside the modal or its controlled popup.
+
 Uno's virtualized listbox container is intentionally a logical accessibility root
 without its own visual rectangle. Individual option nodes can also retain zero
 projected bounds after deferred creation while the native popup is fully painted.
@@ -324,6 +338,8 @@ guarantee or completed “AAA” hardware qualification is claimed without measu
 - [Uno 7.0.32 ComboBox semantic lifecycle](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/WebAssemblyAccessibility.ComboBox.cs)
 - [Uno 7.0.32 virtualized semantic regions](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/VirtualizedSemanticRegion.cs)
 - [Uno 7.0.32 semantic element identity](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/SemanticElementFactory.cs)
+- [Uno 7.0.32 native focus synchronization](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/FocusSynchronizer.cs)
+- [Uno 7.0.32 public focus manager](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI/UI/Xaml/Input/FocusManager.cs)
 - [Uno 7.0.32 modal focus isolation](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/FocusTrap.ts)
 - [Uno WebGPU backend](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/features/using-webgpu-rendering.md)
 - [Custom WebGpuCanvasElement](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/controls/WebGpuCanvasElement.md)

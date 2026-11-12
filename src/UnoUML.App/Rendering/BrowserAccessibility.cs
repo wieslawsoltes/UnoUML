@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 
 namespace UnoUML.App.Rendering;
@@ -42,23 +43,60 @@ internal static partial class BrowserAccessibility
             AutomationProperties.SetAutomationId(combo, automationId);
         }
 
-        int generation = 0;
-        bool open = false;
+        int generation = 0, focusRevision = 0;
+        bool open = false, publishingFocus = false;
+        void QueueFocusedItem()
+        {
+            if (!open || publishingFocus) return;
+            int current = generation, revision = ++focusRevision;
+            // Public focus events are asynchronous. Read the current owner
+            // after native OnOpen/keyboard focus work, rather than using an
+            // event argument that may describe an already superseded target.
+            combo.DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!open || current != generation || revision != focusRevision) return;
+                try
+                {
+                    int index = -1;
+                    if (combo.XamlRoot is { } root &&
+                        FocusManager.GetFocusedElement(root) is ComboBoxItem focused &&
+                        ReferenceEquals(ItemsControl.ItemsControlFromItemContainer(focused), combo))
+                    {
+                        int candidate = combo.IndexFromContainer(focused);
+                        if (candidate >= 0 && candidate < combo.Items.Count &&
+                            ReferenceEquals(combo.ContainerFromIndex(candidate), focused)) index = candidate;
+                    }
+                    publishingFocus = true;
+                    FocusComboScope(automationId, current, revision, index);
+                }
+                catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+                finally { publishingFocus = false; }
+            });
+        }
+        void OnNativeGotFocus(object? sender, FocusManagerGotFocusEventArgs args) => QueueFocusedItem();
+        void OnNativeLostFocus(object? sender, FocusManagerLostFocusEventArgs args) => QueueFocusedItem();
         void Begin()
         {
             if (open) return;
             open = true;
             int current = ++generation;
+            focusRevision = 0;
+            FocusManager.GotFocus += OnNativeGotFocus;
+            FocusManager.LostFocus += OnNativeLostFocus;
             // Uno's logical options are created after the selected item. Its
             // creation API omits aria-selected, so project the authoritative
             // public index without changing selection or native keyboard input.
             try { BeginComboScope(automationId, current, combo.SelectedIndex); }
             catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+            QueueFocusedItem();
         }
         void End()
         {
             if (!open) return;
             open = false;
+            focusRevision++;
+            FocusManager.GotFocus -= OnNativeGotFocus;
+            FocusManager.LostFocus -= OnNativeLostFocus;
             try { EndComboScope(automationId, generation); }
             catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
         }
@@ -178,4 +216,7 @@ internal static partial class BrowserAccessibility
 
     [JSImport("endComboScope", Module)]
     private static partial void EndComboScope(string automationId, int generation);
+
+    [JSImport("focusComboScope", Module)]
+    private static partial void FocusComboScope(string automationId, int generation, int focusRevision, int focusedIndex);
 }

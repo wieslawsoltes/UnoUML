@@ -264,6 +264,67 @@ export async function verifyNativeModal(page, { artifactDir } = {}) {
       'No ComboBox observer continues projecting after the final close');
     report.cases.push('ComboBox replacement, generation safety and scoped metadata cleanup');
 
+    const nativeFocus = (generation, focusRevision, focusedIndex) => frame.evaluate(({ generation, focusRevision, focusedIndex }) =>
+      modalModule.focusComboScope('selection-picker', generation, focusRevision, focusedIndex), { generation, focusRevision, focusedIndex });
+    const settleFocus = () => frame.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await frame.evaluate(() => {
+      const root = selectionFixture.root;
+      root.innerHTML = '<div id="uno-semantics-focus-parent" role="group" tabindex="-1"></div><div id="uno-semantics-selection-head" role="combobox" aria-label="Selection picker" aria-expanded="true" aria-controls="uno-semantics-selection-list" aria-activedescendant="uno-semantics-selection-a" xamlautomationid="selection-picker" tabindex="0"></div>' + selectionFixture.options;
+      root.insertAdjacentHTML('afterend', '<input id="external-focus-input" aria-label="External DOM editor">');
+      selectionFixture.lateOption = '<div id="uno-semantics-selection-c" role="option" aria-label="Gamma" aria-posinset="3" aria-setsize="3" tabindex="-1" style="position:absolute;width:0;height:0"></div>';
+    });
+    await comboScope('beginComboScope', 3, 0);
+    await frame.locator('#uno-semantics-focus-parent').focus();
+    await nativeFocus(3, 1, 1);
+    await frame.waitForFunction(() => document.activeElement.id === 'uno-semantics-selection-b');
+    equal(await alpha(true).count(), 1, 'Projecting the actual focused item does not change the selected item');
+    equal(await beta(false).count(), 1, 'A focused option can remain unselected until native Enter commits it');
+    equal(await frame.locator('#uno-semantics-selection-head').getAttribute('aria-activedescendant'), 'uno-semantics-selection-a',
+      'The focused-item bridge never infers or rewrites the head selection relationship');
+    report.cases.push('actual ComboBox item focus independent from selection');
+
+    await frame.locator('#uno-semantics-focus-parent').focus();
+    await nativeFocus(3, 2, 2);
+    await frame.evaluate(() => document.getElementById('uno-semantics-selection-list').insertAdjacentHTML('beforeend', selectionFixture.lateOption));
+    await frame.waitForFunction(() => document.activeElement.id === 'uno-semantics-selection-c');
+    equal(await alpha(true).count(), 1, 'Late option focus preserves the authoritative selected index');
+    await frame.locator('#uno-semantics-focus-parent').focus();
+    await frame.locator('#uno-semantics-selection-c').evaluate(element => element.remove());
+    await nativeFocus(3, 3, 2);
+    await nativeFocus(3, 4, -1);
+    await frame.evaluate(() => document.getElementById('uno-semantics-selection-list').insertAdjacentHTML('beforeend', selectionFixture.lateOption));
+    await settleFocus();
+    equal(await frame.evaluate(() => document.activeElement.id), 'uno-semantics-focus-parent',
+      'A native focus departure cancels a pending late-option projection');
+    equal(await nativeFocus(3, 3, 0), false, 'An older native focus revision cannot revive a cancelled intent');
+    await frame.locator('#uno-semantics-selection-c').evaluate(element => element.remove());
+    await nativeFocus(3, 5, 2);
+    await frame.getByRole('textbox', { name: 'External DOM editor', exact: true }).focus();
+    await frame.evaluate(() => document.getElementById('uno-semantics-selection-list').insertAdjacentHTML('beforeend', selectionFixture.lateOption));
+    await settleFocus();
+    equal(await frame.evaluate(() => document.activeElement.id), 'external-focus-input',
+      'Intervening DOM editor focus is never stolen when an option arrives');
+    await nativeFocus(3, 6, 0);
+    equal(await frame.evaluate(() => document.activeElement.id), 'external-focus-input',
+      'A queued native snapshot cannot steal a later external editor focus');
+    report.cases.push('late focused options and native/DOM focus cancellation');
+
+    await frame.locator('#uno-semantics-focus-parent').focus();
+    await frame.locator('#uno-semantics-selection-c').evaluate(element => element.remove());
+    await nativeFocus(3, 7, 2);
+    await comboScope('endComboScope', 3);
+    await comboScope('beginComboScope', 4, 0);
+    await frame.evaluate(() => document.getElementById('uno-semantics-selection-list').insertAdjacentHTML('beforeend', selectionFixture.lateOption));
+    await settleFocus();
+    equal(await frame.evaluate(() => document.activeElement.id), 'uno-semantics-focus-parent',
+      'Closing and reopening cannot inherit a pending focus request');
+    equal(await nativeFocus(3, 8, 0), false, 'A stale open generation cannot move current popup focus');
+    await nativeFocus(4, 1, 1);
+    await frame.waitForFunction(() => document.activeElement.id === 'uno-semantics-selection-b');
+    equal(await alpha(true).count(), 1, 'A fresh focus generation still leaves selection unchanged');
+    await comboScope('endComboScope', 4);
+    report.cases.push('generation-scoped native ComboBox focus lifetime');
+
     // Model the tagged Uno event ordering: the public enable handler removes
     // its element and focuses a native control before document key forwarding.
     await frame.evaluate(() => {
