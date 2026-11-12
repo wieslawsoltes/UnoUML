@@ -16,7 +16,7 @@ canvas geometry and portable SVG output retain their existing contracts.
 | Application composition | Uno WebGPU, followed by explicit Skia initialization fallback |
 | Diagram canvas | Uno.WinUI.Graphics3DWebGpu.WebGpuCanvasElement |
 | Native API binding | Silk.NET.WebGPU 2.23.0 supplied by Uno |
-| Diagram shaders | WGSL, six explicit-layout 2D pipelines, 4× MSAA |
+| Diagram shaders | WGSL, seven explicit-layout 2D pipelines, 4× MSAA |
 | Native build dependency | .NET wasm-tools workload |
 
 The package audit asserts that Uno.WinUI, Runtime.WebAssembly.Browser,
@@ -337,7 +337,7 @@ omitted space to world; a sparse patch inherits its current space. Each matrix m
 local geometry into its declared space, and its clip rectangle uses that same
 space. Viewport commands use CSS pixels and bypass the diagram camera in both
 WGSL projection and CPU culling. The flag occupies `Draw.options.x` at byte 160
-of the existing 256-byte uniform, preserving all six pipeline layouts. Pixel
+of the existing 256-byte uniform, preserving the shared pipeline layout. Pixel
 density is still handled by the composition target, so handles stay the same
 logical size on high-density displays.
 
@@ -357,6 +357,7 @@ browser input or bootstrap behavior.
 | Fills | Stencil-and-cover with nonzero/evenodd winding; holes and self-intersections are retained |
 | Strokes | Triangle coverage with caps, joins, miter limits, dash arrays and offsets |
 | Stroke overlap | Equal-zero/increment-clamp stencil union; translucent overlaps blend once |
+| Opaque meshes | Unclipped solid meshes with alpha and opacity exactly one paint directly in one draw; all other mesh paint retains stencil union |
 | Paint | Solid, linear and two-circle radial gradients with ordered stops and pad/repeat/reflect |
 | Transform | Local-to-world command transforms plus a separate camera; viewport commands use CSS pixels directly |
 | Antialiasing | Four-sample color and depth/stencil attachments, explicit resolve |
@@ -380,7 +381,25 @@ fast path reuses graph state, geometry, textures, paint uniforms and bundles,
 uploading a 64-byte camera uniform. Active decorations can add position or shape
 patches without recompiling the document. Transform-only edits update a 256-byte
 draw uniform while retaining geometry and bundles. The visible bundle list is
-reused across frames.
+reused across frames. Sparse matrix, paint, clip and coordinate-space patches retain
+previously validated local bounds without scanning unchanged vertices. Native
+vertex, texture and gradient totals are staged with each scene transaction and
+publish only after complete validation, making frame statistics constant-time.
+
+A direct opaque-mesh pipeline removes the stencil and cover pair when every
+covered sample receives the same opaque solid color. General fills, gradients,
+transparency and analytic clipping retain stencil coverage. Bundle identity includes
+the chosen route, so a paint or clip change rebuilds the affected bundle. The
+pipeline uses the existing shader programs and identical 4× MSAA attachments.
+
+Semantic SVG replacement preserves the last submitted display list and bounded
+raster cache. New DOM owners receive fresh command IDs but can reference existing
+native images when complete frozen snapshots, styles, referenced definitions,
+font data, resolution and tile geometry match. Only current image IDs remain
+marked as uploaded; an image removed with its final owner must be sent again
+when reintroduced. Backend rejection still forces a complete reset. Cancellation
+checkpoints around font and raster awaits stop superseded source work before
+subsequent owners or tiles are captured.
 
 Resource synchronization compares each draw slot with its retained command and
 gradient-stop offset. Appending or removing viewport decorations leaves unchanged
@@ -459,10 +478,13 @@ bundles, multisampling and texture readback on a software adapter. Set
 `UNOUML_GPU_DRIVER=hardware` to measure an available hardware adapter without the
 software-driver flags, and `UNOUML_HEADED=1` for a visible browser.
 
-The independent shader CI job compiles the production WGSL and creates all six
+The independent shader CI job compiles the production WGSL and creates all seven
 pipelines. Pixel checks cover winding holes, translucent stroke overlap, linear and
 radial gradients, image alpha, clipping/stencil cleanup, affine transforms, viewport
-geometry under rotated cameras, double pixel density and grid placement.
+geometry under rotated cameras, double pixel density and grid placement. Eight
+additional full-frame comparisons require byte-exact RGBA equivalence between
+direct opaque meshes and stencil coverage, including overlapping triangles,
+affine transforms, DPR 2 and mixed painter order.
 The independent overlay fixture covers retained geometry, transparent pointer
 proxies, viewport changes, atomic frame acceptance and clean export sources.
 The application check requires a matching WebGPU frame, verifies visible GPU
@@ -501,12 +523,19 @@ presentation, pending work, source-independent scene revision, fallback reason,
 compiler counters and C# graphics statistics.
 
 Statistics include command visibility, draw counts, live geometry/image/bundle
-counts, native `viewportCommands` and `visibleViewportCommands`, separate
+counts, native `viewportCommands`, `visibleViewportCommands` and
+`visibleDirectMeshCommands`, separate
 `drawUniformCapacityBytes` and `gradientCapacityBytes`, buffer/texture bytes,
 cumulative upload bytes, bundle builds, CPU encoding time, target dimensions,
-sample count and frame count. GPU-frame time is not
-inferred from CPU encoding time. Browser camera wall-time measurements include
-scheduling and software-driver costs.
+sample count and frame count. `validationScopeMilliseconds` measures the first
+scope-pop request through completion of both callbacks;
+`validationDispatchMilliseconds` measures callback completion through entry into
+the UI dispatcher action. `submittedFrames` and `deferredFrameRequests` are
+cumulative diagnostics. Validation sequencing and exact-frame acknowledgement
+remain unchanged. These values and CPU encoding time are not GPU execution time.
+Browser camera wall-time measurements include scheduling and software-driver costs.
+[The performance record](webgpu-performance.md) documents the paired measurements
+and separates current optimization evidence from the historical migration gates below.
 
 Verified rendering gates:
 
