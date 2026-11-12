@@ -1,3 +1,4 @@
+import { activateControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyImportedPageRouting(page, source) {
@@ -11,19 +12,19 @@ export async function verifyImportedPageRouting(page, source) {
   // A cancelled editor belongs to the old diagram. Its pending DOT selection
   // must never consume the next imported-source label commit.
   const cancelledDot = '@startdot\ndigraph { pending [label="Cancelled DOT"]; }\n@enddot';
-  await source.fill(cancelledDot);
+  await fillControl(page, source, cancelledDot);
   await paper.locator('[data-dot-id="node:pending"]').dblclick();
-  await editor.fill('Do not save');
+  await fillControl(page, editor, 'Do not save');
   await editor.press('Escape');
   await editor.waitFor({state:'detached'});
   assert.equal(await source.inputValue(),cancelledDot);
   const input = '@startuml\n!include multiple.puml!second\n@enduml';
-  await source.fill(input);
+  await fillControl(page, source, input);
   const item = paper.locator('[data-qualified-name="Shared"][data-source-file="multiple.puml"]').first();
   await item.locator('text').filter({hasText:'Second page'}).dblclick();
   assert.equal(await item.getAttribute('data-file-line'),'4');
   assert.equal(await editor.inputValue(),'Second page');
-  await editor.fill('Changed second');
+  await fillControl(page, editor, 'Changed second');
   await editor.press('Enter');
   await item.locator('text').filter({hasText:'Changed second'}).waitFor();
   assert.equal(await source.inputValue(),input);
@@ -34,11 +35,11 @@ export async function verifyImportedPageRouting(page, source) {
   assert.equal(await read(),original);
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   const baseline = '@startuml\nclass PreviousMain\n@enduml';
-  await source.fill(baseline);
+  await fillControl(page, source, baseline);
   await paper.locator('[data-qualified-name="PreviousMain"]').waitFor();
-  await source.fill(input);
+  await fillControl(page, source, input);
   await item.locator('text').filter({hasText:'Second page'}).dblclick();
-  await editor.fill('Local change');
+  await fillControl(page, editor, 'Local change');
   await editor.press('Enter');
   await item.locator('text').filter({hasText:'Local change'}).waitFor();
   const replacement = original.replace('"Second page"','"Reimported change"');
@@ -64,38 +65,53 @@ export async function verifyImportedPageRouting(page, source) {
     const nextLabel = `Concurrent ${scenario} change`, pendingLabel = `Pending ${scenario} edit`;
     const concurrent = current.replace(`"${currentLabel}"`,`"${nextLabel}"`);
     const pending = current.replace(`"${currentLabel}"`,`"${pendingLabel}"`);
-    await source.fill(conflictInput);
+    await fillControl(page, source, conflictInput);
     await target.waitFor();
     await item.locator('text').filter({hasText:currentLabel}).dblclick();
     assert.equal(await editor.inputValue(),currentLabel);
-    await editor.fill(pendingLabel);
-    const sourceElement = await source.elementHandle();
+    await fillControl(page, editor, pendingLabel);
+    const sourceId = await source.getAttribute('xamlautomationid');
+    assert.ok(sourceId, 'The source editor exposes its stable public automation identity');
+    const includeReader = await page.evaluateHandle(async () =>
+      (await import(new URL('uml/viewport.js',document.baseURI))).readInclude);
     let dialog;
     try {
-      try {
-        await holdImportedConflict(page,concurrent);
-        await editor.press('Enter');
-        await editor.waitFor({state:'detached'});
-        await page.waitForFunction(async expected =>
-          (await import(new URL('uml/viewport.js',document.baseURI))).readInclude('multiple.puml') === expected,pending);
-        assert.equal(await sourceElement.evaluate(element => element.readOnly),true,'The imported write remains pending behind the held transaction');
-        if (scenario === 'selection') await target.click();
-        else {
-          await page.getByText('Edit included source…',{exact:true}).click();
-          dialog = page.getByRole('dialog',{name:'Edit imported include',exact:true});
-          await dialog.waitFor({state:'visible'});
-        }
-      } finally {
-        await page.evaluate(async () => { await globalThis.releaseImportedConflict?.(); });
+      await holdImportedConflict(page,concurrent);
+      await editor.press('Enter');
+      await editor.waitFor({state:'detached'});
+      // Playwright polls this predicate synchronously. Import the reader before
+      // polling so a Promise cannot satisfy the gate before the write starts.
+      // Observe the pending resource and its current native editor together;
+      // semantic tree rebuilds may replace the earlier textarea instance.
+      const pendingWrite = await page.waitForFunction(({readInclude,expected,sourceId}) => {
+        const inputs = document.querySelectorAll('#uno-semantics-root textarea[xamlautomationid="' + CSS.escape(sourceId) + '"]');
+        return readInclude('multiple.puml') === expected && inputs.length === 1 && inputs[0].readOnly;
+      },{readInclude:includeReader,expected:pending,sourceId});
+      assert.equal(await pendingWrite.jsonValue(),true,'The imported write remains pending behind the held transaction');
+      await pendingWrite.dispose();
+      if (scenario === 'selection') await activateControl(page, target);
+      else {
+        await activateControl(page, page.getByRole('button', {name:'Edit included source…',exact:true}));
+        dialog = page.getByRole('dialog',{name:'Edit imported include',exact:true});
+        await dialog.waitFor({state:'visible'});
       }
-      await page.waitForFunction(element => !element.readOnly,sourceElement);
-    } finally { await sourceElement.dispose(); }
+    } finally {
+      try { await page.evaluate(async () => { await globalThis.releaseImportedConflict?.(); }); }
+      finally { await includeReader.dispose(); }
+    }
+    // A modal/inspector rebuild can replace the semantic textarea while the
+    // managed source editor remains loaded. Poll its current public identity,
+    // including while modal accessibility correctly hides the background.
+    await page.waitForFunction(id => {
+      const inputs = document.querySelectorAll('#uno-semantics-root textarea[xamlautomationid="' + CSS.escape(id) + '"]');
+      return inputs.length === 1 && !inputs[0].readOnly;
+    },sourceId);
     // Inspect the DOM as well as the accessible tree: a misplaced editor behind
     // the modal could be hidden from role locators while still stealing focus.
     assert.equal(await page.locator('.canvas-label-editor').count(),0,`A conflict must not reopen the previous editor after a ${scenario} change`);
     if (dialog) {
       await dialog.waitFor({state:'visible'});
-      await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+      await activateControl(page, dialog.getByRole('button',{name:'Cancel',exact:true}));
       await dialog.waitFor({state:'hidden'});
       assert.equal(await editor.count(),0,'Closing the modal does not reveal a stale recovered editor');
     }

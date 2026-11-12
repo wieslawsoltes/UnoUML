@@ -1,3 +1,4 @@
+import { activateAccessibility, activateControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { inflateRawSync } from 'node:zlib';
@@ -93,13 +94,21 @@ export async function verifyArchiveFiles(page) {
 }
 
 export async function verifyArchiveImport(page, source) {
-  const actions = page.getByText('Library',{exact:true}).locator('..').locator('..');
-  await actions.locator('[xamltype="Microsoft.UI.Xaml.Controls.Button"]').click();
+  await activateControl(page, page.getByRole('button',{name:'Library actions',exact:true}));
   const chooser = page.waitForEvent('filechooser');
-  await page.getByText('Load ZIP archive…',{exact:true}).click();
+  await activateControl(page, page.getByRole('menuitem', {name:'Load ZIP archive…',exact:true}));
   await (await chooser).setFiles({name:'resources.zip',mimeType:'application/zip',buffer:archiveBytes});
-  await page.waitForFunction(async () => (await import(new URL('uml/viewport.js',document.baseURI))).readArchiveVersion('resources.zip') > 0);
-  await source.fill('@startuml\n!import resources.zip\n!include models/main.iuml\n@enduml');
+  const archiveVersionReader = await page.evaluateHandle(async () =>
+    (await import(new URL('uml/viewport.js',document.baseURI))).readArchiveVersion);
+  try {
+    // Import once before polling: the predicate must return the current boolean,
+    // not a Promise that Playwright can accept before archive registration.
+    const registered = await page.waitForFunction(readVersion => readVersion('resources.zip') > 0, archiveVersionReader);
+    await registered.dispose();
+  } finally {
+    await archiveVersionReader.dispose();
+  }
+  await fillControl(page, source, '@startuml\n!import resources.zip\n!include models/main.iuml\n@enduml');
   const paper = page.locator('.paper').first();
   await paper.locator('[data-qualified-name="Archived"] text').filter({hasText:/^Archived service$/}).waitFor();
   await paper.locator('[data-qualified-name="Sibling"]').waitFor();
@@ -108,23 +117,25 @@ export async function verifyArchiveImport(page, source) {
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1')).Source.includes('!import resources.zip'));
   await page.reload({waitUntil:'domcontentloaded'});
   await paper.locator('[data-qualified-name="Archived"] text').filter({hasText:/^Archived service$/}).waitFor({timeout:120000});
+  await activateAccessibility(page);
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   assert.ok(await page.evaluate(async () => (await import(new URL('uml/viewport.js',document.baseURI))).readArchiveVersion('resources.zip')) > 0);
   const sibling = paper.locator('[data-qualified-name="Sibling"]');
   assert.equal(await sibling.getAttribute('data-source-archive'),'resources.zip');
   await sibling.locator('text').filter({hasText:/^Sibling$/}).dblclick();
   const editor = page.getByRole('textbox',{name:'Edit diagram label'});
-  await editor.fill('Archived child');
+  await fillControl(page, editor, 'Archived child');
   await editor.press('Enter');
   await sibling.locator('text').filter({hasText:/^Archived child$/}).waitFor();
   const main = await page.evaluate(() => JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1')).Source);
   assert.equal(main,'@startuml\n!import resources.zip\n!include models/main.iuml\n@enduml');
-  await sibling.locator('text').filter({hasText:/^Archived child$/}).click();
-  await page.getByText('Edit included source…',{exact:true}).click();
-  await page.getByText('Edit imported include',{exact:true}).waitFor();
-  const member = page.locator('textarea').last();
+  await activateControl(page, sibling.locator('text').filter({hasText:/^Archived child$/}));
+  await activateControl(page, page.getByRole('button', {name:'Edit included source…',exact:true}));
+  const dialog = page.getByRole('dialog',{name:'Edit imported include',exact:true});
+  await dialog.waitFor();
+  const member = dialog.getByRole('textbox',{name:'Imported include source',exact:true});
   assert.equal(await member.inputValue(),'class "Archived child" as Sibling\n');
-  const [download] = await Promise.all([page.waitForEvent('download'),page.getByText('Download ZIP',{exact:true}).click()]);
+  const [download] = await Promise.all([page.waitForEvent('download'),activateControl(page, page.getByRole('button', {name:'Download ZIP',exact:true}))]);
   assert.equal(download.suggestedFilename(),'resources.zip');
   const exported = zipEntries(await readFile(await download.path())), original = zipEntries(archiveBytes);
   assert.deepEqual([...exported.keys()].sort(),[...original.keys()].sort());
@@ -135,7 +146,7 @@ export async function verifyArchiveImport(page, source) {
   }
   await member.press('Control+z');
   assert.equal(await member.inputValue(),'class Sibling\n');
-  await page.getByText('Cancel',{exact:true}).last().click();
+  await activateControl(page, page.getByRole('button', {name:'Cancel',exact:true}));
   const surface = page.locator('.surface').first();
   await surface.press('Control+z');
   await sibling.locator('text').filter({hasText:/^Sibling$/}).waitFor();
@@ -143,15 +154,16 @@ export async function verifyArchiveImport(page, source) {
   await sibling.locator('text').filter({hasText:/^Archived child$/}).waitFor();
   await page.reload({waitUntil:'domcontentloaded'});
   await sibling.locator('text').filter({hasText:/^Archived child$/}).waitFor({timeout:120000});
+  await activateAccessibility(page);
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   console.log('Verified ZIP member canvas editing, transactional undo/redo/cancel, original-resource-preserving ZIP export, exact provenance and IndexedDB restoration.');
 }
 
 export async function verifyArchiveAliasEditing(page, source) {
-  await page.getByText('Split',{exact:true}).last().click();
+  await activateControl(page, page.getByRole('button', {name:'Split',exact:true}));
   const input = '@startuml\n!import resources.zip\n!include <models/sibling>\n@enduml';
   const previous = await page.locator('.paper svg').first().elementHandle();
-  await source.fill(input);
+  await fillControl(page, source, input);
   await page.waitForFunction(element => !element.isConnected, previous);
   await previous.dispose();
   const paper = page.locator('.paper').first();
@@ -161,7 +173,7 @@ export async function verifyArchiveAliasEditing(page, source) {
   assert.equal(await item.getAttribute('data-source-archive'),'resources.zip');
   const editor = page.getByRole('textbox',{name:'Edit diagram label'});
   assert.equal(await editor.inputValue(),'Archived child');
-  await editor.fill('Alias child');
+  await fillControl(page, editor, 'Alias child');
   await editor.press('Enter');
   await item.locator('text').filter({hasText:'Alias child'}).waitFor();
   assert.equal(await source.inputValue(),input);

@@ -1,44 +1,74 @@
+import { fitCanvas } from './canvas-frame.mjs';
+import { activateControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyCanvasEvents(page, render) {
   const source = '@startuml\nclass "Customer" as A\nclass Orders\nA --> Orders\n@enduml';
   await render(source);
   await page.evaluate(() => { ui.setTool('diagram', 'select'); ui.setSelection('diagram', 'A', 1); });
+  // Owned canvas history must dispatch once and stop before Uno's document
+  // keyboard listener, regardless of the last native XAML focus owner.
+  const surface = page.locator('.surface').first();
+  const commandStart = await page.evaluate(() => {
+    globalThis.canvasHistoryKeys = [];
+    globalThis.canvasHistoryProbe = event => {
+      if ((event.ctrlKey || event.metaKey) && ['z','y'].includes(event.key.toLowerCase()))
+        canvasHistoryKeys.push(event.key);
+    };
+    document.addEventListener('keydown', canvasHistoryProbe);
+    return log.length;
+  });
+  try {
+    for (const key of ['Control+z','Control+Shift+z','Control+y','Meta+z','Meta+Shift+z'])
+      await surface.press(key);
+    assert.deepEqual(await page.evaluate(start => log.slice(start).filter(event => event.kind === 'command'), commandStart),
+      ['undo','redo','redo','undo','redo'].map(action => ({kind:'command', action, text:''})));
+    assert.deepEqual(await page.evaluate(() => canvasHistoryKeys), [], 'Claimed canvas history keys never reach native document dispatch');
+  } finally {
+    await page.evaluate(() => {
+      document.removeEventListener('keydown', canvasHistoryProbe);
+      delete globalThis.canvasHistoryProbe; delete globalThis.canvasHistoryKeys;
+    });
+  }
+  const historyCommands = await page.evaluate(() => log.filter(event => event.kind === 'command').length);
   const field = page.getByRole('textbox', {name:'Edit diagram label'});
   const begin = () => page.evaluate(() => ui.beginLabelEdit('diagram', 'Customer', 42));
   assert.equal(await begin(), true);
-  await field.fill('Discarded');
+  await fillControl(page, field, 'Discarded');
+  await field.press('Control+z');
+  assert.equal(await page.evaluate(() => log.filter(event => event.kind === 'command').length), historyCommands,
+    'Inline label undo stays within its text editor');
   await field.press('Escape');
   assert.equal(await field.count(), 0);
   assert.equal(await page.evaluate(() => log.filter(x => x.kind === 'label').length), 0);
 
   await begin();
-  await field.fill('Client');
+  await fillControl(page, field, 'Client');
   await field.press('Enter');
   assert.deepEqual(await page.evaluate(() => log.at(-1)), {kind:'label', revision:42, text:'Client'});
   await begin();
-  await field.fill('Stale');
+  await fillControl(page, field, 'Stale');
   await render(source.replace('Customer','Buyer'));
   assert.equal(await field.count(), 0);
   assert.equal(await page.evaluate(() => log.filter(x => x.kind === 'label').length), 1);
 
   await page.evaluate(() => { ui.setSelection('diagram', 'A', 1); ui.beginLabelEdit('diagram', 'first\nsecond', 43, true); });
-  await field.fill('edited\nreference');
+  await fillControl(page, field, 'edited\nreference');
   await field.press('End');
   await field.press('Enter');
   assert.equal(await field.inputValue(), 'edited\nreference\n');
   await field.press('Control+Enter');
   assert.deepEqual(await page.evaluate(() => log.at(-1)), {kind:'label', revision:43, text:'edited\nreference\n'});
   await page.evaluate(() => ui.beginLabelEdit('diagram', 'x^2', 44, false, 'asciimath'));
-  await page.getByRole('button', {name:'Insert fraction', exact:true}).click();
+  await activateControl(page, page.getByRole('button', {name:'Insert fraction', exact:true}));
   assert.equal(await field.inputValue(), '(x^2)/(b)');
-  await page.getByRole('button', {name:'Apply diagram label (Enter)', exact:true}).click();
+  await activateControl(page, page.getByRole('button', {name:'Apply diagram label (Enter)', exact:true}));
   assert.deepEqual(await page.evaluate(() => log.at(-1)), {kind:'label', revision:44, text:'(x^2)/(b)'});
   assert.equal(await page.getByRole('toolbar', {name:'Diagram editing tools'}).count(), 0);
   await page.evaluate(() => ui.beginLabelEdit('diagram', 'Customer', 45, false, 'creole'));
   await field.press('Control+b');
   assert.equal(await field.inputValue(), '**Customer**');
-  await page.getByRole('button', {name:'Italic (Ctrl+I)', exact:true}).click();
+  await activateControl(page, page.getByRole('button', {name:'Italic (Ctrl+I)', exact:true}));
   assert.equal(await field.inputValue(), '//**Customer**//');
   await field.press('Control+i');
   assert.equal(await field.inputValue(), '**Customer**');
@@ -86,16 +116,19 @@ export async function verifyCanvasEvents(page, render) {
 }
 
 export async function verifyStudioEditing(page, source) {
+  // The preceding camera-retention probe deliberately enters manual zoom. Fit
+  // the now-narrower Split viewport before asking a real pointer to hit labels.
+  await fitCanvas(page);
   const previous = await source.inputValue();
   const label = page.locator('.paper text').filter({hasText:/^Storefront$/}).first();
   await label.dblclick();
   const field = page.getByRole('textbox', {name:'Edit diagram label'});
-  await field.fill('Draft name');
+  await fillControl(page, field, 'Draft name');
   await field.press('Escape');
   assert.equal(await source.inputValue(), previous);
   const surface = page.locator('.surface').first();
   await surface.press('F2');
-  await field.fill('Checkout UI');
+  await fillControl(page, field, 'Checkout UI');
   await field.press('Enter');
   assert.equal(await source.inputValue(), previous.replace('"Storefront" as Store','"Checkout UI" as Store'));
   await page.locator('.paper text').filter({hasText:/^Checkout UI$/}).first().waitFor();
@@ -105,7 +138,7 @@ export async function verifyStudioEditing(page, source) {
   assert.equal(await source.inputValue(), previous);
 
   const message = page.locator('.paper .message text').filter({hasText:/Authorize payment/}).first();
-  await message.click();
+  await activateControl(page, message);
   const targetPort = page.getByRole('button', {name:'Reattach target endpoint'});
   const orders = page.locator('.paper [data-qualified-name="Orders"] text').filter({hasText:/^Orders$/}).first();
   const start = await targetPort.boundingBox(), end = await orders.boundingBox();
@@ -118,24 +151,32 @@ export async function verifyStudioEditing(page, source) {
   await surface.press('Control+z');
   assert.equal(await source.inputValue(), previous);
   const json = '@startjson\n{"é🪴":"雪","left":"same","right":"same","n":12}\n@endjson';
-  await source.fill(json);
+  await fillControl(page, source, json);
   const duplicate = page.locator('.paper text[data-json-kind="string"]').filter({hasText:/^same$/});
   await duplicate.nth(1).dblclick();
-  await field.fill('second');
+  await fillControl(page, field, 'second');
   await field.press('Enter');
   assert.equal(await source.inputValue(), json.replace('"right":"same"', '"right":"second"'));
   const number = page.locator('.paper text[data-json-kind="scalar"]').filter({hasText:/^12$/});
-  await number.click();
+  await activateControl(page, number);
   await surface.press('F2');
-  await field.fill('1e-');
+  await fillControl(page, field, '1e-');
   await field.press('Enter');
   assert.ok((await source.inputValue()).includes('"n":12'));
   await number.dblclick();
-  await field.fill('false');
+  await fillControl(page, field, 'false');
   await field.press('Enter');
   assert.ok((await source.inputValue()).includes('"n":false'));
   await surface.press('Control+z');
   await number.waitFor();
-  await source.fill(previous);
+  const editedJson = json.replace('"right":"same"', '"right":"second"');
+  assert.equal(await source.inputValue(), editedJson, 'Canvas undo restores exactly the preceding document transaction');
+  await surface.press('Control+Shift+z');
+  await page.locator('.paper text[data-json-kind="scalar"]').filter({hasText:/^false$/}).waitFor();
+  assert.equal(await source.inputValue(), editedJson.replace('"n":12', '"n":false'), 'Canvas redo restores exactly one document transaction');
+  await surface.press('Control+z');
+  await number.waitFor();
+  assert.equal(await source.inputValue(), editedJson);
+  await fillControl(page, source, previous);
   await label.waitFor();
 }

@@ -106,15 +106,15 @@ public sealed partial class MainPage
         flyout.Items.Add(entry);
     }
 
-    void ShowExportMenu()
+    void ShowExportMenu() => ShowAppMenu(exportButton, () =>
     {
         var menu = new MenuFlyout();
         MenuAction(menu, "PlantUML source (.puml)", SaveFile);
         MenuAction(menu, "Vector image (.svg)", () => _ = ExportAsync("svg"));
         MenuAction(menu, "Raster image (.png)", () => _ = ExportAsync("png"));
         MenuAction(menu, "Print / save PDF…", () => _ = ExportAsync("print"));
-        menu.ShowAt(exportButton);
-    }
+        return menu;
+    });
 
     async Task ExportAsync(string format)
     {
@@ -134,7 +134,7 @@ public sealed partial class MainPage
         catch (Exception ex) { Status(ex.Message, true); }
     }
 
-    void ShowLibraryMenu()
+    void ShowLibraryMenu() => ShowAppMenu((FrameworkElement)LibraryActions.Children[0], () =>
     {
         var menu = new MenuFlyout();
         MenuAction(menu, "Browse standard library…", () => _ = BrowseStandardLibraryAsync());
@@ -149,8 +149,8 @@ public sealed partial class MainPage
         MenuAction(menu, "Download imported archive…", () => _ = ExportArchiveAsync());
         MenuAction(menu, "Edit imported include…", () => _ = BrowseIncludesAsync());
         MenuAction(menu, "Rendering engine…", ShowRendererSettings);
-        menu.ShowAt((FrameworkElement)LibraryActions.Children[0]);
-    }
+        return menu;
+    });
 
     async Task LoadIncludesAsync(bool folder)
     {

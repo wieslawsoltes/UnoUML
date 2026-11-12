@@ -1,42 +1,248 @@
-using System.Globalization;
-using System.Collections.Specialized;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices.JavaScript;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 
 namespace UnoUML.App.Rendering;
 
-/// <summary>Maps named XAML controls to the native DOM used by Uno 6.7's browser renderer.</summary>
+/// <summary>Assigns XAML names consumed by Uno 7's semantic accessibility tree.</summary>
 internal static partial class BrowserAccessibility
 {
-    // Uno 6.7.135 publishes Name changes only through its Skia automation listener.
-    // Keep the XAML metadata authoritative and map it to the actual native input,
-    // including inputs replaced by a template. Registrations live with their controls.
-    private static readonly ConditionalWeakTable<FrameworkElement, Registration> Registrations = new();
+    private const string Module = "UnoUML.NativeAccessibility";
+    private static Task<JSObject>? import;
+    private static readonly ConditionalWeakTable<ComboBox, object> comboAttachments = new();
+    private static readonly ConditionalWeakTable<TextBox, object> textBoxAttachments = new();
+
+    internal static async Task InitializeAsync()
+    {
+        if (!OperatingSystem.IsBrowser()) return;
+        if (import is null)
+        {
+            using var document = JSHost.GlobalThis.GetPropertyAsJSObject("document")!;
+            var url = new Uri(new Uri(document.GetPropertyAsString("baseURI")!), "uml/native-accessibility.js");
+            import = JSHost.ImportAsync(Module, url.AbsoluteUri);
+        }
+        await import;
+        InstallKeyboardBoundary();
+    }
 
     internal static void SetName(FrameworkElement element, string name)
     {
+        // Inspector factories name their controls before inserting them.
+        if (element is TextBox text) AttachTextBox(text);
         AutomationProperties.SetName(element, name);
-        Attach(element);
     }
 
-    internal static void Attach(FrameworkElement element)
+    internal static void AttachTextBox(TextBox text)
     {
-        if (OperatingSystem.IsBrowser()) Registrations.GetValue(element, static owner => new(owner));
+        if (!OperatingSystem.IsBrowser() || textBoxAttachments.TryGetValue(text, out _)) return;
+        textBoxAttachments.Add(text, new object());
+        string automationId = AutomationProperties.GetAutomationId(text);
+        if (automationId.Length == 0)
+        {
+            automationId = "UnoUML.TextBox." + Guid.NewGuid().ToString("N");
+            AutomationProperties.SetAutomationId(text, automationId);
+        }
+        BrowserInputDiagnostics.Attach(text, automationId);
+        int generation = 0;
+        long readOnlyCallback = 0;
+        bool loaded = false;
+        void Begin()
+        {
+            if (loaded) return;
+            loaded = true;
+            int current = ++generation;
+            bool lastReadOnly = text.IsReadOnly;
+            // Uno 7's TextBox setter omits the live IsReadOnly automation event.
+            // Its existing browser peer handler projects both readOnly and ARIA;
+            // initial/recreated semantic elements already read the current value.
+            readOnlyCallback = text.RegisterPropertyChangedCallback(TextBox.IsReadOnlyProperty, (_, _) =>
+            {
+                bool previous = lastReadOnly, value = text.IsReadOnly;
+                lastReadOnly = value;
+                if (!loaded || current != generation || !text.IsLoaded || previous == value) return;
+                // Uno's FromElement may create a peer, so keep inactive trees untouched.
+                if (!AutomationPeer.ListenerExists(AutomationEvents.PropertyChanged)) return;
+                try
+                {
+                    FrameworkElementAutomationPeer.FromElement(text)?.RaisePropertyChangedEvent(
+                        ValuePatternIdentifiers.IsReadOnlyProperty, previous, value);
+                }
+                catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+            });
+            try
+            {
+                BeginTextBoxScope(automationId, current, text.IsEnabled, () =>
+                    loaded && generation == current && text.IsLoaded && text.IsEnabled &&
+                    text.XamlRoot is { } root &&
+                    ReferenceEquals(FocusManager.GetFocusedElement(root), text));
+            }
+            catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+        }
+        text.Loaded += (_, _) => Begin();
+        text.IsEnabledChanged += (_, _) =>
+        {
+            if (!loaded) return;
+            try { UpdateTextBoxScope(automationId, generation, text.IsEnabled); }
+            catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+        };
+        text.Unloaded += (_, _) =>
+        {
+            if (!loaded) return;
+            loaded = false;
+            text.UnregisterPropertyChangedCallback(TextBox.IsReadOnlyProperty, readOnlyCallback);
+            readOnlyCallback = 0;
+            try { EndTextBoxScope(automationId, generation); }
+            catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+        };
+        if (text.IsLoaded) Begin();
+    }
+
+    internal static void AttachComboBox(ComboBox combo)
+    {
+        if (!OperatingSystem.IsBrowser() || comboAttachments.TryGetValue(combo, out _)) return;
+        comboAttachments.Add(combo, new object());
+        string automationId = AutomationProperties.GetAutomationId(combo);
+        if (automationId.Length == 0)
+        {
+            automationId = "UnoUML.ComboBox." + Guid.NewGuid().ToString("N");
+            AutomationProperties.SetAutomationId(combo, automationId);
+        }
+
+        int generation = 0, focusRevision = 0;
+        bool open = false, publishingFocus = false;
+        void QueueFocusedItem()
+        {
+            if (!open || publishingFocus) return;
+            int current = generation, revision = ++focusRevision;
+            // Public focus events are asynchronous. Read the current owner
+            // after native OnOpen/keyboard focus work, rather than using an
+            // event argument that may describe an already superseded target.
+            combo.DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!open || current != generation || revision != focusRevision) return;
+                try
+                {
+                    int index = -1;
+                    if (combo.XamlRoot is { } root &&
+                        FocusManager.GetFocusedElement(root) is ComboBoxItem focused &&
+                        ReferenceEquals(ItemsControl.ItemsControlFromItemContainer(focused), combo))
+                    {
+                        int candidate = combo.IndexFromContainer(focused);
+                        if (candidate >= 0 && candidate < combo.Items.Count &&
+                            ReferenceEquals(combo.ContainerFromIndex(candidate), focused)) index = candidate;
+                    }
+                    publishingFocus = true;
+                    FocusComboScope(automationId, current, revision, index);
+                }
+                catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+                finally { publishingFocus = false; }
+            });
+        }
+        void OnNativeGotFocus(object? sender, FocusManagerGotFocusEventArgs args) => QueueFocusedItem();
+        void OnNativeLostFocus(object? sender, FocusManagerLostFocusEventArgs args) => QueueFocusedItem();
+        void Begin()
+        {
+            if (open) return;
+            open = true;
+            int current = ++generation;
+            focusRevision = 0;
+            FocusManager.GotFocus += OnNativeGotFocus;
+            FocusManager.LostFocus += OnNativeLostFocus;
+            // Uno's logical options are created after the selected item. Its
+            // creation API omits aria-selected, so project the authoritative
+            // public index without changing selection or native keyboard input.
+            try { BeginComboScope(automationId, current, combo.SelectedIndex); }
+            catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+            QueueFocusedItem();
+        }
+        void End()
+        {
+            if (!open) return;
+            open = false;
+            focusRevision++;
+            FocusManager.GotFocus -= OnNativeGotFocus;
+            FocusManager.LostFocus -= OnNativeLostFocus;
+            try { EndComboScope(automationId, generation); }
+            catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+        }
+        combo.DropDownOpened += (_, _) => Begin();
+        combo.DropDownClosed += (_, _) => End();
+        combo.Unloaded += (_, _) => End();
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (!open) return;
+            try { UpdateComboScope(automationId, generation, combo.SelectedIndex); }
+            catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+        };
+        if (combo.IsDropDownOpen) Begin();
     }
 
     internal static void PrepareDialog(ContentDialog dialog)
     {
         SetName(dialog, dialog.Title?.ToString() ?? "Dialog");
-        dialog.Opened += (_, _) => AttachTree(dialog);
+        string automationId = AutomationProperties.GetAutomationId(dialog);
+        if (automationId.Length == 0)
+        {
+            automationId = "UnoUML.Dialog." + Guid.NewGuid().ToString("N");
+            AutomationProperties.SetAutomationId(dialog, automationId);
+        }
+        // SemanticElementFactory projects AutomationId only at creation. Walk
+        // the public content before ShowAsync, while native heads do not exist.
+        if (dialog.Content is DependencyObject content) AttachTree(content);
+
+        int generation = 0;
+        dialog.Closed += (_, _) =>
+        {
+            int closed = generation++;
+            if (!OperatingSystem.IsBrowser()) return;
+            // Native Closed restores its own snapshots first. A stale close
+            // cannot release a newer opening of this same ContentDialog.
+            dialog.DispatcherQueue.TryEnqueue(() =>
+            {
+                try { EndDialogScope(automationId, closed); }
+                catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+            });
+        };
+        dialog.Opened += (_, _) =>
+        {
+            int current = ++generation;
+            // Our handler was registered before the dialog entered the visual
+            // tree, so capture before naming can rebuild semantic nodes and
+            // before the native Opened handler installs its focus trap.
+            if (OperatingSystem.IsBrowser())
+            {
+                try { BeginDialogScope(automationId, current); }
+                catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+            }
+            AttachTree(dialog);
+            if (!OperatingSystem.IsBrowser()) return;
+            // Activate after all native handlers. The scoped bridge then keeps
+            // that public modal contract intact through semantic-node rebuilds.
+            dialog.DispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    if (generation == current) ActivateDialogScope(automationId, current);
+                }
+                catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+            });
+        };
     }
 
-    private static void AttachTree(DependencyObject root)
+    private static void AttachTree(DependencyObject root) =>
+        AttachTree(root, new HashSet<DependencyObject>(ReferenceEqualityComparer.Instance));
+
+    private static void AttachTree(DependencyObject root, HashSet<DependencyObject> visited)
     {
+        if (!visited.Add(root)) return;
+        if (root is ComboBox picker) AttachComboBox(picker);
+        if (root is TextBox editor) AttachTextBox(editor);
         if (root is FrameworkElement element && element is Button or TextBox or ComboBox or ToggleButton or ToggleSwitch)
         {
             string name = AutomationProperties.GetName(element);
@@ -52,150 +258,47 @@ internal static partial class BrowserAccessibility
                 };
             if (name.Length != 0) SetName(element, name);
         }
+        // ContentControl templates need not exist before ShowAsync. Follow
+        // their public content and panel children as well as realized visuals.
+        if (root is ContentControl { Content: DependencyObject content }) AttachTree(content, visited);
+        if (root is Border { Child: DependencyObject child }) AttachTree(child, visited);
+        if (root is Panel panel)
+            foreach (var item in panel.Children) AttachTree(item, visited);
         for (int i = 0, count = VisualTreeHelper.GetChildrenCount(root); i < count; i++)
-            AttachTree(VisualTreeHelper.GetChild(root, i));
+            AttachTree(VisualTreeHelper.GetChild(root, i), visited);
     }
 
-    private sealed class Registration
-    {
-        private readonly FrameworkElement owner;
-        private bool mounted;
-        private bool updateQueued;
-        private int generation;
-        private Panel? popupPanel;
-        private string Id => owner.Handle.ToInt64().ToString(CultureInfo.InvariantCulture);
+    [JSImport("installAccessibilityKeyboardBoundary", Module)]
+    private static partial void InstallKeyboardBoundary();
 
-        internal Registration(FrameworkElement owner)
-        {
-            this.owner = owner;
-            owner.Loaded += (_, _) => Update();
-            owner.Unloaded += (_, _) =>
-            {
-                generation++;
-                DisconnectPopup();
-                if (mounted) { Remove(Id); mounted = false; }
-            };
-            owner.RegisterPropertyChangedCallback(AutomationProperties.NameProperty, (_, _) => Update());
-            if (owner is Control control) control.IsEnabledChanged += (_, _) => Update();
-            if (owner is TextBox text)
-                text.RegisterPropertyChangedCallback(TextBox.IsReadOnlyProperty, (_, _) => Update());
-            if (owner is ComboBox combo)
-            {
-                // Uno raises DropDownOpened before its layout pass materializes the
-                // popup containers. A single dispatcher turn observes the finished
-                // panel; its collection notifications handle later virtualization.
-                combo.DropDownOpened += (_, _) => QueueUpdate();
-                combo.DropDownClosed += (_, _) => QueueUpdate();
-                combo.SelectionChanged += (_, _) => QueueUpdate();
-                combo.Items.VectorChanged += (_, _) => QueueUpdate();
-                combo.RegisterPropertyChangedCallback(Control.TemplateProperty, (_, _) => QueueUpdate());
-            }
-            if (owner is ComboBoxItem item)
-            {
-                item.RegisterPropertyChangedCallback(SelectorItem.IsSelectedProperty, (_, _) => Update());
-                item.RegisterPropertyChangedCallback(ContentControl.ContentProperty, (_, _) => QueueUpdate());
-            }
-            if (owner is ToggleSwitch toggleSwitch)
-                toggleSwitch.Toggled += (_, _) => Update();
-            if (owner is ToggleButton toggleButton)
-                toggleButton.RegisterPropertyChangedCallback(ToggleButton.IsCheckedProperty, (_, _) => Update());
-            if (owner.IsLoaded) Update();
-        }
+    [JSImport("beginDialogScope", Module)]
+    private static partial void BeginDialogScope(string automationId, int generation);
 
-        private void QueueUpdate()
-        {
-            if (updateQueued || !owner.IsLoaded) return;
-            updateQueued = true;
-            if (!owner.DispatcherQueue.TryEnqueue(() => { updateQueued = false; Update(); }))
-                updateQueued = false;
-        }
+    [JSImport("activateDialogScope", Module)]
+    private static partial void ActivateDialogScope(string automationId, int generation);
 
-        private void PopupChildrenChanged(object? sender, NotifyCollectionChangedEventArgs args) => QueueUpdate();
-        private void PopupLoaded(object sender, RoutedEventArgs args) => QueueUpdate();
+    [JSImport("endDialogScope", Module)]
+    private static partial void EndDialogScope(string automationId, int generation);
 
-        private void DisconnectPopup()
-        {
-            if (popupPanel is null) return;
-            popupPanel.Children.CollectionChanged -= PopupChildrenChanged;
-            popupPanel.Loaded -= PopupLoaded;
-            popupPanel = null;
-        }
+    [JSImport("beginComboScope", Module)]
+    private static partial void BeginComboScope(string automationId, int generation, int selectedIndex);
 
-        private void UpdatePopup(ComboBox combo)
-        {
-            var panel = combo.IsDropDownOpen ? combo.ItemsPanelRoot : null;
-            if (!ReferenceEquals(popupPanel, panel))
-            {
-                DisconnectPopup();
-                popupPanel = panel;
-                if (panel is not null)
-                {
-                    panel.Children.CollectionChanged += PopupChildrenChanged;
-                    panel.Loaded += PopupLoaded;
-                }
-            }
-            string panelId = panel is { IsLoaded: true } ? panel.Handle.ToInt64().ToString(CultureInfo.InvariantCulture) : "";
-            ConfigurePopup(Id, panelId);
-            if (panel is null) return;
-            foreach (var child in panel.Children)
-                if (child is ComboBoxItem item)
-                    Registrations.GetValue(item, static element => new(element)).QueueUpdate();
-        }
+    [JSImport("updateComboScope", Module)]
+    private static partial void UpdateComboScope(string automationId, int generation, int selectedIndex);
 
-        private async void Update()
-        {
-            if (!owner.IsLoaded) return;
-            int current = ++generation;
-            try
-            {
-                await BrowserBridge.ReadyAsync();
-                if (!owner.IsLoaded || generation != current) return;
-                string role = owner switch
-                {
-                    TextBox => "textbox", ComboBox => "combobox", Button => "button",
-                    ComboBoxItem => "option", CheckBox => "checkbox", RadioButton => "radio",
-                    ToggleSwitch => "switch", ToggleButton => "button",
-                    ContentDialog => "dialog", _ => "group"
-                };
-                string name = AutomationProperties.GetName(owner);
-                string state = owner switch
-                {
-                    ComboBoxItem item => item.IsSelected ? "true" : "false",
-                    ToggleSwitch toggle => toggle.IsOn ? "true" : "false",
-                    ToggleButton toggle => toggle.IsChecked switch { true => "true", false => "false", null => "mixed" },
-                    _ => ""
-                };
-                int position = 0, count = 0;
-                if (owner is ComboBoxItem option)
-                {
-                    if (name.Length == 0) name = option.Content?.ToString() ?? "";
-                    if (ItemsControl.ItemsControlFromItemContainer(option) is ComboBox parent)
-                    {
-                        position = parent.IndexFromContainer(option) + 1;
-                        count = parent.Items.Count;
-                    }
-                }
-                Configure(Id, role, name, owner is not Control { IsEnabled: false },
-                    owner is TextBox { IsReadOnly: true }, owner is ComboBox { IsDropDownOpen: true }, state, position, count);
-                mounted = true;
-                if (owner is ComboBox combo) UpdatePopup(combo);
-            }
-            catch (Exception error)
-            {
-                // Rendering reports module-load failures. Accessibility must not
-                // turn a failed or superseded startup into an async-void crash.
-                System.Diagnostics.Debug.WriteLine(error);
-            }
-        }
-    }
+    [JSImport("endComboScope", Module)]
+    private static partial void EndComboScope(string automationId, int generation);
 
-    [JSImport("configureAccessibility", "UnoUML.Viewport")]
-    private static partial void Configure(string id, string role, string name, bool enabled, bool readOnly, bool expanded,
-        string state, int position, int count);
+    [JSImport("focusComboScope", Module)]
+    private static partial void FocusComboScope(string automationId, int generation, int focusRevision, int focusedIndex);
 
-    [JSImport("configureAccessibilityPopup", "UnoUML.Viewport")]
-    private static partial void ConfigurePopup(string id, string panelId);
+    [JSImport("beginTextBoxScope", Module)]
+    private static partial void BeginTextBoxScope(string automationId, int generation, bool isEnabled,
+        [JSMarshalAs<JSType.Function<JSType.Boolean>>] Func<bool> readNativeFocus);
 
-    [JSImport("removeAccessibility", "UnoUML.Viewport")]
-    private static partial void Remove(string id);
+    [JSImport("updateTextBoxScope", Module)]
+    private static partial void UpdateTextBoxScope(string automationId, int generation, bool isEnabled);
+
+    [JSImport("endTextBoxScope", Module)]
+    private static partial void EndTextBoxScope(string automationId, int generation);
 }

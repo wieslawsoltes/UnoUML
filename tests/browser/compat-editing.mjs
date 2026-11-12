@@ -1,3 +1,4 @@
+import { activateControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyCompatibilityEditing(page, source) {
@@ -5,9 +6,9 @@ export async function verifyCompatibilityEditing(page, source) {
   const surface = page.locator('.surface').first();
   const field = page.getByRole('textbox', {name:'Edit diagram label'});
   const richClass = '@startuml\nclass Customer\n@enduml';
-  await source.fill(richClass);
+  await fillControl(page, source, richClass);
   await paper.locator('[data-qualified-name="Customer"] text').filter({hasText:/^Customer$/}).dblclick();
-  await page.getByRole('button', {name:'Bold (Ctrl+B)',exact:true}).click();
+  await activateControl(page, page.getByRole('button', {name:'Bold (Ctrl+B)',exact:true}));
   await field.press('Enter');
   assert.equal(await source.inputValue(),'@startuml\nclass "**Customer**" as Customer\n@enduml');
   await paper.locator('[data-qualified-name="Customer"] tspan[font-weight="bold"]').filter({hasText:/^Customer$/}).waitFor();
@@ -15,9 +16,9 @@ export async function verifyCompatibilityEditing(page, source) {
   await surface.press('Control+z');
   assert.equal(await source.inputValue(),richClass);
   const reference = '@startuml\nparticipant Client\nparticipant Server\nref over Client, Server\nOriginal reference\nend ref\nClient -> Server : Continue\n@enduml';
-  await source.fill(reference);
+  await fillControl(page, source, reference);
   await paper.locator('[data-source-line="3"] text').filter({hasText:/Original reference/}).dblclick();
-  await field.fill('First line\nSecond line');
+  await fillControl(page, field, 'First line\nSecond line');
   await field.press('Control+Enter');
   assert.equal(await source.inputValue(), reference.replace('Original reference','First line\nSecond line'));
   await paper.locator('[data-source-line="3"] text').filter({hasText:/Second line/}).waitFor();
@@ -29,10 +30,10 @@ export async function verifyCompatibilityEditing(page, source) {
     ['latex','tex','y^2','\\frac{y^2}{b}']
   ]) {
     const formula = '@start' + dialect + '\n' + initial + '\n@end' + dialect;
-    await source.fill(formula);
+    await fillControl(page, source, formula);
     await paper.locator('.math-expression text').filter({hasText:new RegExp('^'+initial[0]+'$')}).first().dblclick();
     assert.equal(await field.inputValue(),initial);
-    await page.getByRole('button',{name:'Insert fraction',exact:true}).click();
+    await activateControl(page, page.getByRole('button',{name:'Insert fraction',exact:true}));
     assert.equal(await field.inputValue(),fraction);
     await field.press('Control+Enter');
     assert.equal(await source.inputValue(),formula.replace(initial,fraction));
@@ -44,26 +45,26 @@ export async function verifyCompatibilityEditing(page, source) {
   }
 
   const ditaa = '@startditaa\n+-------+\n| Box   |\n+-------+\n@endditaa';
-  await source.fill(ditaa);
+  await fillControl(page, source, ditaa);
   await paper.locator('[data-ditaa-shape]').first().dblclick({position:{x:4,y:4}});
   const drawing = '+-------+    +-------+\n| Input +--->| Output|\n+-------+    +-------+';
-  await field.fill(drawing);
-  await page.getByRole('button',{name:'Apply diagram content (Ctrl+Enter)',exact:true}).click();
+  await fillControl(page, field, drawing);
+  await activateControl(page, page.getByRole('button',{name:'Apply diagram content (Ctrl+Enter)',exact:true}));
   assert.equal(await source.inputValue(),'@startditaa\n'+drawing+'\n@endditaa');
   await paper.locator('.ditaa-label text').filter({hasText:/^Output$/}).waitFor();
   await surface.press('Control+z');
   assert.equal(await source.inputValue(),ditaa);
 
   const c4 = '@startuml\n!include <C4/C4_Context>\nPerson(\\\n $label="Customer",\\\n $alias=user)\nSystem(app,"Portal")\nRel($label="Visits", $to=app, $from=user)\n@enduml';
-  await source.fill(c4);
+  await fillControl(page, source, c4);
   await paper.locator('[data-qualified-name="user"] text').filter({hasText:/^Customer$/}).first().dblclick();
-  await field.fill('Account "owner"');
+  await fillControl(page, field, 'Account "owner"');
   await field.press('Enter');
   const renamed = c4.replace('"Customer"','"Account <U+0022>owner<U+0022>"');
   assert.equal(await source.inputValue(),renamed);
   await paper.locator('[data-qualified-name="user"] text').filter({hasText:/owner/}).first().waitFor();
   await paper.locator('.link text').filter({hasText:/Visits/}).first().dblclick();
-  await field.fill('Opens');
+  await fillControl(page, field, 'Opens');
   await field.press('Enter');
   assert.equal(await source.inputValue(),renamed.replace('"Visits"','"Opens"'));
   console.log('Verified rich label tools, multiline references, formula structural tools, Ditaa geometry, continued/named C4 editing, imported-source persistence and transactional cancellation.');

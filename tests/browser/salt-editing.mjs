@@ -1,13 +1,14 @@
+import { activateControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifySaltEditing(page, source) {
   await page.setViewportSize({width:1480,height:960});
-  await page.getByText('Split',{exact:true}).last().click();
+  await activateControl(page, page.getByRole('button', {name:'Split',exact:true}));
   await source.waitFor({state:'visible'});
   const paper = page.locator('.paper').first(), surface = page.locator('.surface').first();
   const editor = page.getByRole('textbox',{name:'Edit diagram label'});
   const original = '@startsalt\n{+\n {^"Settings"\n  Account | "Ada         "\n  Access | { [] Enabled | (X) Public\n             [X] Verified | () Private }\n }\n {# Name | Description\n    Plan | ^Basic^^Basic^^Professional^^Enterprise^ }\n [Cancel] | [Apply]\n}\n@endsalt';
-  await source.fill(original);
+  await fillControl(page, source, original);
   await paper.locator('.salt-group-title').filter({hasText:'Settings'}).waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   const markerAt = original.indexOf('[] Enabled');
@@ -22,14 +23,14 @@ export async function verifySaltEditing(page, source) {
   await surface.press('Control+y');
   assert.equal(await source.inputValue(),checked);
   await paper.locator(`[data-edit-kind="salt-state"][data-edit-start="${markerAt}"][data-edit-length="3"]`).waitFor();
-  await paper.locator('.salt-choice').first().locator('text').first().click();
-  await page.getByText('Choose dropdown value…',{exact:true}).last().click();
+  await activateControl(page, paper.locator('.salt-choice').first().locator('text').first());
+  await activateControl(page, page.getByRole('button', {name:'Choose dropdown value…',exact:true}));
   const dialog = page.getByRole('dialog',{name:'Dropdown value',exact:true});
-  await dialog.getByRole('combobox',{name:'Selected value',exact:true}).click();
+  await activateControl(page, dialog.getByRole('combobox',{name:'Selected value',exact:true}));
   // The rendered Salt form contains the same caption behind the modal. Select
   // the native picker item, whose popup is hosted outside the dialog subtree.
-  await page.locator('.uno-comboboxitem').filter({hasText:/^Professional$/}).click();
-  await dialog.getByRole('button',{name:'Apply',exact:true}).click();
+  await activateControl(page, page.getByRole('listbox',{name:'Selected value',exact:true}).getByRole('option',{name:'Professional',exact:true}));
+  await activateControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));
   const selected = checked.replace('^Basic^^','^Professional^^');
   // The dialog result resumes the managed edit asynchronously. Its new heading
   // proves both the source commit and the subsequent render have completed.
@@ -41,38 +42,38 @@ export async function verifySaltEditing(page, source) {
   await paper.locator('.salt-choice').filter({hasText:/^Basic$/}).waitFor();
   await paper.locator('.salt-group-title').dblclick();
   assert.equal(await editor.inputValue(),'Settings');
-  await editor.fill('Account settings');
+  await fillControl(page, editor, 'Account settings');
   await editor.press('Enter');
   assert.equal(await source.inputValue(),checked.replace('"Settings"','"Account settings"'));
   await paper.locator('.salt-group-title').filter({hasText:'Account settings'}).waitFor();
   const escaped = '@startsalt\n{ [Set \\{A\\} \\| B] }\n@endsalt';
-  await source.fill(escaped);
+  await fillControl(page, source, escaped);
   await paper.locator('.salt-button').filter({hasText:'Set {A} | B'}).dblclick();
   assert.equal(await editor.inputValue(),'Set {A} | B');
-  await editor.fill('Use {C} | D');
+  await fillControl(page, editor, 'Use {C} | D');
   await editor.press('Enter');
   assert.equal(await source.inputValue(),escaped.replace('Set \\{A\\} \\| B','Use \\{C\\} \\| D'));
   await paper.locator('.salt-button').filter({hasText:'Use {C} | D'}).waitFor();
   const tree = '@startsalt\n{T#\n+ Region | Count\n++ Europe | { [X] Enabled | [Edit] }\n+++ Poland | 12\n++ America | 24\n}\n@endsalt';
-  await source.fill(tree);
+  await fillControl(page, source, tree);
   await paper.locator('.salt-tree').filter({hasText:'Poland'}).dblclick();
-  await editor.fill('France');
+  await fillControl(page, editor, 'France');
   await editor.press('Enter');
   assert.equal(await source.inputValue(),tree.replace('+++ Poland','+++ France'));
   await paper.locator('.salt-tree').filter({hasText:'France'}).waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   const emptyTitle = '@startsalt\n{^""\n[Confirm]\n}\n@endsalt';
-  await source.fill(emptyTitle);
+  await fillControl(page, source, emptyTitle);
   await paper.locator('.salt-group-title rect').dblclick();
   assert.equal(await editor.inputValue(),'');
-  await editor.fill('*');
+  await fillControl(page, editor, '*');
   await editor.press('Enter');
   assert.equal(await source.inputValue(),emptyTitle.replace('""','"*"'));
   await paper.locator('.salt-group-title').filter({hasText:'*'}).waitFor();
   const menu = '@startsalt\n{+\n{* File | Edit\nFile | New | Open }\n[Document]\n}\n@endsalt';
-  await source.fill(menu);
+  await fillControl(page, source, menu);
   await paper.locator('.salt-menu').filter({hasText:/^File$/}).dblclick();
-  await editor.fill('Project');
+  await fillControl(page, editor, 'Project');
   await editor.press('Enter');
   assert.equal(await source.inputValue(),menu.replace('{* File | Edit\nFile | New','{* Project | Edit\nProject | New'));
   await paper.locator('.salt-menu').filter({hasText:/^Project$/}).waitFor();

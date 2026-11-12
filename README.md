@@ -2,7 +2,7 @@
 
 [Open UnoUML Studio](https://wieslawsoltes.github.io/UnoUML/) · [Download the .NET library](https://wieslawsoltes.github.io/UnoUML/packages/UnoUML.PlantUml.0.5.0.nupkg) · [Build and deployment](https://github.com/wieslawsoltes/UnoUML/actions/workflows/pages.yml)
 
-A visual PlantUML editor for the browser, built with Uno Platform 6.7 and .NET 10 WebAssembly. The file on disk is ordinary PlantUML. The default renderer is a standalone C# library. When a diagram needs additional syntax, the workspace loads the official PlantUML JavaScript renderer and any requested standard-library bundles.
+A visual PlantUML editor for the browser, built with Uno Platform 7 and .NET 10 WebAssembly. The file on disk is ordinary PlantUML. The default renderer is a standalone C# library. When a diagram needs additional syntax, the workspace loads the official PlantUML JavaScript renderer and any requested standard-library bundles.
 
 ![UnoUML Studio with a checkout sequence diagram, toolbox and property inspector](docs/studio.png)
 
@@ -61,7 +61,7 @@ Every catalog template and compatible toolbox insertion must render in C# for CI
 | Gantt authoring | Shared scheduling and source spans support task/milestone CRUD, aliases, same-caption tasks, forward relative constraints, compact arrows, `and`/`then` statements, absolute and `D+N` dates, progress and task colors. Timeline movement and resizing update semantic dates/duration in one history operation. Cycles and conflicting constraints are rejected before mutation. |
 | Localized dates | The portable timezone-name catalog covers 1,015 locale tags and 632 zone IDs. TIM date/file-date formatting uses the selected culture and timezone. |
 | Output options | SVG title/description metadata, activity debug geometry and localized descriptive railroad token names are handled by C#. Standalone Creole documents support colored tables, literal code blocks and nested lists. |
-| Browser controls | Named XAML buttons, text fields, page and value pickers, and modal dialogs expose their accessible names and roles through the native browser renderer. Popups expose named listboxes, selected options and item positions. Enabled, read-only, expanded, checked and pressed states stay synchronized with their controls, including keyboard changes and reopened dialogs. |
+| Browser controls | Named XAML buttons, text fields, page and value pickers, and modal dialogs use Uno 7's native semantic accessibility tree. Keyboard and screen-reader users activate the framework's **Enable accessibility** entry. Value pickers project the real control's public selected index onto logical option metadata, with named listboxes and item positions. Native keyboard focus and Enter select options even when synthetic semantic bounds are pending. Enabled, read-only, expanded, checked and pressed states stay synchronized with their controls, including keyboard changes and reopened dialogs. |
 
 The reference engines remain part of the compatibility contract. Non-dot Graphviz engines, overlapping clusters, some HTML-table and graph-layout attributes, extended TeX packages, wider diagram-specific grammar and layout-affecting styles in painters without integrated measurement continue through those engines. YAML anchor-, alias- and tag-looking values follow PlantUML's literal-text behavior. Complete upstream language and layout parity remains unfinished. Generated or ambiguous source expressions open in the source editor when they lack a safe literal canvas edit.
 
@@ -73,13 +73,26 @@ A sequence containing `newpage` opens as an overview with a sheet selector. Choo
 
 The standalone preprocessor can return expanded source, immutable physical-line provenance and render options without laying out a diagram. The browser imports local include files, folders and ZIPs into its virtual filesystem. Generated elements identify their invocation, originating include and archive. Editing a source member triggers a new preview while preserving the main document's include/import statements. Static literal C4 arguments support named/reordered arguments and line continuations when the source map identifies an exact editable argument.
 
+## WebGPU presentation
+
+The XAML workspace prefers Uno 7's WebGPU composition backend. The diagram uses a custom C# canvas on the same device, with retained WGSL pipelines, 4× multisampling, winding-aware fills, stroke union coverage, gradient paint, alpha-correct images and cached browser-shaped text. Recorded WebGPU render bundles preserve painter order; camera changes reuse geometry, textures and draw commands.
+
+The live SVG remains the semantic document for source addressing, hit testing, free canvas editing and vector export. Its paint is suppressed only after the matching GPU frame is ready. Unsupported adapters select Skia for the workspace and SVG for the diagram; bounded compatibility resources preserve complex SVG effects, with explicit SVG fallback when a scene cannot be represented safely.
+
+Canvas outlines, ports, guides and manipulation handles also use retained viewport-space vector commands on the same device. Their logical sizes stay fixed while the diagram camera moves; position patches reuse geometry and paint. DOM hit targets remain attached and transparent after the combined GPU frame is accepted. Inline text editors and their controls preserve browser input behavior, and exports remain free of editor decorations.
+
+[The migration guide](docs/uno7-webgpu-migration.md) records the exact package graph, rendering architecture, resource ownership, limits, fallback behavior, diagnostics and validation commands. Shader pixel checks and application presentation checks run independently in CI. Software-adapter results are correctness evidence; hardware performance requires a measured hardware run.
+
 ## Build and test
 
 Install the .NET 10 SDK, Node.js 22 or later, curl and Chromium. From the repository root run
 
 ```sh
+dotnet workload install wasm-tools --skip-manifest-update
 npm ci --ignore-scripts
 npm run prepare:renderer
+node --test tests/source-text.mjs tests/gpu-geometry.mjs tests/gpu-host.mjs
+dotnet run --project tests/UnoUML.Gpu.Tests -c Release
 dotnet run --project tests/UnoUML.Core.Tests -c Release
 dotnet run --project tests/UnoUML.PlantUml.Tests -c Release
 npx playwright install chromium
@@ -97,10 +110,12 @@ Open http://localhost:8080/. To use an existing Chromium installation, set `CHRO
 | `UnoUML.PlantUml` | Standalone C# diagram parsers, layout, SVG and source mapping |
 | `UnoUML.Core` | Lazy document indexing, exact source spans, typed projections, localized mutations, bounded undo and redo, templates and tools |
 | `UnoUML.App` | Uno XAML workspace, property inspector, responsive panels, library picker, navigation and file commands |
-| `wwwroot/uml` | On-demand renderer and SVG scene, source hit mapping, gesture handling, clean exports and local include storage |
+| `wwwroot/uml` | On-demand layout, semantic SVG, source hit mapping, gestures, vector exports and local includes |
+| `wwwroot/uml/gpu` | Incremental SVG and editor-overlay compilers, retained vector geometry and bounded text/effect resources |
+| `Rendering/Gpu` | Shared-device WebGPU canvas, atomic display list, WGSL pipelines and retained render bundles |
 | `scripts` | Reproducible asset bundling and standard-library indexing |
 
-The initial checkout diagram renders with C# and downloads no PlantUML JavaScript engine. Later edits debounce source changes and discard superseded layouts. Pan and zoom transform the existing scene. A bounded cache reuses recent SVG results. GitHub Actions tests the project, publishes the WebAssembly app and deploys it to Pages on pushes to `main`.
+The initial checkout diagram renders with C# and downloads no PlantUML JavaScript engine. Later edits debounce source changes and discard superseded layouts. Pan and zoom update the retained GPU camera and the semantic SVG transform. A bounded cache reuses recent SVG results. GitHub Actions tests the project, publishes the WebAssembly app and deploys it to Pages on pushes to `main`.
 
 Pages stages the complete published application under a SHA-256 content path. The root entry document points its base URL at that build, so the bootstrap configuration, assemblies, ES modules, styles and lazy renderer resources share one deployment identity. Browser CI exercises this staged layout before deployment. The studio URL and package-download links remain stable. Existing tabs are not automatically reloaded; reloading the latest entry document selects the current build.
 
@@ -109,7 +124,7 @@ Pages stages the complete published application under a SHA-256 content path. Th
 After publishing, run `node tests/browser/workspace.mjs artifacts/site/wwwroot` with Playwright Chromium installed. The test runs both engines in the same Uno WebAssembly viewport, alternates their order, warms each implementation and times nine unique versions of each diagram. The reported medians include SVG generation, sanitization, source indexing and DOM installation. GPU painting and app startup are outside the timing window.
 
 
-Example medians on local headless Chromium with a Release WebAssembly build and trimming disabled
+Historical pre-migration medians on local headless Chromium with a Release WebAssembly build and trimming disabled
 
 | Uncached diagram | C# | PlantUML JavaScript |
 | --- | ---: | ---: |

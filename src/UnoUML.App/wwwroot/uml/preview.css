@@ -1,13 +1,15 @@
 :host { display: block; }
 .surface {
-  /* Uno's DOM ContentPresenter inherits pointer-events:none until a XAML
-     hit-test target is registered. This shadow surface owns native input. */
-  position: absolute; inset: 0; overflow: hidden; pointer-events: auto; touch-action: none; user-select: none;
+  /* Native HTML input remains above Uno's shared-device GPU canvas. */
+  /* The camera owns panning. overflow:hidden still permits focus/scrollIntoView
+     to scroll the DOM, displacing absolute handles and the retained GPU frame. */
+  position: absolute; inset: 0; overflow: clip; pointer-events: auto; touch-action: none; user-select: none;
   isolation: isolate; outline: none; color-scheme: light;
+  --canvas-focus-color: #7376e5;
   background-color: #f7f8fb; background-image: radial-gradient(#d7dbe5 1px, transparent 1px);
   background-size: 16px 16px; font: 13px system-ui, sans-serif;
 }
-.surface:focus-visible { box-shadow: inset 0 0 0 2px #7376e5; }
+.surface:focus-visible { box-shadow: inset 0 0 0 2px var(--canvas-focus-color); }
 .paper { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
 .paper > svg { display: block; overflow: visible; }
 .paper [data-uml-hit] { cursor: pointer; }
@@ -100,3 +102,31 @@
 .gantt-handle{position:absolute;width:10px;min-width:10px;padding:0;border:1px solid #6654bd;border-radius:3px;background:white;box-shadow:0 1px 3px #0002;pointer-events:auto;cursor:ew-resize}
 .gantt-handle:focus-visible{outline:2px solid #6654bd;outline-offset:2px}
 .surface[data-tool="select"] .gantt-bar{cursor:ew-resize}
+
+
+/* Keep DOM geometry and hit testing live; suppress paint only after a matching GPU frame. */
+.surface.gpu-enabled .paper > svg { animation: none; }
+.surface.gpu-presented { background: transparent; }
+.surface.gpu-presented .paper { opacity: 0; }
+.surface.gpu-enabled .paper [data-uml-hit]:hover { filter: none; }
+/* Selection proxies feed retained vectors; native SVG owns fallback outlines. */
+.gpu-selections { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+.gpu-selection, .gpu-hover { position: absolute; pointer-events: none; box-sizing: border-box; border-radius: 5px; }
+.gpu-selection { border: 2px solid #7062cf; }
+.gpu-hover { border: 1px solid #6870c077; box-shadow: 0 0 3px #6870c044; }
+.gpu-hover[hidden] { display: none; }
+
+/* One accepted combined frame owns diagram and decoration paint. Opacity keeps
+   native DOM geometry, hit testing, focus and accessible names intact. Inline
+   text editors, their formatting actions and the native sheet picker remain
+   explicit input surfaces. The producer reads unsuppressed paint properties. */
+.surface.gpu-overlays-presented:focus-visible { box-shadow: none; }
+.surface.gpu-overlays-presented .selection,
+.surface.gpu-overlays-presented .target,
+.surface.gpu-overlays-presented .link-guide,
+.surface.gpu-overlays-presented .marquee,
+.surface.gpu-overlays-presented .connection-port,
+.surface.gpu-overlays-presented .canvas-controls,
+.surface.gpu-overlays-presented .canvas-guides,
+.surface.gpu-overlays-presented .gantt-controls,
+.surface.gpu-overlays-presented .gpu-hover { opacity: 0; }

@@ -111,6 +111,7 @@ public sealed partial class MainPage
     private static ComboBox DotStructurePicker(string name, string[] values)
     {
         var picker = new ComboBox { Header = name, ItemsSource = values, SelectedIndex = values.Length > 0 ? 0 : -1, HorizontalAlignment = HorizontalAlignment.Stretch };
+        BrowserAccessibility.AttachComboBox(picker);
         BrowserAccessibility.SetName(picker, name); return picker;
     }
     private static TextBox DotStructureInput(string name, string value, bool multiline = false)
