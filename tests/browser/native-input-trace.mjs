@@ -22,7 +22,7 @@ function compactNativeInputTrace(name, sequence, failure, report) {
         automationId: short(value.automationId), name: short(value.name)
       });
       return {
-        node: value.identity, attached: value.connected,
+        node: value.identity, attached: value.connected, semantic: value.semantic,
         ...(value.value ? { length: value.value.length, prefix: prefix(value.value) } : {}),
         ...(value.start !== null || value.end !== null ? { selection: [value.start, value.end] } : {}),
         ...(value.disabled === true ? { disabled: true } : {}),
@@ -39,7 +39,7 @@ function compactNativeInputTrace(name, sequence, failure, report) {
         composing: entry.event.composing, inputType: short(entry.event.inputType),
         ...(entry.event.data ? { dataLength: entry.event.data.length, dataPrefix: prefix(entry.event.data) } : {})
       } : {}),
-      target: describe(entry.target), current: describe(entry.current),
+      target: describe(entry.target), original: describe(entry.original), current: describe(entry.current),
       active: describe(entry.active), sharedInput: describe(entry.sharedInput),
       ...(entry.managed !== undefined ? { managed: entry.managed } : {})
     }));
@@ -66,7 +66,9 @@ export async function traceNativeInput(page, locator, name, action, { artifactDi
   const sequence = ++traceSequence;
   const capture = await locator.evaluateHandle(async (original, captureManagedInput) => {
     const doc = original.ownerDocument;
-    const root = original.closest('#uno-semantics-root');
+    // A projected control can detach while the observer is being installed.
+    // Follow its public identity within the document's current semantic root.
+    const root = original.closest('#uno-semantics-root') ?? doc.getElementById('uno-semantics-root');
     const automationId = original.getAttribute('xamlautomationid');
     const id = original.id;
     let readManaged = () => null;
