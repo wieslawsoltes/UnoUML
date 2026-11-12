@@ -16,17 +16,42 @@ export async function verifyDotStructuralAuthoring(page, source) {
   const inspectorTableAction = name => activateControl(page, button(name));
   const selectedCell = async (row,column,text) => {
     const picker = page.getByRole('combobox',{name:'Table cell',exact:true});
-    // Native ComboBox selection is exposed through its selected option and
-    // active descendant, rather than text nodes inside the control proxy.
-    await picker.press('Enter');
-    const selected = page.getByRole('listbox',{name:'Table cell',exact:true})
-      .getByRole('option',{name:`Row ${row}, column ${column}: ${text}`,exact:true,selected:true});
-    await selected.waitFor({state:'attached'});
-    assert.equal(await picker.getAttribute('aria-activedescendant'),await selected.getAttribute('id'));
-    await picker.press('Escape');
-    await selected.waitFor({state:'detached'});
-    await page.waitForFunction(value => document.querySelector('input[aria-label="Table cell text"],textarea[aria-label="Table cell text"]')?.value === value,text);
-    assert.equal(await field('Table cell text').inputValue(),text,'The inspector resolves the selected cell before applying structure');
+    try {
+      // A canvas hit rebuilds the inspector. Wait for its selected field and
+      // the native head's actual layout before opening the logical popup.
+      await page.waitForFunction(value => document.querySelector('input[aria-label="Table cell text"],textarea[aria-label="Table cell text"]')?.value === value,text);
+      await activateControl(page, picker);
+      const selected = page.getByRole('listbox',{name:'Table cell',exact:true})
+        .getByRole('option',{name:`Row ${row}, column ${column}: ${text}`,exact:true,selected:true});
+      await selected.waitFor({state:'attached'});
+      assert.equal(await picker.getAttribute('aria-activedescendant'),await selected.getAttribute('id'));
+      await picker.press('Escape');
+      await selected.waitFor({state:'detached'});
+      assert.equal(await field('Table cell text').inputValue(),text,'The inspector resolves the selected cell before applying structure');
+    } catch (cause) {
+      const snapshot = await page.evaluate(() => {
+        const root = document.getElementById('uno-semantics-root');
+        const picker = root?.querySelector('[role="combobox"][aria-label="Table cell"]');
+        const list = document.getElementById(picker?.getAttribute('aria-controls'));
+        const describe = element => {
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return {id:element.id,role:element.getAttribute('role'),name:element.getAttribute('aria-label'),
+            selected:element.getAttribute('aria-selected'),expanded:element.getAttribute('aria-expanded'),
+            controls:element.getAttribute('aria-controls'),activeDescendant:element.getAttribute('aria-activedescendant'),
+            position:element.getAttribute('aria-posinset'),size:element.getAttribute('aria-setsize'),
+            hidden:!!element.closest('[aria-hidden="true"],[hidden],[inert]'),
+            value:typeof element.value === 'string' ? element.value.slice(0,256) : null,
+            rect:{x:rect.x,y:rect.y,width:rect.width,height:rect.height}};
+        };
+        return {picker:describe(picker),list:describe(list),
+          options:[...(list?.querySelectorAll('[role="option"]') ?? [])].slice(0,16).map(describe),
+          text:describe(root?.querySelector('input[aria-label="Table cell text"],textarea[aria-label="Table cell text"]')),
+          active:describe(document.activeElement)};
+      }).catch(error => ({diagnosticError:error.message}));
+      console.error('Selected DOT table cell failure: '+JSON.stringify({row,column,text,snapshot}));
+      throw cause;
+    }
   };
   const recordText = text => node('a').locator('[data-edit-kind="dot-record-text"]').filter({hasText:new RegExp('^' + text + '$')});
   const cellText = text => node('a').locator('[data-edit-kind="dot-html-text"]').filter({hasText:new RegExp('^' + text + '$')});

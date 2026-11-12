@@ -1,3 +1,4 @@
+import { fitCanvas } from './canvas-frame.mjs';
 import { activateControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 
@@ -87,6 +88,9 @@ export async function verifyCanvasEvents(page, render) {
 }
 
 export async function verifyStudioEditing(page, source) {
+  // The preceding camera-retention probe deliberately enters manual zoom. Fit
+  // the now-narrower Split viewport before asking a real pointer to hit labels.
+  await fitCanvas(page);
   const previous = await source.inputValue();
   const label = page.locator('.paper text').filter({hasText:/^Storefront$/}).first();
   await label.dblclick();
