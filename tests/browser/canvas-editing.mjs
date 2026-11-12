@@ -6,13 +6,16 @@ import {resolve} from 'node:path';
 export async function verifyCanvasEditing(page,source) {
   await page.setViewportSize({width:1480,height:960});
   const paper=page.locator('.paper').first(),surface=page.locator('.surface').first();
-  const surfaceElement=await surface.elementHandle(),sourceElement=await source.elementHandle();
+  const surfaceElement=await surface.elementHandle();
   const shape=id=>paper.locator(`[data-canvas-node="${id}"]`);
   const input='@startuml\nclass A\nclass B\nclass C\nA --> B : request\nB --> C : response\n@enduml';
   const metadata=async()=>JSON.parse((await source.inputValue()).replace(/^\uFEFF/,'').split('\n')[0].slice("' @unouml:canvas ".length));
-  const waitSource=async expected=>page.waitForFunction(({input,expected})=>input.value===expected,{input:await source.elementHandle(),expected});
-  const waitMetadata=expected=>page.waitForFunction(({input,expected})=>{
+  // Uno may replace its semantic textarea while updating the native editor.
+  // Observe the current public input rather than retaining a stale DOM proxy.
+  const waitSource=expected=>page.waitForFunction(expected=>document.querySelector('textarea[aria-label="PlantUML source"]')?.value===expected,expected);
+  const waitMetadata=expected=>page.waitForFunction(expected=>{
     try {
+      const input=document.querySelector('textarea[aria-label="PlantUML source"]');
       const state=JSON.parse(input.value.replace(/^\uFEFF/,'').split('\n')[0].slice("' @unouml:canvas ".length));
       return Object.entries(expected.settings||{}).every(([key,value])=>state.settings[key]===value)&&
         (expected.nodes||[]).every(({id,...values})=>{
@@ -20,7 +23,7 @@ export async function verifyCanvasEditing(page,source) {
           return node&&Object.entries(values).every(([key,value])=>node[key]===value);
         });
     } catch { return false; }
-  },{input:sourceElement,expected});
+  },expected);
   // Resolve the current SVG through the persistent surface on every poll. Source
   // history and semantic edits can replace the SVG before saved geometry is applied.
   const measure=locator=>locator.evaluate(node=>{
