@@ -209,6 +209,89 @@ export async function clickControl(page, locator, options = {}) {
   }
 }
 
+// Semantic bounds can remain relative to the wrong native ancestor. Keyboard
+// activation targets the public control identity and does not claim those
+// bounds are correct; clickControl remains the explicit native pointer path.
+function nativeCommandState(element) {
+  const root = element.closest('#uno-semantics-root');
+  const tag = element.localName;
+  const role = element.getAttribute('role') ?? (tag === 'button' ? 'button'
+    : tag === 'input' && element.type === 'checkbox' ? 'checkbox' : null);
+  const key = ['button', 'checkbox', 'switch'].includes(role) ? 'Space'
+    : ['combobox', 'menuitem', 'menuitemcheckbox', 'menuitemradio'].includes(role) ? 'Enter' : null;
+  let exposed = element.isConnected && !element.closest('[aria-hidden="true"], [hidden], [inert]');
+  for (let current = element; exposed && current; current = current.parentElement) {
+    const style = getComputedStyle(current);
+    exposed = style.display !== 'none' && style.visibility !== 'hidden' && style.visibility !== 'collapse';
+  }
+  const enabled = !element.closest('[aria-disabled="true"], [disabled]') && !element.matches(':disabled');
+  const focused = element.ownerDocument.hasFocus() && element.ownerDocument.activeElement === element;
+  const rect = element.getBoundingClientRect();
+  const active = element.ownerDocument.activeElement;
+  return {
+    native: !!root, attached: element.isConnected, exposed, enabled, focused,
+    supported: key !== null, key, role, tag, id: element.id,
+    name: element.getAttribute('aria-label'),
+    active: active ? { id: active.id, tag: active.localName, role: active.getAttribute('role') } : null,
+    rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+  };
+}
+
+/**
+ * Activate a native command through its real focus and keyboard contract.
+ * DOM/SVG interactions keep their original pointer behavior. Native toggle
+ * buttons expose role button with aria-pressed and share the Space key path.
+ */
+export async function activateControl(page, locator, options = {}) {
+  const timeout = options.timeout ?? 30_000;
+  const deadline = timeout === 0 ? Infinity : Date.now() + timeout;
+  const remaining = () => timeout === 0 ? 0 : Math.max(1, deadline - Date.now());
+  let state;
+  while (Date.now() < deadline) {
+    try {
+      await locator.waitFor({ state: 'attached', timeout: remaining() });
+      state = await locator.evaluate(nativeCommandState);
+      if (!state.attached) {
+        state = { detached: true };
+      } else if (!state.native || state.role === 'option') {
+        // The existing option path validates its live ComboBox owner and item
+        // position before native focus + Enter for zero-bound logical options.
+        return clickControl(page, locator, options);
+      } else {
+        const unsupportedOptions = Object.keys(options).filter(key => !['timeout', 'delay', 'trial'].includes(key));
+        assert.equal(unsupportedOptions.length, 0,
+          `Native keyboard activation does not accept pointer options: ${unsupportedOptions.join(', ')}`);
+        assert.ok(state.supported, `Native control has no command activation contract: ${JSON.stringify(state)}`);
+        state.actionable = state.exposed && state.enabled && await locator.isEnabled();
+        if (state.actionable) {
+          if (options.trial) return;
+          await locator.focus({ timeout: remaining() });
+          // Re-resolve after focus: a native visual-tree update can replace the
+          // semantic node. Only the exact current focused target may receive a
+          // key; retrying before dispatch cannot invoke the command twice.
+          state = await locator.evaluate(nativeCommandState);
+          state.actionable = state.native && state.attached && state.supported
+            && state.exposed && state.enabled && state.focused;
+          if (state.actionable) break;
+        }
+      }
+    } catch (error) {
+      if (!/element is not attached to the DOM/i.test(error.message)) throw error;
+      state = { detached: true };
+    }
+    await page.waitForTimeout(Math.min(25, remaining() || 25));
+  }
+  assert.ok(state?.actionable, `Native command was not keyboard actionable: ${JSON.stringify(state)}`);
+  const entry = recordNativeAction(page, state.key, state);
+  try {
+    // Do not use locator.press here: the verified focus is authoritative, and
+    // a locator retry must never send the same command to a replacement node.
+    return await page.keyboard.press(state.key, { delay: options.delay });
+  } finally {
+    await completeNativeAction(page, entry);
+  }
+}
+
 /** Replace native TextBox text through the same selection path as keyboard users. */
 export async function fillControl(page, locator, value, options = {}) {
   await locator.waitFor({ state: 'attached', timeout: options.timeout });
