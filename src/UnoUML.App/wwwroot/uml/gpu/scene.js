@@ -247,8 +247,10 @@ export class ScenePresentation{
  setScene(svg,sourceVersion=this.view.version){
   if(this.disposed)return;
   this.observer.disconnect();this.svg=svg;this.sourceVersion=sourceVersion;this.generation++;
-  this.commands=[];this.diagramCommands=[];this.overlayCommands=[];this.observedOverlays=[];this.uploadedTextures.clear();
-  this.geometryCache=new WeakMap();this.rasterCache.clear();this.reset=true;this.lastCamera=null;this.lastStats=null;
+  // New DOM owners still diff against the last submitted scene. Exact raster
+  // snapshots can reuse pixels and GPU images across semantic SVG replacement;
+  // only the current scene's image IDs remain marked as uploaded after flush.
+  this.observedOverlays=[];this.geometryCache=new WeakMap();this.lastCamera=null;this.lastStats=null;
   this.dirty=false;this.overlayDirty=true;this.pendingScene=!!svg;
   if(!svg)return;
   this.observer.observe(svg,{attributes:true,attributeOldValue:true,childList:true,subtree:true,characterData:true});
