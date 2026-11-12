@@ -66,6 +66,8 @@ internal static partial class BrowserAccessibility
                 bool previous = lastReadOnly, value = text.IsReadOnly;
                 lastReadOnly = value;
                 if (!loaded || current != generation || !text.IsLoaded || previous == value) return;
+                // Uno's FromElement may create a peer, so keep inactive trees untouched.
+                if (!AutomationPeer.ListenerExists(AutomationEvents.PropertyChanged)) return;
                 try
                 {
                     FrameworkElementAutomationPeer.FromElement(text)?.RaisePropertyChangedEvent(
