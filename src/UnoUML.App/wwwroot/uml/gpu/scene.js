@@ -360,6 +360,14 @@ export class ScenePresentation{
   if(this.disposed)return false;
   if(this.observer.takeRecords().some(sceneMutation))this.invalidate();
   if(!this.pendingScene&&!this.dirty&&!this.reset){
+   // Native layout may finish before its queued resize/camera notification.
+   // Measure camera and overlays from the same current DOM coordinate frame.
+   // An unavailable viewport invalidates the camera key so a later resize emits
+   // a fresh acknowledgement even if its dimensions return unchanged.
+   if(!this.readCamera()){this.waitingForViewport=true;this.lastCamera=null;return false;}
+   this.waitingForViewport=false;
+   const bucket=qualityBucket(maxScale(this.camera.camera)*(globalThis.devicePixelRatio||1));
+   if(bucket!==this.bucket){this.bucket=bucket;this.invalidate();return false;}
    // An unchanged hidden/style assignment must not reject the only submitted
    // frame and then emit no successor. A real pending overlay change instead
    // publishes its next combined revision before evaluating this acknowledgement.
