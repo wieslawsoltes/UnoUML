@@ -473,7 +473,7 @@ if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.u
       if(path==='/'){
         response.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
         response.end('<!doctype html><meta charset="utf-8"><title>UnoUML SVG compiler validation</title>');
-      }else if(/^\/uml\/gpu\/[a-z-]+\.js$/.test(path)||path==='/uml/native-accessibility.js'){
+      }else if(/^\/uml\/gpu\/[a-z-]+\.js$/.test(path)||/^\/uml\/native-(accessibility|dialogs)\.js$/.test(path)){
         const content=await readFile(new URL('../../src/UnoUML.App/wwwroot'+path,import.meta.url));
         response.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8'});response.end(content);
       }else{response.writeHead(404);response.end();}

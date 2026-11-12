@@ -6,6 +6,9 @@ export async function verifyAccessibility(page) {
   assert.equal(await page.getByRole('dialog', { includeHidden: true }).count(), 0,
     'Keyboard accessibility activation must not invoke a native application command');
   const button = name => page.getByRole('button', { name, exact: true });
+  // The visible semantic node can precede the queued ContentDialog.Opened
+  // reconciliation. Require the complete public modal contract before input.
+  const waitForModal = dialog => dialog.and(page.locator('[aria-modal="true"]')).waitFor({ state: 'visible' });
   await button('Split').press('Enter');
   const source = page.getByRole('textbox', { name: 'PlantUML source', exact: true });
   await source.waitFor({ state: 'visible' });
@@ -19,7 +22,7 @@ export async function verifyAccessibility(page) {
   for (let attempt = 0; attempt < 2; attempt++) {
     await button('Add custom PlantUML…').press('Enter');
     const dialog = page.getByRole('dialog', { name: 'Insert PlantUML', exact: true });
-    await dialog.waitFor({ state: 'visible' });
+    await waitForModal(dialog);
     assert.equal(await dialog.getAttribute('aria-modal'), 'true');
     const field = dialog.getByRole('textbox', { name: 'PlantUML to insert on this page', exact: true });
     assert.equal(await field.inputValue(), '', 'Reopening a dialog creates a fresh named editor');
@@ -31,7 +34,7 @@ export async function verifyAccessibility(page) {
   for (let attempt = 0; attempt < 2; attempt++) {
     await button('New').press('Enter');
     const dialog = page.getByRole('dialog', { name: 'New document', exact: true });
-    await dialog.waitFor({ state: 'visible' });
+    await waitForModal(dialog);
     assert.equal(await dialog.getAttribute('aria-modal'), 'true');
     await button('New').waitFor({ state: 'hidden' });
     assert.equal(await page.getByRole('button', { name: 'New', exact: true, includeHidden: true }).count(), 1,
@@ -74,6 +77,8 @@ export async function verifyAccessibility(page) {
   await button('Library actions').press('Enter');
   await page.getByRole('menuitem', { name: 'Rendering engine…', exact: true }).press('Enter');
   const renderer = page.getByRole('dialog', { name: 'Rendering engine', exact: true });
+  await waitForModal(renderer);
+  assert.equal(await renderer.getAttribute('aria-modal'), 'true');
   const serverName = 'Use a PlantUML server for this document';
   const nativeName = 'Use the C# renderer for supported syntax';
   const encodedName = 'Encode the diagram in the request URL (GET)';

@@ -15,14 +15,15 @@ export async function verifyNativeModal(page, { artifactDir } = {}) {
     const loaded = new Promise(resolve => iframe.onload = resolve);
     iframe.srcdoc = `<!doctype html><body>
       <div id="uno-semantics-root">
-        <div id="uno-semantics-application" aria-hidden="true" tabindex="-1">
-          <button aria-label="Background command" aria-hidden="true" tabindex="-1">Background</button>
+        <div id="uno-semantics-application" role="application" tabindex="-1">
+          <button id="uno-semantics-background" aria-label="Background command" tabindex="0">Background</button>
           <div id="uno-semantics-inactive-popup" aria-hidden="true" tabindex="-1">
             <div role="dialog" aria-label="Inactive dialog" xamlautomationid="inactive"><button>Inactive</button></div>
           </div>
-          <div id="uno-semantics-popup" aria-hidden="true" tabindex="-1">
-            <div id="uno-semantics-dialog" role="dialog" aria-modal="true" aria-label="Current dialog" xamlautomationid="current">
-              <input id="modal-field" aria-label="Dialog field"><button id="modal-close">Close</button>
+          <div id="uno-semantics-popup" tabindex="-1">
+            <div id="uno-semantics-dialog" role="group" aria-label="Current dialog" xamlautomationid="current">
+              <input id="uno-semantics-modal-field" aria-label="Dialog field"><button id="uno-semantics-modal-close">Close</button>
+              <div id="uno-semantics-picker" role="combobox" aria-label="Dialog choices" aria-expanded="false" tabindex="0"></div>
             </div>
           </div>
         </div>
@@ -37,51 +38,161 @@ export async function verifyNativeModal(page, { artifactDir } = {}) {
   const equal = (actual, expected, message) => { report.assertions++; assert.deepEqual(actual, expected, message); };
   try {
     await frame.evaluate(async url => { globalThis.modalModule = await import(url); }, moduleUrl);
-    const repair = automationId => frame.evaluate(id => modalModule.restoreDialogAncestry(id), automationId);
+    const scope = (operation, automationId, generation) => frame.evaluate(({ operation, automationId, generation }) =>
+      modalModule[operation](automationId, generation), { operation, automationId, generation });
+    const begin = (id, generation) => scope('beginDialogScope', id, generation);
+    const activate = (id, generation) => scope('activateDialogScope', id, generation);
+    const end = (id, generation) => scope('endDialogScope', id, generation);
     const current = frame.getByRole('dialog', { name: 'Current dialog', exact: true });
-    equal(await current.count(), 0, 'The captured ancestor bug hides the active modal from public role queries');
-    equal(await frame.getByRole('dialog', { name: 'Current dialog', exact: true, includeHidden: true }).count(), 1,
-      'The hidden modal exists; this is an accessibility ancestry failure');
-    equal(await repair('missing'), 0, 'A stale dialog id cannot alter the semantic tree');
-    equal(await repair('outside'), 0, 'AutomationId resolution stays inside the Uno semantic root');
-    equal(await repair('inactive'), 0, 'A closed/nonmodal dialog cannot expose its ancestry');
-    equal(await repair('current'), 2, 'Only the active modal Popup/application ancestors need repair');
-    await current.waitFor({ state: 'visible' });
-    equal(await current.getAttribute('aria-modal'), 'true', 'The native modal role remains intact');
-    equal(await frame.getByRole('button', { name: 'Background command', exact: true }).count(), 0,
-      'Background commands remain excluded from the accessibility tree');
+    const background = frame.getByRole('button', { name: 'Background command', exact: true });
+    const waitModal = async (automationId, name) => {
+      await frame.waitForFunction(id => {
+        const element = document.querySelector('[xamlautomationid="' + CSS.escape(id) + '"]');
+        return element?.getAttribute('role') === 'dialog' && element.getAttribute('aria-modal') === 'true';
+      }, automationId);
+      await frame.getByRole('dialog', { name, exact: true }).waitFor({ state: 'visible' });
+    };
+    await frame.evaluate(() => {
+      const root = document.getElementById('uno-semantics-root');
+      globalThis.modalFixture = { root, base: root.innerHTML };
+    });
+    await begin('current', 1);
+    await frame.evaluate(() => {
+      const root = modalFixture.root, dialog = document.getElementById('uno-semantics-dialog');
+      // Native FocusTrap records Element objects, then incorrectly hides the
+      // active dialog's ancestors along with unrelated background nodes.
+      modalFixture.nativeSnapshots = [...root.querySelectorAll('[id^="uno-semantics-"]')]
+        .filter(element => element !== dialog && !dialog.contains(element))
+        .map(element => ({ element, hidden: element.getAttribute('aria-hidden'), tab: element.getAttribute('tabindex') }));
+      for (const { element } of modalFixture.nativeSnapshots) {
+        element.setAttribute('aria-hidden', 'true'); element.setAttribute('tabindex', '-1');
+      }
+      dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+    });
+    equal(await current.count(), 0, 'The captured native ancestor bug excludes the active dialog');
+    await activate('current', 1);
+    await waitModal('current', 'Current dialog');
+    equal(await background.count(), 0, 'Background commands remain excluded');
     equal(await frame.getByRole('button', { name: 'Background command', exact: true, includeHidden: true }).count(), 1,
-      'Repair preserves the background nodes for native restoration');
-    equal(await frame.getByRole('dialog', { name: 'Inactive dialog', exact: true }).count(), 0,
-      'Unrelated popup branches remain hidden');
-    equal(await frame.locator('#uno-semantics-outside').getAttribute('aria-hidden'), 'true', 'Outside nodes are untouched');
-    equal(await frame.locator('#uno-semantics-application').getAttribute('tabindex'), '-1', 'Native focusability is untouched');
+      'Native background controls are preserved for restoration');
+    equal(await frame.getByRole('dialog', { name: 'Inactive dialog', exact: true }).count(), 0, 'Unrelated hidden popups stay excluded');
+    equal(await frame.locator('#uno-semantics-outside').getAttribute('aria-hidden'), 'true', 'Nodes outside the semantic root are untouched');
+    equal(await frame.locator('#uno-semantics-application').getAttribute('tabindex'), '-1', 'Container focusability is preserved');
     await current.getByRole('textbox', { name: 'Dialog field', exact: true }).focus();
-    equal(await repair('current'), 0, 'Repeating the repair is idempotent');
-    equal(await frame.evaluate(() => document.activeElement.id), 'modal-field', 'Repair never moves native/browser focus');
-    report.cases.push('active modal exposure, public roles and background isolation');
+    await activate('current', 1);
+    equal(await frame.evaluate(() => document.activeElement.id), 'uno-semantics-modal-field', 'Reconciliation does not move browser/native focus');
+    report.cases.push('pre-native baseline, active modal exposure and background isolation');
+
+    await frame.evaluate(() => {
+      modalFixture.root.insertAdjacentHTML('beforeend', '<div id="uno-semantics-choices" role="listbox" aria-label="Popup choices"><div id="uno-semantics-choice" role="option" aria-label="Choice" tabindex="-1">Choice</div></div>');
+    });
+    await frame.waitForFunction(() => document.getElementById('uno-semantics-choices').getAttribute('aria-hidden') === 'true');
+    equal(await frame.getByRole('listbox', { name: 'Popup choices', exact: true }).count(), 0, 'An unrelated new popup is isolated');
+    await frame.evaluate(() => {
+      const picker = document.getElementById('uno-semantics-picker');
+      picker.setAttribute('aria-controls', 'uno-semantics-choices'); picker.setAttribute('aria-expanded', 'true');
+    });
+    await frame.getByRole('listbox', { name: 'Popup choices', exact: true }).waitFor({ state: 'visible' });
+    equal(await frame.getByRole('option', { name: 'Choice', exact: true }).count(), 1, 'Late aria-controls exposes the modal-owned sibling listbox');
+    equal(await background.count(), 0, 'Controlled popup exposure preserves background isolation');
+    await frame.evaluate(() => {
+      document.getElementById('uno-semantics-picker').removeAttribute('aria-controls');
+      document.getElementById('uno-semantics-choices').remove();
+    });
+    report.cases.push('late controlled sibling popup relationship');
 
     await frame.evaluate(() => {
       document.activeElement?.blur();
-      for (const id of ['uno-semantics-application', 'uno-semantics-popup', 'uno-semantics-dialog', 'modal-field', 'modal-close'])
-        document.getElementById(id).setAttribute('aria-hidden', 'true');
-      const parent = document.getElementById('uno-semantics-dialog');
-      parent.insertAdjacentHTML('beforeend', '<div id="uno-semantics-nested-popup" aria-hidden="true"><div role="dialog" aria-modal="true" aria-label="Nested dialog" xamlautomationid="nested"><button>Nested command</button></div></div>');
+      modalFixture.oldApplication = document.getElementById('uno-semantics-application');
+      // RebuildSemanticTree keeps the stable root and active managed scope,
+      // recreating role=dialog without the old DOM's modal/background state.
+      modalFixture.root.innerHTML = modalFixture.base.replace('role="group" aria-label="Current dialog"', 'role="dialog" aria-label="Current dialog"');
     });
-    equal(await repair('nested'), 4, 'Nested modal ancestry is exposed without unhiding sibling controls');
-    await frame.getByRole('dialog', { name: 'Nested dialog', exact: true }).waitFor({ state: 'visible' });
-    equal(await frame.getByRole('button', { name: 'Nested command', exact: true }).count(), 1, 'Nested modal controls are accessible');
-    equal(await frame.getByRole('textbox', { name: 'Dialog field', exact: true }).count(), 0, 'Parent modal controls remain isolated');
-    equal(await frame.getByRole('button', { name: 'Background command', exact: true }).count(), 0, 'Application background remains isolated');
-    report.cases.push('nested modal isolation');
-
+    await waitModal('current', 'Current dialog');
+    equal(await frame.evaluate(() => modalFixture.root === document.getElementById('uno-semantics-root') && !modalFixture.oldApplication.isConnected), true,
+      'The native root survives while all controlled Element objects are replaced');
+    equal(await background.count(), 0, 'Replacement background nodes are isolated');
+    equal(await frame.locator('#uno-semantics-background').getAttribute('tabindex'), '-1', 'Replacement background focusability is isolated');
     await frame.evaluate(() => {
+      document.getElementById('uno-semantics-background').setAttribute('tabindex', '7');
+      // Native Closed restores its obsolete Element references. The bridge
+      // must restore replacement nodes, without overwriting this external edit.
+      for (const entry of modalFixture.nativeSnapshots) {
+        for (const [name, value] of [['aria-hidden', entry.hidden], ['tabindex', entry.tab]])
+          value === null ? entry.element.removeAttribute(name) : entry.element.setAttribute(name, value);
+      }
+      document.getElementById('uno-semantics-dialog').removeAttribute('role');
       document.getElementById('uno-semantics-dialog').removeAttribute('aria-modal');
-      document.getElementById('uno-semantics-application').setAttribute('aria-hidden', 'true');
     });
-    equal(await repair('current'), 0, 'A callback arriving after native dialog close is a no-op');
-    equal(await frame.locator('#uno-semantics-application').getAttribute('aria-hidden'), 'true', 'Closed callbacks cannot undo a later modal scope');
-    report.cases.push('closed and stale callbacks');
+    await end('current', 1);
+    await background.waitFor({ state: 'visible' });
+    equal(await frame.locator('#uno-semantics-background').getAttribute('aria-hidden'), null, 'Closing restores replacement background visibility');
+    equal(await frame.locator('#uno-semantics-background').getAttribute('tabindex'), '7', 'Closing preserves an external attribute value differing from the bridge write');
+    equal(await frame.locator('#uno-semantics-application').getAttribute('aria-hidden'), null, 'Transient native ancestor hiding never poisons close restoration');
+    equal(await frame.locator('#uno-semantics-inactive-popup').getAttribute('aria-hidden'), 'true', 'Original unrelated hidden state is retained');
+    report.cases.push('semantic-root replacement and conditional close restoration');
+
+    await begin('late', 2); await activate('late', 2);
+    equal(await background.count(), 0, 'A missing active semantic target keeps the background excluded');
+    equal(await frame.locator('#uno-semantics-background').getAttribute('tabindex'), '-1', 'Missing-target isolation also removes background keyboard stops');
+    await frame.evaluate(() => modalFixture.root.insertAdjacentHTML('beforeend', '<div id="uno-semantics-late" role="group" aria-label="Late dialog" xamlautomationid="late"><button id="uno-semantics-late-command">Late command</button></div>'));
+    await waitModal('late', 'Late dialog');
+    equal(await background.count(), 0, 'An active modal emitted after Opened acquires background isolation');
+    await end('late', 2);
+    await background.waitFor({ state: 'visible' });
+    equal(await frame.locator('#uno-semantics-late').getAttribute('role'), 'group', 'Closing restores the late-created node baseline');
+    report.cases.push('active scope before semantic target creation');
+
+    await frame.evaluate(() => modalFixture.root.innerHTML = modalFixture.base);
+    await begin('current', 3);
+    await frame.evaluate(() => {
+      // Model native A trapping before activation: the bridge must adopt these
+      // equal desired values while retaining the earlier pre-native baseline.
+      const background = document.getElementById('uno-semantics-background');
+      background.setAttribute('aria-hidden', 'true'); background.setAttribute('tabindex', '-1');
+    });
+    await activate('current', 3);
+    await begin('nested', 4); await activate('nested', 4);
+    equal(await current.count(), 0, 'A missing nested target cannot expose its lower active dialog');
+    equal(await background.count(), 0, 'A missing nested target preserves application isolation');
+    await frame.evaluate(() => document.getElementById('uno-semantics-dialog').insertAdjacentHTML('beforeend', '<div id="uno-semantics-nested" role="group" aria-label="Nested dialog" xamlautomationid="nested"><button id="uno-semantics-nested-command">Nested command</button></div>'));
+    await waitModal('nested', 'Nested dialog');
+    equal(await frame.getByRole('textbox', { name: 'Dialog field', exact: true }).count(), 0, 'Nested scope isolates parent controls');
+    equal(await frame.getByRole('button', { name: 'Nested command', exact: true }).count(), 1, 'Nested controls remain accessible');
+    await end('nested', 4);
+    await waitModal('current', 'Current dialog');
+    equal(await frame.getByRole('textbox', { name: 'Dialog field', exact: true }).count(), 1, 'Closing the child restores the active parent scope');
+    equal(await background.count(), 0, 'Parent restoration does not expose the application background');
+    await begin('nested', 5);
+    await frame.evaluate(() => {
+      const element = document.getElementById('uno-semantics-background');
+      modalFixture.nestedNativeSnapshot = { element, hidden: element.getAttribute('aria-hidden'), tab: element.getAttribute('tabindex') };
+    });
+    await activate('nested', 5);
+    await end('current', 3);
+    await waitModal('nested', 'Nested dialog');
+    equal(await background.count(), 0, 'An out-of-order parent close preserves the active child scope');
+    await frame.evaluate(() => {
+      // Native A close was ignored while B was active. B now restores its
+      // already-hidden A snapshot; final bridge cleanup must release it.
+      const entry = modalFixture.nestedNativeSnapshot;
+      for (const [name, value] of [['aria-hidden', entry.hidden], ['tabindex', entry.tab]])
+        value === null ? entry.element.removeAttribute(name) : entry.element.setAttribute(name, value);
+    });
+    await end('nested', 5);
+    await background.waitFor({ state: 'visible' });
+    equal(await frame.locator('#uno-semantics-background').getAttribute('tabindex'), '0', 'Final close restores the original background focusability');
+    report.cases.push('nested and out-of-order scope closure');
+
+    await begin('current', 6); await activate('current', 6);
+    await begin('current', 7); await activate('current', 7);
+    await end('current', 6);
+    await waitModal('current', 'Current dialog');
+    equal(await background.count(), 0, 'A stale close cannot release a newer opening of the same AutomationId');
+    await end('current', 7);
+    await background.waitFor({ state: 'visible' });
+    equal(await frame.locator('#uno-semantics-application').getAttribute('aria-hidden'), null, 'The final scope restores accessible ancestry');
+    report.cases.push('generation-safe reopened dialog');
 
     // Model the tagged Uno event ordering: the public enable handler removes
     // its element and focuses a native control before document key forwarding.

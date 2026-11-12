@@ -40,20 +40,38 @@ internal static partial class BrowserAccessibility
         }
 
         int generation = 0;
-        dialog.Closed += (_, _) => generation++;
+        dialog.Closed += (_, _) =>
+        {
+            int closed = generation++;
+            if (!OperatingSystem.IsBrowser()) return;
+            // Native Closed restores its own snapshots first. A stale close
+            // cannot release a newer opening of this same ContentDialog.
+            dialog.DispatcherQueue.TryEnqueue(() =>
+            {
+                try { EndDialogScope(automationId, closed); }
+                catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+            });
+        };
         dialog.Opened += (_, _) =>
         {
-            AttachTree(dialog);
             int current = ++generation;
+            // Our handler was registered before the dialog entered the visual
+            // tree, so capture before naming can rebuild semantic nodes and
+            // before the native Opened handler installs its focus trap.
+            if (OperatingSystem.IsBrowser())
+            {
+                try { BeginDialogScope(automationId, current); }
+                catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+            }
+            AttachTree(dialog);
             if (!OperatingSystem.IsBrowser()) return;
-            // Uno 7.0.32's modal scope hides its own semantic ancestors. Run
-            // after every Opened handler so its native focus/background state
-            // is installed before repairing only the active dialog's ancestry.
+            // Activate after all native handlers. The scoped bridge then keeps
+            // that public modal contract intact through semantic-node rebuilds.
             dialog.DispatcherQueue.TryEnqueue(() =>
             {
                 try
                 {
-                    if (generation == current) RestoreDialogAncestry(automationId);
+                    if (generation == current) ActivateDialogScope(automationId, current);
                 }
                 catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
             });
@@ -84,6 +102,12 @@ internal static partial class BrowserAccessibility
     [JSImport("installAccessibilityKeyboardBoundary", Module)]
     private static partial void InstallKeyboardBoundary();
 
-    [JSImport("restoreDialogAncestry", Module)]
-    private static partial void RestoreDialogAncestry(string automationId);
+    [JSImport("beginDialogScope", Module)]
+    private static partial void BeginDialogScope(string automationId, int generation);
+
+    [JSImport("activateDialogScope", Module)]
+    private static partial void ActivateDialogScope(string automationId, int generation);
+
+    [JSImport("endDialogScope", Module)]
+    private static partial void EndDialogScope(string automationId, int generation);
 }
