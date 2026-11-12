@@ -49,7 +49,49 @@ export async function verifyCanvasEditing(page,source) {
       throw new Error(`Canvas bounds for ${id}: expected ${JSON.stringify(expected)}; observed ${JSON.stringify(observed)}`,{cause});
     }
   };
-  const menu=async title=>{await activateControl(page, page.getByRole('button',{name:'Arrange canvas',exact:true}));await activateControl(page, page.getByRole('menuitem', {name:title,exact:true}));};
+  // Keep missing-popup failures reviewable even when the binary artifact cannot
+  // be opened. These bounded snapshots only observe public DOM/ARIA state.
+  const menuState=async(phase,title)=>{
+    try {
+      return await page.evaluate(({phase,title})=>{
+        const semantic=document.getElementById('uno-semantics-root');
+        const describe=element=>{
+          if(!element)return null;
+          const rect=element.getBoundingClientRect(),style=getComputedStyle(element);
+          const hidden=element.closest('[aria-hidden="true"],[hidden],[inert]');
+          return {id:element.id,tag:element.localName,role:element.getAttribute('role'),
+            name:(element.getAttribute('aria-label')||element.textContent||'').trim().slice(0,100),
+            expanded:element.getAttribute('aria-expanded'),controls:element.getAttribute('aria-controls'),
+            disabled:element.getAttribute('aria-disabled')||element.hasAttribute('disabled'),
+            hiddenBy:hidden?{id:hidden.id,role:hidden.getAttribute('role')}:null,
+            display:style.display,visibility:style.visibility,
+            rect:[rect.x,rect.y,rect.width,rect.height].map(value=>Math.round(value*1000)/1000)};
+        };
+        const items=[...(semantic?.querySelectorAll('[role="menuitem"]')||[])];
+        const triggers=[...(semantic?.querySelectorAll('button,[role="button"]')||[])]
+          .filter(element=>element.getAttribute('aria-label')==='Arrange canvas');
+        const focus=[];
+        for(let element=document.activeElement;element&&focus.length<4;element=element.shadowRoot?.activeElement)
+          focus.push(describe(element));
+        return {phase,title,documentFocused:document.hasFocus(),focus,triggers:triggers.slice(0,4).map(describe),
+          itemCount:items.length,requested:items.filter(element=>element.getAttribute('aria-label')===title).slice(0,4).map(describe),
+          items:items.slice(0,32).map(describe),
+          popups:[...(semantic?.querySelectorAll('[role="menu"],[role="dialog"]')||[])].slice(0,8).map(describe)};
+      },{phase,title});
+    } catch(error) {return {phase,diagnosticError:error.message};}
+  };
+  const menu=async title=>{
+    const states=[await menuState('before trigger',title)];
+    try {
+      await activateControl(page, page.getByRole('button',{name:'Arrange canvas',exact:true}));
+      states.push(await menuState('after trigger',title));
+      await activateControl(page, page.getByRole('menuitem',{name:title,exact:true}));
+    } catch(error) {
+      states.push(await menuState('failure',title));
+      console.error('Canvas arrange menu evidence:',JSON.stringify({title,states}));
+      throw error;
+    }
+  };
   const drag=async(locator,dx,dy,modifiers=[])=>{
     const box=await measure(locator);assert.ok(box);const x=box.x+box.width/2,y=box.y+box.height/2;
     for(const key of modifiers)await page.keyboard.down(key);
