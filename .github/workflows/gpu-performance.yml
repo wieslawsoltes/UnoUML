@@ -44,7 +44,14 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: candidate/package-lock.json
+      - name: Verify the paired SDK selection
+        shell: bash
+        run: |
+          benchmark_baseline_sdk="$(cd baseline && dotnet --version)"
+          benchmark_candidate_sdk="$(cd candidate && dotnet --version)"
+          test "$benchmark_baseline_sdk" = "$benchmark_candidate_sdk"
       - name: Install WebAssembly native tools
+        working-directory: candidate
         run: dotnet workload install wasm-tools --skip-manifest-update
       - name: Build and stage the baseline independently
         working-directory: baseline
