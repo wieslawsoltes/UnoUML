@@ -72,14 +72,23 @@ export async function verifyImportedPageRouting(page, source) {
     await fillControl(page, editor, pendingLabel);
     const sourceId = await source.getAttribute('xamlautomationid');
     assert.ok(sourceId, 'The source editor exposes its stable public automation identity');
+    const includeReader = await page.evaluateHandle(async () =>
+      (await import(new URL('uml/viewport.js',document.baseURI))).readInclude);
     let dialog;
     try {
       await holdImportedConflict(page,concurrent);
       await editor.press('Enter');
       await editor.waitFor({state:'detached'});
-      await page.waitForFunction(async expected =>
-        (await import(new URL('uml/viewport.js',document.baseURI))).readInclude('multiple.puml') === expected,pending);
-      assert.equal(await source.evaluate(element => element.readOnly),true,'The imported write remains pending behind the held transaction');
+      // Playwright polls this predicate synchronously. Import the reader before
+      // polling so a Promise cannot satisfy the gate before the write starts.
+      // Observe the pending resource and its current native editor together;
+      // semantic tree rebuilds may replace the earlier textarea instance.
+      const pendingWrite = await page.waitForFunction(({readInclude,expected,sourceId}) => {
+        const inputs = document.querySelectorAll('#uno-semantics-root textarea[xamlautomationid="' + CSS.escape(sourceId) + '"]');
+        return readInclude('multiple.puml') === expected && inputs.length === 1 && inputs[0].readOnly;
+      },{readInclude:includeReader,expected:pending,sourceId});
+      assert.equal(await pendingWrite.jsonValue(),true,'The imported write remains pending behind the held transaction');
+      await pendingWrite.dispose();
       if (scenario === 'selection') await activateControl(page, target);
       else {
         await activateControl(page, page.getByRole('button', {name:'Edit included source…',exact:true}));
@@ -87,7 +96,8 @@ export async function verifyImportedPageRouting(page, source) {
         await dialog.waitFor({state:'visible'});
       }
     } finally {
-      await page.evaluate(async () => { await globalThis.releaseImportedConflict?.(); });
+      try { await page.evaluate(async () => { await globalThis.releaseImportedConflict?.(); }); }
+      finally { await includeReader.dispose(); }
     }
     // A modal/inspector rebuild can replace the semantic textarea while the
     // managed source editor remains loaded. Poll its current public identity,
