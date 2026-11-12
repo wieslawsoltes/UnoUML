@@ -1,4 +1,4 @@
-name: Inspect Uno 7 focused modal failure artifact
+name: Inspect Uno 7 broad workspace failure artifacts
 on:
   push:
     branches: [codex/uno7-artifact-inspection]
@@ -15,32 +15,54 @@ jobs:
           node-version: '22'
       - uses: actions/download-artifact@v4
         with:
-          name: uno7-focus-probe
-          run-id: 43153930832
+          name: workspace-checks
+          run-id: 43153927739
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: diagnostics
-      - name: Print bounded native actions and modal menu semantics
+      - name: Print bounded Canvas Files and primary focus evidence
         shell: bash
         run: |
           node --input-type=module <<'JS'
           import {readFile,readdir} from 'node:fs/promises';
           import {createHash} from 'node:crypto';
-
           const root='diagnostics';
           const files=await readdir(root);
-          const emit=(label,value,limit=24000)=>{
+          const emit=(label,value,limit=48000)=>{
             const json=JSON.stringify(value);
             console.log(label+' '+(json.length<=limit?json:JSON.stringify({truncated:true,length:json.length,jsonPrefix:json.slice(0,limit)})));
           };
-          emit('ARTIFACT',{run:43153930832,artifact:13915695695,name:'uno7-focus-probe',files:files.slice(0,80)});
-          const diagnostic=JSON.parse(await readFile(root+'/focus-probe-diagnostics.json','utf8'));
-          emit('FOCUS DIAGNOSTICS',{
-            appCommit:diagnostic.appCommit,scope:diagnostic.scope,
-            failures:diagnostic.failures,
-            nativeActionCount:diagnostic.nativeActions?.length??0,
-            nativeActions:diagnostic.nativeActions?.slice(-20)
-          },40000);
-
+          const bounded=(value,depth=0)=>{
+            if(typeof value==='string')return value.length>3000?value.slice(0,3000)+' [truncated]':value;
+            if(value===null||typeof value!=='object')return value;
+            if(depth>=8)return {truncated:true,keys:Object.keys(value).slice(0,24)};
+            if(Array.isArray(value))return value.slice(-16).map(item=>bounded(item,depth+1));
+            return Object.fromEntries(Object.entries(value).slice(0,80).map(([key,item])=>[key,bounded(item,depth+1)]));
+          };
+          emit('ARTIFACT',{run:43153927739,artifact:13914948857,name:'workspace-checks',files:files.slice(0,100)});
+          for(const name of ['canvas-editing-failure.puml','files-editing-failure.puml','unouml-failure.puml']){
+            if(!files.includes(name)){emit('SOURCE '+name,{available:false});continue;}
+            const source=await readFile(root+'/'+name,'utf8');
+            emit('SOURCE '+name,{
+              length:source.length,utf8Bytes:Buffer.byteLength(source),bom:source.charCodeAt(0)===65279,
+              sha256:createHash('sha256').update(source).digest('hex'),
+              prefixUnits:Array.from(source.slice(0,64),character=>character.charCodeAt(0)),
+              crlf:(source.match(/\r\n/g)||[]).length,cr:(source.match(/\r/g)||[]).length,lf:(source.match(/\n/g)||[]).length,
+              text:source.slice(0,12000),textTruncated:source.length>12000
+            },20000);
+          }
+          for(const name of ['canvas-editing-diagnostics.json','files-editing-diagnostics.json','workspace-diagnostics.json','focus-probe-diagnostics.json']){
+            if(!files.includes(name)){emit('DIAGNOSTIC '+name,{available:false});continue;}
+            const diagnostic=JSON.parse(await readFile(root+'/'+name,'utf8'));
+            emit('DIAGNOSTIC '+name,{
+              keys:Object.keys(diagnostic),phases:diagnostic.phases,failures:diagnostic.failures,
+              source:diagnostic.source,draft:diagnostic.draft,finalState:diagnostic.finalState,
+              pageErrors:diagnostic.pageErrors,requestFailures:diagnostic.requestFailures,
+              console:bounded(diagnostic.console?.slice(-48)),
+              nativeActionCount:diagnostic.nativeActions?.length??0
+            },48000);
+            for(const [index,action] of (diagnostic.nativeActions??[]).slice(-16).entries())
+              emit('NATIVE ACTION '+name+' '+index,bounded(action),12000);
+          }
           const decode=value=>value.replace(/&(?:quot|apos|amp|lt|gt|#(\d+)|#x([0-9a-f]+));/gi,(match,decimal,hex)=>{
             if(decimal||hex)return String.fromCodePoint(Number.parseInt(decimal||hex,hex?16:10));
             return ({'&quot;':'"','&apos;':"'",'&amp;':'&','&lt;':'<','&gt;':'>'})[match.toLowerCase()]??match;
@@ -55,7 +77,7 @@ jobs:
             tag:node.tag,id:node.id,role:node.role,name:node['aria-label'],
             automationId:node.xamlautomationid,modal:node['aria-modal'],hidden:node['aria-hidden'],
             disabled:node['aria-disabled'],expanded:node['aria-expanded'],controls:node['aria-controls'],
-            tabindex:node.tabindex,style:node.style,hiddenAttribute:Object.hasOwn(node,'hidden')
+            tabindex:node.tabindex,selected:node['aria-selected'],activeDescendant:node['aria-activedescendant'],position:node['aria-posinset'],setSize:node['aria-setsize'],style:node.style,hiddenAttribute:Object.hasOwn(node,'hidden')
           });
           const summarizeSemantics=source=>{
             const html=source.replace(/<!--[\s\S]*?-->/g,'').replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,'');
@@ -74,7 +96,7 @@ jobs:
               if(node.id==='uno-semantics-root')roots++;
               if(semantic){
                 semanticNodes++;
-                if(node.id==='uno-semantics-root'||['application','dialog','menu','menuitem'].includes(node.role)
+                if(node.id==='uno-semantics-root'||['application','dialog','menu','menuitem','combobox','listbox','option'].includes(node.role)
                     ||/^UnoUML\.Dialog\./.test(node.xamlautomationid??'')
                     ||/^(Library actions|Rendering engine(?:…)?|New|Cancel)$/.test(node['aria-label']??'')){
                   matches.push({...brief(node),
@@ -88,22 +110,27 @@ jobs:
             }
             return {roots,semanticNodes,matchingNodes:matches.length,matches:matches.slice(-80)};
           };
-          const html=await readFile(root+'/unouml-failure.html','utf8');
-          emit('MODAL AND MENU DOM',summarizeSemantics(html),40000);
-          if(files.includes('unouml-failure.puml')){
-            const source=await readFile(root+'/unouml-failure.puml','utf8');
-            emit('SOURCE',{
-              length:source.length,bom:source.charCodeAt(0)===65279,
-              sha256:createHash('sha256').update(source).digest('hex'),
-              prefixUnits:Array.from(source.slice(0,32),character=>character.charCodeAt(0)),
-              crlf:(source.match(/\r\n/g)||[]).length,cr:(source.match(/\r/g)||[]).length,lf:(source.match(/\n/g)||[]).length,
-              text:source.slice(0,1800)
-            });
-          }else{
-            emit('SOURCE',{available:false,reason:'No source snapshot was captured in the original failure artifact'});
+
+          for(const name of ['canvas-editing-failure.html','files-editing-failure.html','unouml-failure.html']){
+            if(!files.includes(name)){emit('HTML '+name,{available:false});continue;}
+            const html=await readFile(root+'/'+name,'utf8');
+            emit('SEMANTICS '+name,summarizeSemantics(html),48000);
+            const renderer=[];
+            for(const match of html.matchAll(/<([a-z][\w:-]*)\b(?:[^"'<>]|"[^"]*"|'[^']*')*>/gi)){
+              const node={...attributes(match[0]),tag:match[1].toLowerCase()};
+              if(Object.hasOwn(node,'data-renderer')||Object.hasOwn(node,'data-files-path')
+                  ||Object.hasOwn(node,'data-qualified-name')||Object.hasOwn(node,'data-gpu-backend')
+                  ||/\b(paper|surface|uml-viewport)\b/.test(node.class??'')
+                  ||node.id==='uno-canvas'){
+                const fields=Object.fromEntries(Object.entries(node).filter(([key])=>key.startsWith('data-')
+                  ||['tag','id','class','style','width','height','viewbox','aria-label','aria-hidden'].includes(key)));
+                renderer.push(fields);
+              }
+            }
+            emit('RENDERER '+name,{count:renderer.length,nodes:renderer.slice(0,80)},32000);
           }
           if(files.includes('browser-console.txt')){
             const lines=(await readFile(root+'/browser-console.txt','utf8')).split(/\r?\n/);
-            emit('BROWSER CONSOLE',{lineCount:lines.length,last:lines.slice(-80).map(line=>line.slice(0,1200))},24000);
+            emit('BROWSER CONSOLE',{lineCount:lines.length,last:lines.slice(-100).map(line=>line.slice(0,1600))},32000);
           }
           JS
