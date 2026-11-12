@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { activateAccessibility, fillControl } from './native-controls.mjs';
+import { activateAccessibility, activateControl, fillControl } from './native-controls.mjs';
+import { traceNativeInput } from './native-input-trace.mjs';
 
 export async function verifyAccessibility(page) {
   await activateAccessibility(page);
@@ -92,10 +93,15 @@ export async function verifyAccessibility(page) {
     await button('New').waitFor({ state: 'visible' });
     assert.equal(await source.inputValue(), original, 'Popup selection and cancellation preserve the open document');
   }
-  await button('Library actions').press('Enter');
-  await page.getByRole('menuitem', { name: 'Rendering engine…', exact: true }).press('Enter');
   const renderer = page.getByRole('dialog', { name: 'Rendering engine', exact: true });
-  await waitForModal(renderer);
+  // Preserve Enter coverage while waiting for each current native command to
+  // be visible and focused. Keep the passive trace through modal acceptance so
+  // a delayed native focus override identifies the actual key recipient.
+  await traceNativeInput(page, source, 'renderer-menu-activation', async () => {
+    await activateControl(page, button('Library actions'), { key: 'Enter' });
+    await activateControl(page, page.getByRole('menuitem', { name: 'Rendering engine…', exact: true }), { key: 'Enter' });
+    await waitForModal(renderer);
+  }, { failureOnly: true });
   assert.equal(await renderer.getAttribute('aria-modal'), 'true');
   const serverName = 'Use a PlantUML server for this document';
   const nativeName = 'Use the C# renderer for supported syntax';

@@ -286,10 +286,19 @@ function nativeCommandState(element) {
   };
 }
 
+function nativeCommandKey(state, requestedKey) {
+  const key = requestedKey === undefined ? state.key : requestedKey;
+  const supported = state.role === 'button' ? key === 'Enter' || key === 'Space' : key === state.key;
+  assert.ok(supported, `Unsupported native activation key ${JSON.stringify(key)} for ${state.role}`);
+  return key;
+}
+
 /**
  * Activate a native command through its real focus and keyboard contract.
  * DOM/SVG interactions keep their original pointer behavior. Native toggle
  * buttons expose role button with aria-pressed and share the Space key path.
+ * An explicit Enter/Space key preserves dedicated button keyboard coverage;
+ * other native command roles accept only their existing activation key.
  */
 export async function activateControl(page, locator, options = {}) {
   const timeout = options.timeout ?? 30_000;
@@ -305,12 +314,14 @@ export async function activateControl(page, locator, options = {}) {
       } else if (!state.native || state.role === 'option') {
         // The existing option path validates its live ComboBox owner and item
         // position before native focus + Enter for zero-bound logical options.
+        assert.equal(options.key, undefined, 'Explicit activation keys require a supported native command');
         return clickControl(page, locator, options);
       } else {
-        const unsupportedOptions = Object.keys(options).filter(key => !['timeout', 'delay', 'trial'].includes(key));
+        const unsupportedOptions = Object.keys(options).filter(key => !['timeout', 'delay', 'trial', 'key'].includes(key));
         assert.equal(unsupportedOptions.length, 0,
           `Native keyboard activation does not accept pointer options: ${unsupportedOptions.join(', ')}`);
         assert.ok(state.supported, `Native control has no command activation contract: ${JSON.stringify(state)}`);
+        nativeCommandKey(state, options.key); // Reject invalid keys before focus or trial activation.
         // A native semantic head can precede its control template/layout. In
         // particular, opening a zero-size ComboBox can precede item realization.
         // Logical options have their separate validated path above; commands
@@ -328,7 +339,10 @@ export async function activateControl(page, locator, options = {}) {
           state = await locator.evaluate(nativeCommandState);
           state.actionable = state.native && state.attached && state.supported
             && state.exposed && state.visible && state.enabled && state.focused;
-          if (state.actionable) break;
+          if (state.actionable) {
+            state.key = nativeCommandKey(state, options.key);
+            break;
+          }
         }
       }
     } catch (error) {
