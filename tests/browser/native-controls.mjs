@@ -1,5 +1,46 @@
 import assert from 'node:assert/strict';
 
+const nativeControlActions = new WeakMap();
+
+/** Bounded test diagnostics; this never changes the application's input path. */
+export function getNativeControlDiagnostics(page) {
+  return [...(nativeControlActions.get(page) ?? [])];
+}
+
+function recordNativeAction(page, action, before) {
+  let actions = nativeControlActions.get(page);
+  if (!actions) nativeControlActions.set(page, actions = []);
+  const entry = { at: new Date().toISOString(), action, before };
+  if (actions.length === 128) actions.shift();
+  actions.push(entry);
+  return entry;
+}
+
+async function completeNativeAction(page, entry) {
+  try {
+    entry.after = await page.evaluate(id => {
+      const element = document.getElementById(id);
+      const rect = element?.getBoundingClientRect();
+      const scroll = [];
+      for (let parent = element?.parentElement; parent; parent = parent.parentElement) {
+        if (parent.scrollHeight > parent.clientHeight || parent.scrollWidth > parent.clientWidth)
+          scroll.push({ id: parent.id, top: parent.scrollTop, left: parent.scrollLeft,
+            height: parent.clientHeight, extent: parent.scrollHeight });
+      }
+      return {
+        attached: !!element,
+        rect: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null,
+        scroll,
+        dialogs: [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')]
+          .filter(dialog => !dialog.closest('[aria-hidden="true"]'))
+          .map(dialog => dialog.getAttribute('aria-label')).slice(0, 8)
+      };
+    }, entry.before.id);
+  } catch (error) {
+    entry.diagnosticsError = String(error.message).slice(0, 2048);
+  }
+}
+
 // Uno's virtualized ComboBox options can retain their initial zero bounds even
 // while the native popup is visible. The public option focus and keyboard path
 // still targets the actual ComboBoxItem; validate that live relationship before
@@ -32,6 +73,7 @@ function nativeVirtualOptionState(element) {
       && ownerRect?.width > 0 && ownerRect?.height > 0 && validPosition,
     attached: element.isConnected,
     focused: element.ownerDocument.activeElement === element,
+    id: element.id,
     name: element.getAttribute('aria-label'),
     listbox: listbox?.id,
     owner: owner?.getAttribute('aria-label'),
@@ -109,8 +151,14 @@ export async function clickControl(page, locator, options = {}) {
               const x = rect.x + (position?.x ?? rect.width / 2);
               const y = rect.y + (position?.y ?? rect.height / 2);
               const hit = document.elementFromPoint(x, y);
+              const scroll = [];
+              for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+                if (parent.scrollHeight > parent.clientHeight || parent.scrollWidth > parent.clientWidth)
+                  scroll.push({ id: parent.id, top: parent.scrollTop, left: parent.scrollLeft,
+                    height: parent.clientHeight, extent: parent.scrollHeight });
+              }
               return {
-                x, y, rect,
+                x, y, rect, scroll, id: element.id,
                 attached: element.isConnected && !!element.closest('#uno-semantics-root'),
                 stable: Object.keys(rect).every(key => rect[key] === first[key]),
                 inViewport: x >= 0 && y >= 0 && x < innerWidth && y < innerHeight,
@@ -141,10 +189,13 @@ export async function clickControl(page, locator, options = {}) {
   if (state.virtualOption) {
     // Focus was verified above. Enter is dispatched once through the browser;
     // Uno's ComboBox popup commits the focused item and closes itself.
-    return locator.press('Enter', { timeout: remaining(), delay: options.delay });
+    const entry = recordNativeAction(page, 'Enter', state);
+    try { return await locator.press('Enter', { timeout: remaining(), delay: options.delay }); }
+    finally { await completeNativeAction(page, entry); }
   }
 
   const modifiers = options.modifiers ?? [];
+  const entry = recordNativeAction(page, 'pointer', state);
   try {
     for (const key of modifiers) await page.keyboard.down(key);
     await page.mouse.click(state.x, state.y, {
@@ -154,6 +205,7 @@ export async function clickControl(page, locator, options = {}) {
     });
   } finally {
     for (const key of [...modifiers].reverse()) await page.keyboard.up(key);
+    await completeNativeAction(page, entry);
   }
 }
 

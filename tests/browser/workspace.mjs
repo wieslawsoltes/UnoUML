@@ -1,4 +1,4 @@
-import { activateAccessibility, clickControl, fillControl } from './native-controls.mjs';
+import { activateAccessibility, clickControl, fillControl, getNativeControlDiagnostics } from './native-controls.mjs';
 import { verifyGpuScene } from './gpu-scene.mjs';
 import { publishedPrefix, servePublishedSite } from './published-site.mjs';
 import { graphicsLaunchOptions } from './graphics-options.mjs';
@@ -37,23 +37,82 @@ async function verifyIndependentAuthoring(browser, url) {
     ['network-editing', verifyNetworkEditing],
     ['gantt-editing', verifyGanttEditing]
   ];
-  const results = await Promise.allSettled(scenarios.map(async ([name, verify]) => {
-    const check = await browser.newPage({ viewport: { width: 1480, height: 960 }, colorScheme: 'light', acceptDownloads: true });
+  // Each scenario creates a complete Uno/WebGPU application. Keep resource
+  // pressure bounded while investigating the observed concurrent startup
+  // stalls; contention is a hypothesis, not an established application defect.
+  const concurrency = 2;
+  const runScenario = async ([name, verify]) => {
+    let check;
     const errors = [];
-    check.setDefaultTimeout(35000);
-    check.on('pageerror', error => errors.push(error.message));
+    const failures = [];
+    const started = Date.now();
+    const diagnostics = {
+      name, concurrency, startedAt: new Date(started).toISOString(),
+      phases: [], console: [], requests: [], pageErrors: [], requestFailures: [], httpErrors: [], dropped: {}
+    };
+    const limits = { phases: 32, console: 256, requests: 512, pageErrors: 64, requestFailures: 128, httpErrors: 128 };
+    const record = (field, value) => {
+      if (diagnostics[field].length < limits[field]) diagnostics[field].push({ elapsedMs: Date.now() - started, ...value });
+      else diagnostics.dropped[field] = (diagnostics.dropped[field] ?? 0) + 1;
+    };
+    const phase = value => record('phases', { phase: value });
+    const describeError = error => ({ message: String(error.message ?? error).slice(0, 4096), stack: error.stack?.slice(0, 16384) });
+    const pendingRequests = new Map();
     try {
+      phase('creating context');
+      check = await browser.newPage({ viewport: { width: 1480, height: 960 }, colorScheme: 'light', acceptDownloads: true });
+      check.setDefaultTimeout(35000);
+      check.on('pageerror', error => { errors.push(error.message); record('pageErrors', describeError(error)); });
+      check.on('console', message => record('console', {
+        type: message.type(), text: message.text().slice(0, 4096), location: message.location()
+      }));
+      check.on('request', request => {
+        const value = { url: request.url().slice(0, 4096), method: request.method(), type: request.resourceType() };
+        if (diagnostics.requests.length < limits.requests) {
+          const entry = { elapsedMs: Date.now() - started, ...value };
+          diagnostics.requests.push(entry);
+          pendingRequests.set(request, entry);
+        } else diagnostics.dropped.requests = (diagnostics.dropped.requests ?? 0) + 1;
+      });
+      check.on('response', response => {
+        const entry = pendingRequests.get(response.request());
+        if (entry) entry.status = response.status();
+        if (response.status() >= 400) record('httpErrors', { status: response.status(), url: response.url().slice(0, 4096) });
+      });
+      const finished = (request, failure) => {
+        const entry = pendingRequests.get(request);
+        if (entry) {
+          entry.durationMs = Date.now() - started - entry.elapsedMs;
+          entry.finished = true;
+          if (failure) entry.failure = failure;
+          pendingRequests.delete(request);
+        }
+      };
+      check.on('requestfinished', request => finished(request));
+      check.on('requestfailed', request => {
+        const failure = request.failure()?.errorText ?? 'Unknown request failure';
+        record('requestFailures', { url: request.url().slice(0, 4096), type: request.resourceType(), failure });
+        finished(request, failure);
+      });
+      phase('navigating');
       await check.goto(url, { waitUntil: 'domcontentloaded' });
+      phase('waiting for diagram');
       await check.locator('.paper svg').first().waitFor({ state: 'visible', timeout: 120000 });
+      phase('waiting for startup and accessibility');
       await activateAccessibility(check);
+      phase('opening split editor');
       await clickControl(check, check.getByRole('button', {name:'Split',exact:true}));
       const source = check.getByRole('textbox', {name:'PlantUML source',exact:true});
       await source.waitFor({state:'visible'});
+      phase('running authoring scenario');
       await verify(check, source);
       assert.deepEqual(errors, [], `${name} must not produce browser errors`);
+      phase('passed');
       console.log(`Passed independent ${name} workspace scenario.`);
     } catch (error) {
-      if (process.env.SCREENSHOT_DIR) {
+      failures.push(error);
+      phase('failed');
+      if (check && process.env.SCREENSHOT_DIR) {
         try {
           await mkdir(process.env.SCREENSHOT_DIR, {recursive:true});
           const stem = resolve(process.env.SCREENSHOT_DIR, name + '-failure');
@@ -64,9 +123,53 @@ async function verifyIndependentAuthoring(browser, url) {
         } catch (captureError) { console.error(`Could not capture ${name} failure:`, captureError); }
       }
       console.error(`Failed independent ${name} workspace scenario:`, error);
-      throw new Error(`${name} workspace scenario failed`, {cause:error});
     } finally {
-      await check.close();
+      diagnostics.elapsedMs = Date.now() - started;
+      diagnostics.nativeActions = check ? getNativeControlDiagnostics(check) : [];
+      if (check && !check.isClosed()) {
+        try {
+          diagnostics.finalState = await check.evaluate(() => {
+            const describe = element => {
+              if (!element) return null;
+              const box = element.getBoundingClientRect(), style = getComputedStyle(element);
+              return { id: element.id, tag: element.localName, className: element.getAttribute('class'),
+                display: style.display, visibility: style.visibility, children: element.childElementCount,
+                rect: { x: box.x, y: box.y, width: box.width, height: box.height } };
+            };
+            const root = document.getElementById('uno-semantics-root');
+            return { url: location.href, readyState: document.readyState, visibilityState: document.visibilityState,
+              loading: describe(document.getElementById('loading')), canvas: describe(document.getElementById('uno-canvas')),
+              nativeHost: describe(document.getElementById('uno-native-element-host')), semantics: describe(root),
+              semanticElements: root?.querySelectorAll('*').length ?? 0, activeElement: describe(document.activeElement) };
+          });
+        } catch (error) { diagnostics.stateCaptureError = describeError(error); }
+      }
+      if (check) {
+        try { await check.close(); }
+        catch (error) { failures.push(new Error(`Could not close ${name} workspace context`, { cause: error })); }
+      }
+      pendingRequests.clear();
+      diagnostics.failures = failures.map(describeError);
+      if (process.env.SCREENSHOT_DIR) {
+        try {
+          await mkdir(process.env.SCREENSHOT_DIR, { recursive: true });
+          await writeFile(resolve(process.env.SCREENSHOT_DIR, name + '-diagnostics.json'), JSON.stringify(diagnostics, null, 2));
+        } catch (error) { failures.push(new Error(`Could not save ${name} workspace diagnostics`, { cause: error })); }
+      }
+    }
+    if (failures.length) throw new AggregateError(failures, `${name} workspace scenario failed`);
+  };
+  const results = new Array(scenarios.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: concurrency }, async () => {
+    while (next < scenarios.length) {
+      const index = next++;
+      try {
+        await runScenario(scenarios[index]);
+        results[index] = { status: 'fulfilled' };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
     }
   }));
   const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);
