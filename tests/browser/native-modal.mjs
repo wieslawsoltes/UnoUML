@@ -467,6 +467,32 @@ export async function verifyNativeModal(page, { artifactDir } = {}) {
       [1, [['keydown', 'Enter'], ['keyup', 'Enter']]],
       'The unguarded tagged event ordering reproduces the forwarding defect');
     report.cases.push('unguarded event-routing regression control');
+
+    // Control experiment for the real native-input BOM regression: use the
+    // identical browser insertText primitive without Uno's managed echo path.
+    await frame.evaluate(() => {
+      const input = document.createElement('textarea');
+      input.id = 'native-bom-browser-control';
+      input.setAttribute('aria-label', 'BOM insertion browser control');
+      globalThis.bomBrowserEvents = [];
+      for (const type of ['beforeinput', 'input', 'compositionstart', 'compositionupdate', 'compositionend']) {
+        input.addEventListener(type, event => {
+          if (bomBrowserEvents.length < 16) bomBrowserEvents.push({
+            type, inputType: event.inputType ?? null, composing: event.isComposing ?? false,
+            dataFirst: typeof event.data === 'string' && event.data.length ? event.data.charCodeAt(0) : null,
+            valueFirst: input.value.length ? input.value.charCodeAt(0) : null, valueLength: input.value.length
+          });
+        }, true);
+      }
+      document.body.append(input);
+    });
+    const bomInput = frame.getByRole('textbox', { name: 'BOM insertion browser control', exact: true });
+    const bomText = '\uFEFF@startfiles\n/src/A.cs\n/src/nested/B.cs\n/docs/\n@endfiles';
+    await bomInput.focus();
+    await page.keyboard.insertText(bomText);
+    equal(await bomInput.inputValue(), bomText, 'Real Chromium insertText preserves the exact leading U+FEFF and complete replacement text');
+    report.bomBrowserEvents = await frame.evaluate(() => bomBrowserEvents);
+    report.cases.push('real browser BOM insertion without native text feedback');
     report.pass = true;
   } catch (error) {
     report.pass = false;
