@@ -79,6 +79,8 @@ The XAML workspace prefers Uno 7's WebGPU composition backend. The diagram uses 
 
 The live SVG remains the semantic document for source addressing, hit testing, free canvas editing and vector export. Its paint is suppressed only after the matching GPU frame is ready. Unsupported adapters select Skia for the workspace and SVG for the diagram; bounded compatibility resources preserve complex SVG effects, with explicit SVG fallback when a scene cannot be represented safely.
 
+Canvas outlines, ports, guides and manipulation handles also use retained viewport-space vector commands on the same device. Their logical sizes stay fixed while the diagram camera moves; position patches reuse geometry and paint. DOM hit targets remain attached and transparent after the combined GPU frame is accepted. Inline text editors and their controls preserve browser input behavior, and exports remain free of editor decorations.
+
 [The migration guide](docs/uno7-webgpu-migration.md) records the exact package graph, rendering architecture, resource ownership, limits, fallback behavior, diagnostics and validation commands. Shader pixel checks and application presentation checks run independently in CI. Software-adapter results are correctness evidence; hardware performance requires a measured hardware run.
 
 ## Build and test
@@ -109,7 +111,7 @@ Open http://localhost:8080/. To use an existing Chromium installation, set `CHRO
 | `UnoUML.Core` | Lazy document indexing, exact source spans, typed projections, localized mutations, bounded undo and redo, templates and tools |
 | `UnoUML.App` | Uno XAML workspace, property inspector, responsive panels, library picker, navigation and file commands |
 | `wwwroot/uml` | On-demand layout, semantic SVG, source hit mapping, gestures, vector exports and local includes |
-| `wwwroot/uml/gpu` | Incremental SVG paint compiler, adaptive geometry and bounded text/effect resources |
+| `wwwroot/uml/gpu` | Incremental SVG and editor-overlay compilers, retained vector geometry and bounded text/effect resources |
 | `Rendering/Gpu` | Shared-device WebGPU canvas, atomic display list, WGSL pipelines and retained render bundles |
 | `scripts` | Reproducible asset bundling and standard-library indexing |
 

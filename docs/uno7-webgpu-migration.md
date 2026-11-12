@@ -290,12 +290,48 @@ The semantic SVG is never detached or hidden with `display:none` or
 `visibility:hidden`. The `.paper` element becomes transparent only after a matching
 GPU frame. New geometry restores SVG paint until its corresponding frame is ready.
 Source-version guards, monotonic transaction IDs and physical-target generations
-reject stale compilation and frame acknowledgements. Multiple-selection and hover
-decorations remain in the interactive overlay outside suppressed SVG paint.
+reject stale compilation and frame acknowledgements. Editor decorations join the
+same accepted GPU frame; their DOM counterparts retain interaction geometry.
 
 The source renderer (`C#`, bundled PlantUML JavaScript, or server JVM) is separate
 from the presentation backend (`webgpu` or `svg`). Choosing a language compatibility
 renderer does not by itself disable GPU presentation.
+
+## Canvas decoration rendering
+
+The editor's selection and hover outlines, marquee, placement borders, snap and
+connector guides, connection ports and symbols, resize/rotate/dock/label/waypoint
+handles, and Gantt handles compile into retained vector commands after the diagram.
+Focus rings, rounded borders, dashes and soft shadows use the existing fill, stroke
+and gradient pipelines. A soft shadow uses at most eight disjoint gradient patches;
+there is no whole-canvas bitmap capture.
+
+Diagram and decoration compilation have separate dirty state and retained baselines.
+Hover and handle movement do not walk the source SVG or resend its text textures.
+Position-only changes send matrix patches, retaining local geometry and paint.
+Changed dimensions or styles update only the affected decoration. The complete
+camera, document and decoration state shares one monotonic transaction revision.
+Ordinary overlay latency retains the last complete GPU frame; new source geometry
+or a scene error restores SVG and DOM decoration paint until a current frame is
+accepted. Frame acknowledgement remeasures the current viewport and camera, so a
+queued resize cannot combine fresh handle coordinates with stale dimensions.
+
+Protocol **2** adds `space: "viewport"`; omitted space means `"world"`.
+The backend also accepts legacy protocol 1. A full command replacement resets an
+omitted space to world; a sparse patch inherits its current space. Each matrix maps
+local geometry into its declared space, and its clip rectangle uses that same
+space. Viewport commands use CSS pixels and bypass the diagram camera in both
+WGSL projection and CPU culling. The flag occupies `Draw.options.x` at byte 160
+of the existing 256-byte uniform, preserving all six pipeline layouts. Pixel
+density is still handled by the composition target, so handles stay the same
+logical size on high-density displays.
+
+Accepted decoration paint sets the corresponding DOM elements transparent without
+detaching them or changing pointer/focus behavior. The producer never writes into
+the diagram SVG, keeping SVG, PNG and print exports free of editor decorations.
+Inline text/block editors, their formatting and commit toolbar, the sequence-sheet
+selector, system cursors/tooltips and the initial preparation message retain their
+browser input or bootstrap behavior.
 
 ## Geometry, shaders and quality
 
@@ -307,11 +343,11 @@ renderer does not by itself disable GPU presentation.
 | Strokes | Triangle coverage with caps, joins, miter limits, dash arrays and offsets |
 | Stroke overlap | Equal-zero/increment-clamp stencil union; translucent overlaps blend once |
 | Paint | Solid, linear and two-circle radial gradients with ordered stops and pad/repeat/reflect |
-| Transform | Local-to-world command transforms plus a separate world-to-viewport camera |
+| Transform | Local-to-world command transforms plus a separate camera; viewport commands use CSS pixels directly |
 | Antialiasing | Four-sample color and depth/stencil attachments, explicit resolve |
 | Alpha | Premultiplied output; straight RGBA resources are filtered in premultiplied form |
 | Color | Output conversion handles linear/sRGB target formats explicitly |
-| Clipping | Rectangular world clips in the paint shader; complex composition uses bounded resources |
+| Clipping | Rectangular world or viewport clips in the paint shader; complex composition uses bounded resources |
 | Text | Browser-shaped text/tspan snapshots cached at resolution buckets |
 | Images/effects | Bounded raster resources with explicit compatibility diagnostics |
 | Background | Shader-rendered grid matching the 16 CSS-pixel tile and colors of the SVG presentation |
@@ -324,10 +360,12 @@ Paths exceeding the conservative nonzero winding budget use a bounded raster
 resource, preserving their pixels without overflowing the eight-bit stencil.
 
 Painter-order-sensitive commands use retained WebGPU render bundles. These record
-vertex buffers, pipeline changes, bindings and offsets once. Pan/zoom updates reuse
-the graph, geometry, textures, paint uniforms and bundles, uploading a 64-byte camera
-uniform. Transform-only edits can update a 256-byte draw uniform while retaining
-geometry and bundles. The visible bundle list is reused across frames.
+vertex buffers, pipeline changes, bindings and offsets once. The diagram camera
+fast path reuses graph state, geometry, textures, paint uniforms and bundles,
+uploading a 64-byte camera uniform. Active decorations can add position or shape
+patches without recompiling the document. Transform-only edits update a 256-byte
+draw uniform while retaining geometry and bundles. The visible bundle list is
+reused across frames.
 
 ## Ownership, limits and fallback
 
@@ -345,6 +383,10 @@ replace Uno's shared-device callbacks.
 | Gradient stops | 262,144 |
 | Retained GPU image payloads | 96 MiB |
 | Browser raster cache | 64 MiB, up to 8,192 entries |
+| Overlay commands | 8,192 per snapshot, within the shared native scene budget |
+| Overlay geometry cache | 2,048 LRU entries |
+| Overlay material cache | 512 LRU entries |
+| Parsed overlay colors | 256 entries |
 | Embedded font | 4 MiB per fetched face; 64 matching faces per snapshot |
 | Embedded font cache | 24 Mi characters of encoded data, up to 64 entries |
 | Individual texture side | 8,192 pixels and the adapter's limit |
@@ -396,11 +438,16 @@ software-driver flags, and `UNOUML_HEADED=1` for a visible browser.
 
 The independent shader CI job compiles the production WGSL and creates all six
 pipelines. Pixel checks cover winding holes, translucent stroke overlap, linear and
-radial gradients, image alpha, clipping/stencil cleanup, affine transforms and grid
-placement. The application check requires a matching WebGPU frame, verifies visible
-GPU output against the SVG reference, and asserts camera updates do not upload new
-geometry/textures/paint or rebuild bundles. Unsupported-adapter startup is exercised
-with `navigator.gpu` unavailable.
+radial gradients, image alpha, clipping/stencil cleanup, affine transforms, viewport
+geometry under rotated cameras, double pixel density and grid placement.
+The independent overlay fixture covers retained geometry, transparent pointer
+proxies, viewport changes, atomic frame acceptance and clean export sources.
+The application check requires a matching WebGPU frame, verifies visible GPU
+output against the SVG reference, and asserts camera updates do not upload new
+geometry/textures/paint or rebuild bundles. Its live selection check additionally
+compares GPU pixels against both painted and deliberately absent DOM outlines,
+then verifies that selection and Escape leave document history unchanged.
+Unsupported-adapter startup is exercised with `navigator.gpu` unavailable.
 
 CI uploads graphics metrics, paired screenshots and browser console diagnostics.
 Pull requests run these gates without deploying the production Pages site.
@@ -418,8 +465,9 @@ presentation, pending work, source-independent scene revision, fallback reason,
 compiler counters and C# graphics statistics.
 
 Statistics include command visibility, draw counts, live geometry/image/bundle
-counts, buffer/texture bytes, cumulative upload bytes, bundle builds, CPU encoding
-time, target dimensions, sample count and frame count. GPU-frame time is not
+counts, native `viewportCommands` and `visibleViewportCommands`, buffer/texture
+bytes, cumulative upload bytes, bundle builds, CPU encoding time, target dimensions,
+sample count and frame count. GPU-frame time is not
 inferred from CPU encoding time. Browser camera wall-time measurements include
 scheduling and software-driver costs.
 
@@ -427,14 +475,16 @@ Verified rendering gates:
 
 - Release Uno browser build and native graphics link succeeded.
 - Restored Uno framework packages are 7.0.32; Silk.NET.WebGPU is 2.23.0.
-- GPU model tests passed 738 assertions in 12 cases.
+- GPU model tests passed **878 assertions in 14 cases**, including viewport-space culling/clipping, sparse-patch and replacement semantics, resource retention and atomic rejection.
 - Geometry, source-input projection and presentation-host tests cover 16, 23 and eight cases respectively. The source cases include stale BOM invalidation, equivalent LF/CRLF refresh without a native text-change event, and semantic editors created after the initial frame.
 - Native semantic fixtures passed 82 assertions across 22 cases, including modal, ComboBox focus/selection and TextBox enabled-state lifecycles. The published application passed the corresponding reopened-dialog and renderer-toggle checks.
 - Separate native TextBox focus fixtures passed **30 assertions across 11 cases** in both the fast Chromium gate and the published application. They cover real replacement and delayed insertion, current selection/scroll and subsequent keyboard input, fresh native ownership, explicit user focus changes, composition, hidden/inert/disabled replacements and loaded-generation cleanup.
-- Independent Canvas, DOT, structured-diagram, Network and Gantt authoring suites passed in CI #66, including free geometry and automatic layout, shared-edge and table restructuring, chart axes, task dragging/resizing, dependency propagation, byte-exact BOM/CRLF Save/Open/draft restoration and atomic undo.
+- All six independent **Canvas, Files, DOT, structured-diagram, Network and Gantt** authoring suites passed together in CI #68, including free geometry and automatic layout, file-subtree operations, shared-edge/table restructuring, chart axes, task dragging/resizing, dependency propagation, byte-exact BOM/CRLF Save/Open/draft restoration and atomic undo.
+- The focused primary flow through mobile draft reload and Ports passed at revision `69c1426`. The complete CI #68 primary flow then exposed a test reading the modal-isolated source during DOT grouping; that read now observes the current public source identity while interaction locators continue to enforce modal exclusion.
 - The Core suite passed 4,065 assertions, including 103 new source-projection checks and unchanged startup history for all 33 starter templates.
-- Production WGSL passed six pipeline creations and 17 offscreen pixel checks.
+- Production WGSL passed **six pipeline creations and 29 offscreen pixel checks**, including mixed world/viewport drawing and double target pixel density.
 - The attached Chromium compiler suite passed 159 assertions and a native non-scaling-stroke measurement, across 14 scenarios.
+- The independent retained overlay fixture passed **67 assertions across 10 cases**, including real pointer input through a GPU-presented handle. [Exact staged integration run](https://github.com/wieslawsoltes/UnoUML/actions/runs/43160621189).
 - The published Uno application presented through its shared WebGPU device and completed 24 camera updates without additional geometry, texture, paint or gradient uploads, or render-bundle rebuilds.
 
 The starter sequence comparison at 928 × 614 pixels measured a mean absolute RGB
