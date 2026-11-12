@@ -13,8 +13,7 @@ export async function verifyDotStructuralAuthoring(page, source) {
   const field = name => page.getByRole('textbox',{name,exact:true});
   // Native inspector commands use real keyboard activation; graph hits and
   // endpoint gestures below retain ordinary SVG pointer actionability.
-  const tableAction = name => button(name).press('Enter');
-  const inspectorTableAction = name => activateControl(page, button(name));
+  const tableAction = name => activateControl(page, button(name));
   const selectedCell = async (row,column,text) => {
     const picker = page.getByRole('combobox',{name:'Table cell',exact:true});
     try {
@@ -107,7 +106,7 @@ export async function verifyDotStructuralAuthoring(page, source) {
   await undo(shared,'One undo restores the shared chain, strict override, defaults and comments byte for byte');
 
   await activateControl(page, edge('a','b').locator('text').filter({hasText:/^Shared$/}));
-  await button('Reattach target endpoint').press('Enter');
+  await activateControl(page, button('Reattach target endpoint'));
   const retargeted = shared.replace('a /* keep chain */ -> b -> c [label=Shared,color=red];',
     'a /* keep chain */ ; b ; c ;\n  a -> d [label=Shared, color=red];\n  b -> c [label=Shared, color=red];;')
     .replace('a -> b [penwidth=2];','a ; b ;\n  a -> d [penwidth=2];;');
@@ -156,7 +155,7 @@ export async function verifyDotStructuralAuthoring(page, source) {
   await activateControl(page, cellText('Gamma'));
   await selectedCell(2,1,'Gamma');
   const insertedRow = table.replace('<TR><TD>Gamma','<TR><TD>Cell</TD><TD>Cell</TD></TR><TR><TD>Gamma');
-  await change(() => inspectorTableAction('Insert row above'),insertedRow,'A new row preserves unrelated markup, comments and attribute quoting');
+  await change(() => tableAction('Insert row above'),insertedRow,'A new row preserves unrelated markup, comments and attribute quoting');
   assert.equal(await cellText('Cell').count(),2);
   await activateControl(page, cellText('Cell').first());
   await selectedCell(2,1,'Cell');
@@ -167,7 +166,7 @@ export async function verifyDotStructuralAuthoring(page, source) {
   await activateControl(page, cellText('Alpha'));
   await selectedCell(1,1,'Alpha');
   const insertedColumn = table.replace('<TD>Beta','<TD>Cell</TD><TD>Beta').replace('<TD>Delta','<TD>Cell</TD><TD>Delta');
-  await change(() => inspectorTableAction('Insert column after'),insertedColumn,'Column insertion updates each row atomically');
+  await change(() => tableAction('Insert column after'),insertedColumn,'Column insertion updates each row atomically');
   assert.equal(await cellText('Cell').count(),2);
   await activateControl(page, cellText('Cell').first());
   await selectedCell(1,2,'Cell');
