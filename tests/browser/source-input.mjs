@@ -43,6 +43,7 @@ export async function verifySourceInput(page, { artifactDir } = {}) {
         const nativeEcho = event => {
           const record = {
             type: event.type, trusted: event.isTrusted, composing: !!event.isComposing,
+            time: event.timeStamp,
             target: input.id, mode: state.mode, before: input.value,
             start: input.selectionStart, end: input.selectionEnd
           };
@@ -69,6 +70,11 @@ export async function verifySourceInput(page, { artifactDir } = {}) {
             input.replaceWith(replacement);
           }
         };
+        input.addEventListener('compositionstart', event => state.events.push({
+          type: event.type, trusted: event.isTrusted, time: event.timeStamp,
+          target: input.id, before: input.value,
+          start: input.selectionStart, end: input.selectionEnd
+        }));
         input.addEventListener('input', nativeEcho);
         input.addEventListener('compositionend', nativeEcho);
         return input;
@@ -157,6 +163,12 @@ export async function verifySourceInput(page, { artifactDir } = {}) {
     });
     equal(await editor.inputValue(), 'untrusted', 'Untrusted synthetic input cannot create an authoritative repair snapshot');
     equal((await trace()).map(event => event.trusted), [false], 'The synthetic negative case is explicitly distinguishable from real input');
+    await frame.evaluate(() => {
+      const input = document.getElementById('source-editor');
+      input.value = '\uFEFFuntrusted end';
+      input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: 'end' }));
+    });
+    equal(await editor.inputValue(), 'untrusted end', 'A standalone synthetic compositionend cannot create native composition provenance');
     await recordCase('exact-echo match and trusted-event boundaries');
 
     for (const mode of ['unload', 'renew', 'replace']) {
@@ -216,7 +228,12 @@ export async function verifySourceInput(page, { artifactDir } = {}) {
     equal(await editor.inputValue(), composingValue, 'A managed projection whose stripped value matches cannot overwrite active composition');
     await page.keyboard.insertText('日本');
     equal(await editor.inputValue(), imeBase + '日本', 'A committed IME edit preserves one BOM through the native echo');
-    check((await trace()).some(event => event.type === 'compositionend' && event.trusted), 'The commit traversed a real browser compositionend event');
+    const composition = await trace(), endIndex = composition.findIndex(event => event.type === 'compositionend');
+    // Blink queues native compositionend without SetTrusted; provenance comes
+    // from the actual trusted compositionstart/input sequence on this target.
+    check(endIndex > 0 && composition.slice(0, endIndex).some(event => event.type === 'compositionstart' && event.trusted)
+      && composition.slice(0, endIndex).some(event => event.type === 'input' && event.trusted && event.composing),
+      'The native commit follows trusted Chromium composition start and input on the same editor');
     equal(await editor.evaluate(input => [input.selectionStart, input.selectionEnd]), [imeBase.length + 2, imeBase.length + 2],
       'Committed IME selection remains at its native UTF-16 endpoint');
     await recordCase('trusted IME reading and committed echo');

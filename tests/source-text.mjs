@@ -60,10 +60,12 @@ function fixture() {
       syncSourceText(id, JSON.stringify(source), focused, start, length);
     },
     remove(id) { removeSourceText(id); registrations.delete(id); },
-    fire(type, target) {
-      const event = { type, target, isTrusted: false };
-      for (const phase of ['capture', 'bubble'])
-        for (const handler of listeners.get(type)?.[phase] ?? []) handler(event);
+    fire(type, target, properties = {}, native = () => {}) {
+      const event = { type, target, isTrusted: false, isComposing: false, ...properties };
+      for (const handler of [...listeners.get(type)?.capture ?? []]) handler(event);
+      native(event);
+      for (const handler of [...listeners.get(type)?.bubble ?? []]) handler(event);
+      return event;
     },
     listenerCounts: () => Object.fromEntries([...listeners].map(([type, phases]) =>
       [type, { capture: phases.capture.size, bubble: phases.bubble.size }])),
@@ -239,5 +241,143 @@ test('invalid source payloads fail before installing lifecycle listeners', () =>
     assert.throws(() => syncSourceText('source', '{}'), TypeError);
     assert.throws(() => syncSourceText('', '"text"'), TypeError);
     assert.equal(dom.listeners.size, 0);
+  } finally { dom.dispose(); }
+});
+
+function nativeComposition(dom, input, value) {
+  dom.fire('compositionstart', input, { isTrusted: true });
+  dom.fire('beforeinput', input, { isTrusted: true, isComposing: true });
+  input.value = value;
+  input.setSelectionRange(value.length, value.length, 'forward');
+  dom.fire('input', input, { isTrusted: true, isComposing: true });
+}
+
+function echoWithoutBom(input) {
+  input.value = input.value.replace(/^\uFEFF/, '');
+  input.setSelectionRange(input.value.length, input.value.length, 'forward');
+}
+
+test('trusted multiline input repairs only the exact same-event native echo with its original caret', () => {
+  const dom = fixture();
+  try {
+    const input = dom.input('source');
+    dom.document.activeElement = input;
+    dom.sync('source', '', true);
+    input.value = '\uFEFFfirst\nsecond';
+    input.setSelectionRange(2, 5, 'backward');
+    dom.fire('input', input, { isTrusted: true }, () => echoWithoutBom(input));
+    assert.equal(input.value, '\uFEFFfirst\nsecond');
+    assert.deepEqual([input.selectionStart, input.selectionEnd, input.selectionDirection], [2, 5, 'backward']);
+    dom.fire('input', input, { isTrusted: true }, () => { input.value = 'A different native value'; });
+    assert.equal(input.value, 'A different native value');
+  } finally { dom.dispose(); }
+});
+
+test('a native composition commit may have an untrusted end after trusted input and retains UTF-16 selection', () => {
+  const dom = fixture();
+  try {
+    const input = dom.input('source');
+    dom.document.activeElement = input;
+    dom.sync('source', '', true);
+    nativeComposition(dom, input, '\uFEFF@startuml\n日本🙂');
+    const expected = input.value;
+    input.setSelectionRange(expected.length - 2, expected.length, 'backward');
+    dom.fire('compositionend', input, {}, () => echoWithoutBom(input));
+    assert.equal(input.value, expected, 'Blink native compositionend can be queued without SetTrusted');
+    assert.deepEqual([input.selectionStart, input.selectionEnd, input.selectionDirection],
+      [expected.length - 2, expected.length, 'backward']);
+    input.value = expected;
+    dom.fire('compositionend', input, {}, () => echoWithoutBom(input));
+    assert.equal(input.value, expected.slice(1), 'A consumed native sequence cannot authorize a later synthetic end');
+  } finally { dom.dispose(); }
+});
+
+test('standalone and entirely synthetic composition events cannot authorize echo repair', () => {
+  const dom = fixture();
+  try {
+    const input = dom.input('source');
+    dom.document.activeElement = input;
+    dom.sync('source', '', true);
+    input.value = '\uFEFFstandalone';
+    dom.fire('compositionend', input, {}, () => echoWithoutBom(input));
+    assert.equal(input.value, 'standalone');
+    dom.fire('compositionstart', input);
+    input.value = '\uFEFFsynthetic';
+    dom.fire('input', input, { isComposing: true });
+    dom.fire('compositionend', input, {}, () => echoWithoutBom(input));
+    assert.equal(input.value, 'synthetic');
+  } finally { dom.dispose(); }
+});
+
+test('changed or deleted composition values cannot reuse a trusted native reading', () => {
+  const dom = fixture();
+  try {
+    const input = dom.input('source');
+    dom.document.activeElement = input;
+    dom.sync('source', '', true);
+    nativeComposition(dom, input, '\uFEFFnative');
+    input.value = '\uFEFFunrelated replacement';
+    dom.fire('compositionend', input, {}, () => echoWithoutBom(input));
+    assert.equal(input.value, 'unrelated replacement');
+    nativeComposition(dom, input, '\uFEFFnative');
+    input.value = 'native';
+    dom.fire('compositionend', input, {}, () => echoWithoutBom(input));
+    assert.equal(input.value, 'native', 'Intentional BOM removal remains authoritative');
+  } finally { dom.dispose(); }
+});
+
+test('an unfinished or unrelated input phase invalidates the previous trusted composition reading', () => {
+  const dom = fixture();
+  try {
+    const input = dom.input('source');
+    dom.document.activeElement = input;
+    dom.sync('source', '', true);
+    for (const [type, properties] of [
+      ['beforeinput', { isTrusted: true, isComposing: true }],
+      ['input', { isTrusted: false, isComposing: true }],
+      ['input', { isTrusted: true, isComposing: false }],
+      ['compositionstart', { isTrusted: true }]
+    ]) {
+      nativeComposition(dom, input, '\uFEFFnative');
+      dom.fire(type, input, properties);
+      dom.fire('compositionend', input, {}, () => echoWithoutBom(input));
+      assert.equal(input.value, 'native', `${type} ${JSON.stringify(properties)} must not reuse stale native input`);
+    }
+  } finally { dom.dispose(); }
+});
+
+test('composition provenance belongs to the original connected textarea and registration identity', () => {
+  const dom = fixture();
+  try {
+    const input = dom.input('source');
+    dom.document.activeElement = input;
+    dom.sync('source', '', true);
+    nativeComposition(dom, input, '\uFEFForiginal');
+    dom.remove('source');
+    dom.sync('source', '', true);
+    dom.fire('compositionend', input, {}, () => echoWithoutBom(input));
+    assert.equal(input.value, 'original', 'Re-registering an owner cannot inherit old composition evidence');
+    nativeComposition(dom, input, '\uFEFFdetached');
+    const replacement = dom.input('source');
+    replacement.value = '\uFEFFreplacement';
+    input.isConnected = false;
+    dom.document.activeElement = replacement;
+    dom.fire('compositionend', input, {}, () => echoWithoutBom(input));
+    dom.fire('compositionend', replacement, {}, () => echoWithoutBom(replacement));
+    assert.equal(input.value, 'detached');
+    assert.equal(replacement.value, 'replacement', 'Same public ID does not transfer native composition to a new element');
+  } finally { dom.dispose(); }
+});
+
+test('a shared IME textarea loses composition ownership when its native source focus leaves', () => {
+  const dom = fixture();
+  try {
+    const input = dom.input();
+    dom.document.activeElement = input;
+    dom.sync('source', '', true);
+    nativeComposition(dom, input, '\uFEFFshared');
+    dom.sync('source', '', false);
+    dom.fire('compositionend', input, {}, () => echoWithoutBom(input));
+    assert.equal(input.value, 'shared');
   } finally { dom.dispose(); }
 });

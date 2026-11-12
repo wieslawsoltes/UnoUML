@@ -8,9 +8,19 @@ import {verifyCanvasCoordinates} from './canvas-coordinates.mjs';
 // Run against attached SVGs so Chromium supplies real CSS, CTMs, text shaping,
 // clipping and SVG image decoding. Fixtures never alter the editor document.
 export async function verifyGpuScene(page,{artifactDir=process.env.SCREENSHOT_DIR}={}) {
-  await verifyNativeModal(page,{artifactDir});
-  await verifySourceInput(page,{artifactDir});
-  await verifyCanvasCoordinates(page,{artifactDir});
+  const fixtures=[];
+  for(const [name,verify] of [
+    ['native semantic lifecycle',verifyNativeModal],
+    ['native source input',verifySourceInput],
+    ['canvas coordinate agreement',verifyCanvasCoordinates]
+  ]) {
+    try {
+      const result=await verify(page,{artifactDir});
+      fixtures.push({name,pass:true,assertions:result?.assertions});
+    } catch(error) {
+      fixtures.push({name,pass:false,error:error.message,stack:error.stack});
+    }
+  }
   const report=await page.evaluate(async()=>{
     const {compileScene,diffCommands,ScenePresentation}=await import(new URL('uml/gpu/scene.js',document.baseURI).href);
     const {RasterCache,bytesToBase64}=await import(new URL('uml/gpu/resources.js',document.baseURI).href);
@@ -346,12 +356,13 @@ export async function verifyGpuScene(page,{artifactDir=process.env.SCREENSHOT_DI
     });
 
     return {results,assertions,browser:navigator.userAgent,remainingFixtures:document.querySelectorAll('[data-gpu-compiler-fixture]').length};
-  });
-  report.nonScalingStroke=await measureNonScalingStroke(page,artifactDir);
+  }).catch(error=>({results:[{name:'compiler fixture initialization',pass:false,error:error.message,stack:error.stack}],assertions:0}));
+  report.fixtures=fixtures;
+  report.nonScalingStroke=await measureNonScalingStroke(page,artifactDir).catch(error=>({pass:false,error:error.message,stack:error.stack}));
   report.results.push({
     name:'non-scaling strokes match native CSS/viewBox zoom and retained camera coverage',
     pass:report.nonScalingStroke.pass,
-    ...(!report.nonScalingStroke.pass?{error:JSON.stringify(report.nonScalingStroke.samples.map(s=>({
+    ...(!report.nonScalingStroke.pass?{error:report.nonScalingStroke.error||JSON.stringify(report.nonScalingStroke.samples.map(s=>({
       phase:s.phase,native:s.nativeStrokeCssWidth,fresh:s.freshMeshCssWidth,retained:s.retainedMeshCssWidth
     })))}:{})
   });
@@ -360,9 +371,10 @@ export async function verifyGpuScene(page,{artifactDir=process.env.SCREENSHOT_DI
     await mkdir(artifactDir,{recursive:true});
     await writeFile(resolve(artifactDir,'gpu-scene.json'),JSON.stringify(report,null,2));
   }
+  for(const result of fixtures)console.log((result.pass?'PASS ':'FAIL ')+'Browser fixture: '+result.name+(result.error?': '+result.error:''));
   for(const result of report.results)console.log((result.pass?'PASS ':'FAIL ')+'GPU compiler: '+result.name+(result.error?': '+result.error:''));
-  const failed=report.results.filter(result=>!result.pass);
-  assert.deepEqual(failed,[],'Attached-browser GPU compiler regressions');
+  const failed=[...fixtures,...report.results].filter(result=>!result.pass);
+  assert.deepEqual(failed,[],'Attached-browser native, canvas and GPU compiler regressions');
   assert.equal(report.remainingFixtures,0,'Every compiler fixture must be removed');
   assert.ok(report.assertions>=100,'Compiler fixtures must execute their semantic assertions');
   return report;
