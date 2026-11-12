@@ -145,9 +145,16 @@ async function verifyDotStructure(page, source) {
 
   await pair('a','b');
   await surface.press('Control+g');
-  await page.getByRole('dialog',{name:'Group selected DOT nodes',exact:true}).waitFor();
-  await fillControl(page, page.locator('textarea:visible').last(), 'Canvas group');
-  await activateControl(page, page.getByRole('button', {name:'Group',exact:true}));
+  const groupDialog = page.getByRole('dialog',{name:'Group selected DOT nodes',exact:true});
+  await groupDialog.waitFor();
+  const beforeGroup = await source.inputValue();
+  // Native Uno exposes this single-line TextBox as an input. The source editor
+  // remains a CSS-visible textarea behind the modal, so target the named field.
+  const clusterLabel = groupDialog.getByRole('textbox',{name:'Cluster label',exact:true});
+  assert.equal(await clusterLabel.inputValue(), 'Group');
+  await fillControl(page, clusterLabel, 'Canvas group');
+  assert.equal(await source.inputValue(), beforeGroup, 'Typing the dialog label does not replace the document');
+  await activateControl(page, groupDialog.getByRole('button', {name:'Group',exact:true}));
   const cluster = paper.locator('[data-dot-id="cluster:cluster_Group"]');
   await cluster.locator('text').filter({hasText:'Canvas group'}).waitFor();
   assert.match(await source.inputValue(),/label="Canvas group"/);
