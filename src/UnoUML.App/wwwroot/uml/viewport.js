@@ -227,10 +227,13 @@ class Viewport {
     this.gpu?.setCamera();
   }
   outline(box, el) {
-    box.hidden = !el;
+    const hidden = !el;
+    if (box.hidden !== hidden) box.hidden = hidden;
     if (!el) return;
     const r = el.getBoundingClientRect(), s = this.rect();
-    Object.assign(box.style,{ left:r.left - s.left - 3 + 'px', top:r.top - s.top - 3 + 'px', width:r.width + 6 + 'px', height:r.height + 6 + 'px' });
+    const bounds = { left:r.left - s.left - 3 + 'px', top:r.top - s.top - 3 + 'px', width:r.width + 6 + 'px', height:r.height + 6 + 'px' };
+    for (const [property, value] of Object.entries(bounds))
+      if (box.style[property] !== value) box.style[property] = value;
   }
   pick(el) { return el?.closest('[data-uml-hit]') || null; }
   select(id, line) {

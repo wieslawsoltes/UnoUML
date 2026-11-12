@@ -67,6 +67,7 @@ test('SVG paint is retained until the exact completed GPU transaction is acknowl
   assert.equal(host.present(compiler.lastRevision, {drawCalls:3}), true);
   assert.equal(host.state().backend, 'webgpu');
   assert.equal(view.surface.classList.contains('gpu-presented'), true);
+  assert.equal(view.surface.classList.contains('gpu-overlays-presented'), true);
   assert.equal(host.state().statistics.drawCalls, 3);
 });
 
@@ -172,7 +173,8 @@ test('hover remains visible during recoverable SVG fallback without duplicating 
   assert.equal(view.surface.classList.contains('gpu-enabled'), true, 'native hover filters remain suppressed');
   assert.equal(host.hover.hidden, false, 'replacement hover survives the scene-local fallback');
   assert.equal(host.hover.element, hovered);
-  assert.equal(host.selections.children.length, 0, 'native SVG selection outlines are not duplicated');
+  assert.equal(host.selections.children.length, 1, 'transparent vector proxies survive fallback without rebuilding selection ownership');
+  assert.equal(view.surface.classList.contains('gpu-overlays-presented'), false, 'native fallback decoration paint is restored');
   view.surface.handlers.get('pointerleave')();
   assert.equal(host.hover.hidden, true);
   view.surface.handlers.get('pointerover')({target:hovered});

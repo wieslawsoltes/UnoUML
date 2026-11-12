@@ -24,10 +24,15 @@ export class GpuPresentationHost {
     this.hover.setAttribute('aria-hidden', 'true');
     view.surface.append(this.selections, this.hover);
     this.pointerOver = event => {
-      this.hovered = view.pick(event.target);
+      const hovered = view.pick(event.target);
+      if (hovered === this.hovered) return;
+      this.hovered = hovered;
       this.positionSelections();
     };
-    this.pointerLeave = () => { this.hovered = null; this.hover.hidden = true; };
+    this.pointerLeave = () => {
+      this.hovered = null;
+      if (!this.hover.hidden) this.hover.hidden = true;
+    };
     view.surface.addEventListener('pointerover', this.pointerOver);
     view.surface.addEventListener('pointerleave', this.pointerLeave);
     view.surface.dataset.presentation = 'svg';
@@ -62,6 +67,7 @@ export class GpuPresentationHost {
       this.renderer = null;
       this.pending = false;
       this.setPaint(false);
+      this.positionSelections();
       return;
     }
     this.create();
@@ -75,13 +81,15 @@ export class GpuPresentationHost {
     if (!this.available) return;
     this.create();
     this.pending = true;
+    this.positionSelections();
     this.renderer.setScene(svg, sourceVersion);
   }
 
   setCamera() {
     if (this.disposed) return;
-    this.renderer?.setCamera();
+    // DOM anchors are measured before publishing the atomic camera/overlay update.
     this.positionSelections();
+    this.renderer?.setCamera();
   }
 
   present(revision, statistics) {
@@ -112,6 +120,7 @@ export class GpuPresentationHost {
 
   setPaint(active) {
     this.view.surface.classList.toggle('gpu-presented', active);
+    this.view.surface.classList.toggle('gpu-overlays-presented', active);
     this.view.surface.dataset.presentation = active ? 'webgpu' : 'svg';
     const backend = active ? 'webgpu' : 'svg';
     if (this.backend !== backend || this.lastReason !== this.reason) {
@@ -119,12 +128,12 @@ export class GpuPresentationHost {
       this.lastReason = this.reason;
       this.view.emit('presentation', { backend, reason: this.reason });
     }
-    this.positionSelections();
   }
 
   positionSelections() {
-    const active = this.backend === 'webgpu';
-    const selected = active ? (this.view.additional || []).filter(element => element.isConnected) : [];
+    // These transparent semantic proxies are independent of frame acceptance.
+    // Removing them during pending/fallback would feed back into compilation.
+    const selected = this.available ? (this.view.additional || []).filter(element => element.isConnected) : [];
     while (this.selections.children.length > selected.length) this.selections.lastElementChild.remove();
     while (this.selections.children.length < selected.length) {
       const box = this.view.surface.ownerDocument.createElement('div');
@@ -143,7 +152,7 @@ export class GpuPresentationHost {
       revision: this.renderer?.lastRevision ?? -1, presentedRevision: this.presentedRevision,
       reason: this.reason, statistics: this.stats, compiler: this.compileStats,
       compilation: this.renderer ? {
-        running: this.renderer.running, dirty: this.renderer.dirty,
+        running: this.renderer.running, dirty: this.renderer.dirty, overlayDirty: this.renderer.overlayDirty,
         pendingScene: this.renderer.pendingScene, reset: this.renderer.reset,
         frameScheduled: !!this.renderer.frame, generation: this.renderer.generation,
         sourceVersion: this.renderer.sourceVersion, viewVersion: this.view.version,
@@ -159,7 +168,7 @@ export class GpuPresentationHost {
     this.renderer = null;
     this.view.surface.removeEventListener('pointerover', this.pointerOver);
     this.view.surface.removeEventListener('pointerleave', this.pointerLeave);
-    this.view.surface.classList.remove('gpu-enabled', 'gpu-presented');
+    this.view.surface.classList.remove('gpu-enabled', 'gpu-presented', 'gpu-overlays-presented');
     this.selections.remove();
     this.hover.remove();
   }

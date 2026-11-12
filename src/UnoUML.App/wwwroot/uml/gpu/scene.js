@@ -3,6 +3,7 @@
 import {GeometryError,identity,multiply,inverse,transformPoint,transformBounds,maxScale,numbers,parseTransform,flattenPath,ellipseContours,rectContours,boundsOf,boundsOfPoints,fillTriangles,strokeTriangles,intersectBounds} from './geometry.js';
 import {resolvePaint,localReference} from './paint.js';
 import {RasterCache,rasterCommands,qualityBucket} from './resources.js';
+import {CanvasOverlayScene} from './overlays.js';
 const GROUPS=new Set(['svg','g','a']);
 const SKIP=new Set(['defs','title','desc','metadata','style','script','linearGradient','radialGradient','stop','pattern','marker','symbol','clipPath','mask','filter']);
 const SHAPES=new Set(['path','rect','circle','ellipse','line','polyline','polygon']);
@@ -197,13 +198,14 @@ export async function compileScene(svg,{scale=1,rasterCache=new RasterCache(),ge
 }
 function sameArray(a,b){return a===b||Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every((value,index)=>value===b[index]);}
 function sameCommandBody(a,b){
- return a.kind===b.kind&&a.rule===b.rule&&a.image===b.image&&sameArray(a.vertices,b.vertices)&&sameArray(a.bounds,b.bounds)&&sameArray(a.clip,b.clip)&&JSON.stringify(a.paint)===JSON.stringify(b.paint);
+ return (a.space??'world')===(b.space??'world')&&a.kind===b.kind&&a.rule===b.rule&&a.image===b.image&&sameArray(a.vertices,b.vertices)&&sameArray(a.bounds,b.bounds)&&sameArray(a.clip,b.clip)&&JSON.stringify(a.paint)===JSON.stringify(b.paint);
 }
 export function diffCommands(previous,next,{reset=false}={}){
  const oldMap=reset?new Map():new Map(previous.map(command=>[command.id,command])),changes=[];
  for(const command of next){
   const old=oldMap.get(command.id);
   if(!old){changes.push(command);continue;}
+  if(old===command)continue;
   const body=sameCommandBody(old,command);
   if(body&&sameArray(old.matrix,command.matrix))continue;
   changes.push(body?{id:command.id,matrix:command.matrix}:command);
@@ -211,13 +213,24 @@ export function diffCommands(previous,next,{reset=false}={}){
  const nextIds=new Set(next.map(command=>command.id));
  return{commands:changes,remove:reset?[]:previous.filter(command=>!nextIds.has(command.id)).map(command=>command.id),order:next.map(command=>command.id)};
 }
+// Only these classes are owned by selection presentation. Author classes,
+// theme changes and all other SVG attributes still invalidate compilation.
+const semanticClasses=value=>String(value||'').split(/\s+/).filter(name=>name&&name!=='multi-mark').sort().join(' ');
+function sceneMutation(record){
+ if(record.type!=='attributes')return true;
+ if(String(record.attributeName).startsWith('data-'))return false;
+ return record.attributeName!=='class'||semanticClasses(record.oldValue)!==semanticClasses(record.target.getAttribute('class'));
+}
 export class ScenePresentation{
  constructor(view,emitUpdate,{onStats=()=>{},onError=()=>{},onPending=()=>{},rasterOptions,rasterLimits}={}){
   this.view=view;this.emitUpdate=emitUpdate;this.onStats=onStats;this.onError=onError;this.onPending=onPending;
   this.rasterCache=new RasterCache(rasterOptions);this.rasterLimits=rasterLimits;this.geometryCache=new WeakMap();
-  this.svg=null;this.sourceVersion=0;this.generation=0;this.commands=[];this.uploadedTextures=new Set();this._lastRevision=0;
-  this.pendingScene=false;this.disposed=false;this.reset=true;this.frame=0;this.running=false;this.dirty=false;this.camera=null;this.lastCamera=null;this.bucket=1;
-  this.observer=new MutationObserver(records=>{if(records.some(record=>record.type!=='attributes'||!String(record.attributeName).startsWith('data-')))this.invalidate();});
+  this.svg=null;this.sourceVersion=0;this.generation=0;this.commands=[];this.diagramCommands=[];this.overlayCommands=[];
+  this.observedOverlays=[];this.uploadedTextures=new Set();this._lastRevision=0;this.lastStats=null;
+  this.pendingScene=false;this.disposed=false;this.reset=true;this.frame=0;this.running=false;this.dirty=false;this.overlayDirty=true;
+  this.camera=null;this.lastCamera=null;this.bucket=1;this.waitingForViewport=false;
+  this.observer=new MutationObserver(records=>{if(records.some(sceneMutation))this.invalidate();});
+  this.overlays=new CanvasOverlayScene(view,()=>this.invalidateOverlays());
   this.fontChanged=()=>{if(this.svg){this.rasterCache.clear();this.invalidate();}};
   document.fonts?.addEventListener('loadingdone',this.fontChanged);
  }
@@ -225,9 +238,11 @@ export class ScenePresentation{
  setScene(svg,sourceVersion=this.view.version){
   if(this.disposed)return;
   this.observer.disconnect();this.svg=svg;this.sourceVersion=sourceVersion;this.generation++;
-  this.commands=[];this.uploadedTextures.clear();this.geometryCache=new WeakMap();this.rasterCache.clear();this.reset=true;this.lastCamera=null;
+  this.commands=[];this.diagramCommands=[];this.overlayCommands=[];this.observedOverlays=[];this.uploadedTextures.clear();
+  this.geometryCache=new WeakMap();this.rasterCache.clear();this.reset=true;this.lastCamera=null;this.lastStats=null;
+  this.dirty=false;this.overlayDirty=true;this.pendingScene=!!svg;
   if(!svg)return;
-  this.observer.observe(svg,{attributes:true,childList:true,subtree:true,characterData:true});
+  this.observer.observe(svg,{attributes:true,attributeOldValue:true,childList:true,subtree:true,characterData:true});
   this.readCamera();this.invalidate();
  }
  readCamera(){
@@ -239,60 +254,125 @@ export class ScenePresentation{
  }
  setCamera(){
   if(this.disposed||!this.readCamera())return;
+  this.waitingForViewport=false;
   const bucket=qualityBucket(maxScale(this.camera.camera)*(globalThis.devicePixelRatio||1));
   if(bucket!==this.bucket){this.bucket=bucket;this.invalidate();return;}
-  if(this.pendingScene||this.dirty||this.reset)return;
-  const key=JSON.stringify(this.camera);if(key===this.lastCamera)return;
-  this.emit({...this.camera});this.lastCamera=key;
+  if(this.pendingScene||this.dirty||this.reset){if(this.dirty)this.schedule();return;}
+  try{this.publishDynamic(this.readOverlays().commands);}
+  catch(error){this.sceneError(error);}
+ }
+ schedule(){
+  if(this.disposed||this.frame||this.running||!this.svg)return;
+  this.frame=requestAnimationFrame(()=>{this.frame=0;void this.flush();});
  }
  invalidate(){
   if(this.disposed||!this.svg)return;
-  this.generation++;this.dirty=true;this.pendingScene=true;this.onPending(true);
-  if(this.frame||this.running)return;
-  this.frame=requestAnimationFrame(()=>{this.frame=0;void this.flush();});
+  this.generation++;this.dirty=true;this.pendingScene=true;this.onPending(true);this.schedule();
+ }
+ invalidateOverlays(){
+  if(this.disposed||!this.svg)return;
+  // Keep the last complete GPU frame during normal overlay latency. Overlay
+  // mutations neither cancel an asynchronous SVG compile nor expose DOM paint.
+  this.overlayDirty=true;this.schedule();
+ }
+ readOverlays(){
+  const commands=this.overlays.snapshot();
+  const delta=diffCommands(this.observedOverlays,commands);
+  const changed=delta.commands.length>0||delta.remove.length>0||
+    !sameArray(this.observedOverlays.map(command=>command.id),delta.order);
+  this.observedOverlays=commands;this.overlayDirty=false;
+  return{commands,changed};
+ }
+ publishDynamic(commands){
+  if(this.disposed||this.pendingScene||this.dirty||this.reset)return;
+  const delta=diffCommands(this.overlayCommands,commands);
+  const orderChanged=!sameArray(this.overlayCommands.map(command=>command.id),delta.order);
+  const geometryChanged=delta.commands.length>0||delta.remove.length>0||orderChanged;
+  const cameraKey=JSON.stringify(this.camera),cameraChanged=cameraKey!==this.lastCamera;
+  if(!geometryChanged&&!cameraChanged)return;
+  const update={...this.camera};
+  if(delta.commands.length)update.commands=delta.commands;
+  if(delta.remove.length)update.remove=delta.remove;
+  if(orderChanged)update.order=[...this.diagramCommands.map(command=>command.id),...delta.order];
+  if(geometryChanged){this.overlayCommands=commands;this.commands=[...this.diagramCommands,...commands];}
+  this.lastCamera=cameraKey;
+  this.emit(update);this.reportStats();
+ }
+ reportStats(){
+  if(this.lastStats)this.onStats({...this.lastStats,overlayCommands:this.overlayCommands.length,
+    overlayVertices:this.overlayCommands.reduce((sum,command)=>sum+(command.vertices?.length||0)/2,0),revision:this._lastRevision});
+ }
+ sceneError(error){
+  if(this.disposed)return;
+  this.pendingScene=true;this.onError(error instanceof Error?error.message:String(error));
  }
  async flush(){
-  if(this.disposed||!this.svg||this.running||!this.dirty)return;
-  if(!this.readCamera())return;
+  if(this.disposed||!this.svg||this.running||(!this.dirty&&!this.overlayDirty))return;
+  if(!this.readCamera()){this.waitingForViewport=true;return;}
+  this.waitingForViewport=false;
+  // Resolve observer records before compiling. This also remembers the last
+  // attempted decoration state after an error, preventing unchanged paint
+  // restoration mutations from retrying an invalid transaction indefinitely.
+  let overlays;
+  try{overlays=this.readOverlays();}
+  catch(error){this.dirty=false;this.overlayDirty=false;this.sceneError(error);return;}
+  if(!this.dirty){
+   if(this.pendingScene||this.reset){if(overlays.changed)this.invalidate();return;}
+   try{this.publishDynamic(overlays.commands);}catch(error){this.sceneError(error);}
+   return;
+  }
   this.running=true;this.dirty=false;
   const generation=this.generation,version=this.sourceVersion,svg=this.svg;
   this.bucket=qualityBucket(maxScale(this.camera.camera)*(globalThis.devicePixelRatio||1));
   try{
    const result=await compileScene(svg,{scale:this.bucket,rasterCache:this.rasterCache,geometryCache:this.geometryCache,rasterLimits:this.rasterLimits});
    if(this.disposed||generation!==this.generation||version!==this.sourceVersion||version!==this.view.version||svg!==this.svg)return;
-   this.readCamera();
-   const delta=diffCommands(this.commands,result.commands,{reset:this.reset});
+   if(!this.readCamera()){this.waitingForViewport=true;this.dirty=true;return;}
+   // Snapshot after awaited text/image work, so camera and all editor paint
+   // share one transaction even if selection changed during compilation.
+   const overlayCommands=this.readOverlays().commands,commands=[...result.commands,...overlayCommands];
+   const delta=diffCommands(this.commands,commands,{reset:this.reset});
    const textures=result.textures.filter(texture=>this.reset||!this.uploadedTextures.has(texture.id));
    const update={reset:this.reset,...delta,textures,...this.camera};
-   this.commands=result.commands;this.uploadedTextures=new Set(result.textures.map(texture=>texture.id));
-   this.reset=false;this.pendingScene=false;this.lastCamera=JSON.stringify(this.camera);
-   this.emit(update);this.onStats({...result.stats,revision:this._lastRevision});
-  }catch(error){
-   if(!this.disposed&&generation===this.generation){this.pendingScene=true;this.onError(error instanceof Error?error.message:String(error));}
-  }finally{
+   this.diagramCommands=result.commands;this.overlayCommands=overlayCommands;this.commands=commands;
+   this.uploadedTextures=new Set(result.textures.map(texture=>texture.id));
+   this.reset=false;this.pendingScene=false;this.lastCamera=JSON.stringify(this.camera);this.lastStats=result.stats;
+   this.emit(update);this.reportStats();
+  }catch(error){if(!this.disposed&&generation===this.generation)this.sceneError(error);}
+  finally{
    this.running=false;
-   if(!this.disposed&&this.dirty&&!this.frame)this.frame=requestAnimationFrame(()=>{this.frame=0;void this.flush();});
+   if(!this.disposed&&!this.waitingForViewport&&(this.dirty||this.overlayDirty))this.schedule();
   }
  }
  resetAfterRejection(){
   if(this.disposed)return;
-  // The backend rejected an atomic transaction. Its retained state still
-  // precedes our local delta baseline; rebuild that baseline on the next real
-  // scene change without retrying an unchanged invalid payload in a loop.
+  // Backend atomic rejection leaves the previous GPU state untouched. Retain
+  // the observed overlay snapshot only to distinguish real recovery edits from
+  // unchanged DOM fallback paint; the next scene transaction resets its baseline.
   this.reset=true;this.commands=[];this.uploadedTextures.clear();this.pendingScene=true;this.onPending(true);
  }
  emit(update){
   if(this.disposed)return;this._lastRevision=++transactionSequence;
-  try{this.emitUpdate({...update,revision:this._lastRevision});}
+  try{this.emitUpdate({...update,version:2,revision:this._lastRevision});}
   catch(error){this.resetAfterRejection();this.onError(error instanceof Error?error.message:String(error));}
  }
  presented(revision){
-  const current=!this.disposed&&!this.pendingScene&&!this.dirty&&revision===this._lastRevision&&revision>0;
+  if(this.disposed)return false;
+  if(this.observer.takeRecords().some(sceneMutation))this.invalidate();
+  if(!this.pendingScene&&!this.dirty&&!this.reset){
+   // An unchanged hidden/style assignment must not reject the only submitted
+   // frame and then emit no successor. A real pending overlay change instead
+   // publishes its next combined revision before evaluating this acknowledgement.
+   try{this.publishDynamic(this.readOverlays().commands);}
+   catch(error){this.sceneError(error);}
+  }
+  const current=!this.pendingScene&&!this.dirty&&!this.reset&&!this.overlayDirty&&revision===this._lastRevision&&revision>0;
   if(current)this.onPending(false);return current;
  }
  dispose(){
   if(this.disposed)return;this.disposed=true;this.generation++;
-  if(this.frame)cancelAnimationFrame(this.frame);this.frame=0;this.observer.disconnect();
-  document.fonts?.removeEventListener('loadingdone',this.fontChanged);this.rasterCache.dispose();this.commands=[];this.uploadedTextures.clear();this.svg=null;
+  if(this.frame)cancelAnimationFrame(this.frame);this.frame=0;this.observer.disconnect();this.overlays.dispose();
+  document.fonts?.removeEventListener('loadingdone',this.fontChanged);this.rasterCache.dispose();
+  this.commands=[];this.diagramCommands=[];this.overlayCommands=[];this.observedOverlays=[];this.uploadedTextures.clear();this.svg=null;
  }
 }

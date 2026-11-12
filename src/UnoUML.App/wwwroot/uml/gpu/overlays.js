@@ -99,9 +99,9 @@ export class CanvasOverlayScene{
   constructor(view,onChange=()=>{}){
     this.view=view;this.onChange=onChange;this.disposed=false;this.geometry=new Map();this.materials=new Map();this.previous=new Map();this.elements=[];
     this.observer=new MutationObserver(records=>this.changed(records));
-    this.observer.observe(view.surface,{attributes:true,childList:true,subtree:true,attributeFilter:['style','class','hidden','data-tool','data-side','data-wire','data-canvas-handle','data-gantt-handle','disabled']});
+    this.observer.observe(view.surface,{attributes:true,childList:true,subtree:true,attributeFilter:['style','class','hidden','data-tool','data-side','data-wire','data-canvas-handle','data-gantt-handle','disabled','x1','y1','x2','y2']});
     this.focus=()=>this.invalidate();
-    view.surface.addEventListener('focusin',this.focus);view.surface.addEventListener('focusout',this.focus);
+    for(const event of ['focusin','focusout','keydown','pointerdown'])view.surface.addEventListener(event,this.focus);
     this.media=globalThis.matchMedia?.('(pointer: coarse)');
     this.media?.addEventListener('change',this.focus);
     this.reindex();
@@ -247,7 +247,7 @@ export class CanvasOverlayScene{
         const common=sides.reduce((a,b)=>a.width<=b.width?a:b);
         const bw=common.width,contours=rectContours(bw/2,bw/2,Math.max(0,w-bw),Math.max(0,h-bw),Math.max(0,r-bw/2),undefined,tolerance);
         const dash=common.style==='dashed'?[bw*3,bw*3]:common.style==='dotted'?[bw,bw]:undefined;
-        stroke(id+':border',['border',w,h,r].join('|'),contours,bw,common.color,matrix,{dash,join:'round'},opacity);
+        stroke(id+':border',['border',w,h,r].join('|'),contours,bw,common.color,matrix,{dash,join:r>0?'round':'miter'},opacity);
         for(const side of sides){
           if(side.width===bw&&side.style===common.style&&same(side.color,common.color))continue;
           const q=side.width/2,points=side.side==='Top'?[[r,q],[w-r,q]]:side.side==='Right'?[[w-q,r],[w-q,h-r]]:
@@ -279,7 +279,7 @@ export class CanvasOverlayScene{
   }
   dispose(){
     if(this.disposed)return;this.disposed=true;this.observer.disconnect();
-    this.view.surface.removeEventListener('focusin',this.focus);this.view.surface.removeEventListener('focusout',this.focus);
+    for(const event of ['focusin','focusout','keydown','pointerdown'])this.view.surface.removeEventListener(event,this.focus);
     this.media?.removeEventListener('change',this.focus);this.geometry.clear();this.materials.clear();this.previous.clear();this.elements=[];this.onChange=()=>{};
   }
 }
