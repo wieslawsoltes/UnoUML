@@ -4,6 +4,7 @@
 // JSON preserves a leading U+FEFF across runtime string marshalling.
 const registrations = new Map();
 const composing = new WeakSet();
+const compositionEdits = new WeakMap();
 const commits = new WeakMap();
 const events = ['focusin', 'beforeinput', 'input', 'compositionstart', 'compositionend'];
 const commitEvents = ['input', 'compositionend'];
@@ -67,15 +68,38 @@ function schedule(entry) {
 function onEditorEvent(event) {
   const input = event.target;
   if (!(input instanceof HTMLTextAreaElement)) return;
-  if (event.type === 'compositionstart') composing.add(input);
-  if (event.type === 'compositionend') composing.delete(input);
-  const committed = commitEvents.includes(event.type) && event.isTrusted && !event.isComposing && !composing.has(input);
+  const owned = [...registrations.values()].filter(entry => inputs(entry).has(input));
+  let composition;
+  if (event.type === 'compositionstart') {
+    composing.add(input);
+    compositionEdits.delete(input);
+    if (event.isTrusted && owned.length) compositionEdits.set(input, { owners: owned, value: null });
+  } else if (event.type === 'compositionend') {
+    composing.delete(input);
+    composition = compositionEdits.get(input);
+    compositionEdits.delete(input); // A completed native sequence cannot authorize another end.
+  } else if (composing.has(input)) {
+    const pending = compositionEdits.get(input);
+    if (event.type === 'beforeinput') {
+      if (pending) pending.value = null;
+    } else if (event.type === 'input') {
+      if (pending && event.isTrusted && event.isComposing && pending.owners.some(entry => owned.includes(entry)))
+        pending.value = input.value;
+      else compositionEdits.delete(input);
+    }
+  }
+  // Chromium's native queued compositionend does not always carry isTrusted.
+  // Accept only an exact value witnessed by trusted composing input following a
+  // trusted start on the same owner. Synthetic, changed or replayed ends have no
+  // such provenance; a removed/replaced registration cannot transfer it either.
+  const nativeEnd = event.type === 'compositionend' && composition?.value != null && input.value === composition.value;
+  const owners = event.isTrusted ? owned : nativeEnd ? composition.owners.filter(entry => owned.includes(entry)) : [];
+  const committed = commitEvents.includes(event.type) && owners.length && !event.isComposing && !composing.has(input);
   const captured = committed && input.value.startsWith('\uFEFF') ? {
     input, value: input.value, start: input.selectionStart, end: input.selectionEnd,
-    direction: input.selectionDirection, owners: []
+    direction: input.selectionDirection, owners
   } : null;
-  for (const entry of registrations.values()) {
-    if (!inputs(entry).has(input)) continue;
+  for (const entry of owned) {
     if (event.type === 'focusin') {
       schedule(entry);
     } else {
@@ -83,10 +107,9 @@ function onEditorEvent(event) {
       // before Uno handles the event; a subsequent managed Text change supplies
       // the new source. Intentional BOM removal is never undone by a queued repair.
       entry.expected = null;
-      if (captured) captured.owners.push(entry);
     }
   }
-  if (captured?.owners.length) commits.set(event, captured);
+  if (captured) commits.set(event, captured);
 }
 
 function onEditorCommit(event) {

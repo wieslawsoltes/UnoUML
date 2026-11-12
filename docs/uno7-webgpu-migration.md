@@ -175,6 +175,16 @@ projection remains coalesced on the dispatcher to observe final text, selection
 and focus. Browser fixtures use real keyboard insertion and Chromium composition,
 including a negative control with the native UTF-16 decoder's BOM behavior.
 
+Chromium's [queued composition-end dispatch](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/editing/ime/input_method_controller.cc)
+can leave `isTrusted` false, unlike its ordinary native
+[event-target dispatch](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/dom/events/event_target.cc).
+The IME repair therefore also accepts a completed sequence whose trusted start
+and latest trusted composing input identify the same loaded editor, registration
+and exact text value. This evidence is consumed at the first end event; edits,
+owner replacement or a changed value cannot reuse it. Standalone synthetic input
+and synthetic composition sequences remain excluded. The end event supplies the
+current native selection, so committing a reading preserves its caret.
+
 Uno's multiline text box normalizes CRLF and LF to CR and delivers text changes
 asynchronously. The document therefore has a separate text projection: framework
 normalization is a no-op for source and history, real edits replace the smallest
