@@ -3,14 +3,35 @@ import assert from 'node:assert/strict';
 import { syncSourceText, removeSourceText } from '../src/UnoUML.App/wwwroot/uml/source-text.js';
 
 function fixture() {
-  const names = ['document', 'HTMLTextAreaElement', 'CSS', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame'];
+  const names = ['document', 'HTMLTextAreaElement', 'MutationObserver', 'CSS', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame'];
   const saved = new Map(names.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   const semantic = new Map(), listeners = new Map(), microtasks = [], frames = new Map(), registrations = new Set();
+  const observers = [];
   let frameId = 0;
-  class TextArea {
-    constructor(id = null) {
-      this.automationId = id;
+  class Element {
+    constructor() {
+      this.nodeType = 1;
       this.isConnected = true;
+      this.parentNode = null;
+      this.children = [];
+    }
+    append(...nodes) {
+      for (const node of nodes) {
+        if (node.parentNode) node.parentNode.children = node.parentNode.children.filter(child => child !== node);
+        node.parentNode = this;
+        this.children.push(node);
+      }
+    }
+    contains(node) { return node === this || this.children.some(child => child.contains(node)); }
+    matches(selector) { return selector === 'textarea[xamlautomationid]' && this instanceof TextArea && this.automationId != null; }
+    querySelectorAll(selector) {
+      return this.children.flatMap(child => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]);
+    }
+  }
+  class TextArea extends Element {
+    constructor(id = null) {
+      super();
+      this.automationId = id;
       this.value = '';
       this.selectionStart = this.selectionEnd = 0;
       this.selectionDirection = 'forward';
@@ -24,8 +45,16 @@ function fixture() {
       this.selectionDirection = direction;
     }
   }
+  let root = new Element();
+  class MutationObserver {
+    constructor(callback) { this.callback = callback; this.connected = false; observers.push(this); }
+    observe(target, options) { this.target = target; this.options = { ...options }; this.connected = true; }
+    disconnect() { this.connected = false; }
+    deliver(...nodes) { this.callback([{ type: 'childList', target: this.target, addedNodes: nodes }], this); }
+  }
   const document = {
     activeElement: null,
+    getElementById(id) { return id === 'uno-semantics-root' ? root : null; },
     querySelector(selector) {
       const id = selector.match(/^textarea\[xamlautomationid="([^"]+)"\]$/)?.[1];
       return semantic.get(id) ?? null;
@@ -43,17 +72,34 @@ function fixture() {
   Object.assign(globalThis, {
     document,
     HTMLTextAreaElement: TextArea,
+    MutationObserver,
     CSS: { escape: value => value },
     queueMicrotask: callback => microtasks.push(callback),
     requestAnimationFrame: callback => { const id = ++frameId; frames.set(id, callback); return id; },
     cancelAnimationFrame: id => frames.delete(id)
   });
   return {
-    document, semantic, listeners, frames,
+    document, semantic, listeners, frames, observers,
+    get root() { return root; },
+    activeObservers: () => observers.filter(observer => observer.connected),
     input(id = null) {
       const input = new TextArea(id);
-      if (id) semantic.set(id, input);
+      if (id) { semantic.set(id, input); root.append(input); }
       return input;
+    },
+    subtree(...children) {
+      const node = new Element();
+      root.append(node);
+      node.append(...children);
+      return node;
+    },
+    replaceRoot() {
+      root.isConnected = false;
+      root = new Element();
+      return root;
+    },
+    added(...nodes) {
+      for (const observer of observers.filter(observer => observer.connected)) observer.deliver(...nodes);
     },
     sync(id, source, focused = false, start = 0, length = 0) {
       registrations.add(id);
@@ -168,7 +214,7 @@ test('composition owns its text until a fresh managed commit arrives', () => {
   } finally { dom.dispose(); }
 });
 
-test('late semantic projection and focus are repaired without tree observers or polling', () => {
+test('next-frame semantic projection and focus are repaired without continuous polling', () => {
   const dom = fixture();
   try {
     dom.sync('source', '\uFEFFabc', false, 4);
@@ -183,6 +229,180 @@ test('late semantic projection and focus are repaired without tree observers or 
     dom.fire('focusin', ime);
     assert.equal(ime.value, '\uFEFFabc');
     assert.equal(ime.selectionStart, 4);
+  } finally { dom.dispose(); }
+});
+
+test('a semantic textarea created after all queued projection work is repaired with managed caret and scroll', () => {
+  const dom = fixture();
+  try {
+    dom.sync('source', '\uFEFFa\r\n🧠', false, 2, 4);
+    dom.flush();
+    assert.equal(dom.frames.size, 0, 'The original one-shot projection has already completed');
+    assert.equal(dom.activeObservers().length, 1);
+    assert.equal(dom.activeObservers()[0].target, dom.root);
+    assert.deepEqual(dom.activeObservers()[0].options, { childList: true, subtree: true });
+
+    const input = dom.input('source'), foreign = dom.input('other');
+    input.value = foreign.value = 'a\n🧠';
+    input.setSelectionRange(1, 3, 'backward');
+    input.scrollTop = 17;
+    input.scrollLeft = 6;
+    dom.document.activeElement = foreign;
+    dom.added(input);
+    assert.equal(input.value, '\uFEFFa\n🧠');
+    assert.deepEqual([input.selectionStart, input.selectionEnd, input.selectionDirection], [2, 5, 'backward']);
+    assert.deepEqual([input.scrollTop, input.scrollLeft], [17, 6]);
+    assert.equal(foreign.value, 'a\n🧠', 'A late source projection must not acquire a different editor');
+    assert.equal(dom.frames.size, 0, 'Mutation delivery repairs directly without perpetual animation frames');
+
+    input.setSelectionRange(0, 0, 'forward');
+    dom.added(input);
+    assert.deepEqual([input.selectionStart, input.selectionEnd], [0, 0],
+      'A later mutation must not reset the caret of an already correct projection');
+  } finally { dom.dispose(); }
+});
+
+test('nested replacement delivery repairs only the current matching semantic node', () => {
+  const dom = fixture();
+  try {
+    const old = dom.input('source');
+    old.value = 'abc';
+    dom.sync('source', '\uFEFFabc', false, 2);
+    dom.flush();
+    old.value = 'abc';
+    old.isConnected = false;
+    const current = dom.input('source'), foreign = dom.input('other');
+    current.value = foreign.value = 'abc';
+    const branch = dom.subtree(dom.subtree(current));
+    dom.added({ nodeType: 3 }, old, branch, foreign);
+    assert.equal(current.value, '\uFEFFabc');
+    assert.equal(current.selectionStart, 2);
+    assert.equal(old.value, 'abc', 'Detached delivery cannot repair the replaced textarea');
+    assert.equal(foreign.value, 'abc');
+
+    const duplicate = dom.input('source');
+    duplicate.value = current.value = 'abc';
+    dom.semantic.set('source', current); // The first matching live node is still current.
+    dom.added(duplicate);
+    assert.equal(duplicate.value, 'abc');
+    assert.equal(current.value, 'abc', 'A duplicate identity must not trigger repair of a different live node');
+    dom.added(current);
+    assert.equal(current.value, '\uFEFFabc');
+
+    const changed = dom.input('source');
+    changed.value = 'an independent edit';
+    changed.setSelectionRange(3, 5, 'backward');
+    dom.added(dom.subtree(changed));
+    assert.equal(changed.value, 'an independent edit', 'Only the exact missing-BOM echo can be repaired');
+    assert.deepEqual([changed.selectionStart, changed.selectionEnd, changed.selectionDirection], [3, 5, 'backward']);
+  } finally { dom.dispose(); }
+});
+
+test('callbacks from removed registrations and replaced semantic roots cannot repair a newer lifetime', () => {
+  const dom = fixture();
+  try {
+    dom.sync('source', '\uFEFFabc', false, 4);
+    dom.flush();
+    const oldObserver = dom.activeObservers()[0];
+    dom.remove('source');
+    assert.equal(oldObserver.connected, false);
+    dom.sync('source', '\uFEFFabc', false, 2);
+    dom.flush();
+    const input = dom.input('source');
+    input.value = 'abc';
+    oldObserver.deliver(input);
+    assert.equal(input.value, 'abc', 'An already queued callback must not acquire a re-registered owner');
+    dom.added(input);
+    assert.equal(input.value, '\uFEFFabc');
+    assert.equal(input.selectionStart, 2);
+
+    const priorRootObserver = dom.activeObservers()[0];
+    dom.replaceRoot();
+    const replacement = dom.input('source');
+    replacement.value = 'abc';
+    priorRootObserver.deliver(replacement);
+    assert.equal(replacement.value, 'abc', 'Root identity is checked even before the next managed sync');
+    // This is not an exact echo, so a fresh snapshot cannot repair it immediately.
+    replacement.value = 'pending native projection';
+    dom.sync('source', '\uFEFFabc', false, 3);
+    dom.flush();
+    replacement.value = 'abc';
+    priorRootObserver.deliver(replacement);
+    assert.equal(replacement.value, 'abc', 'Disconnected root delivery cannot invoke the replacement observer');
+    dom.added(replacement);
+    assert.equal(replacement.value, '\uFEFFabc');
+    assert.equal(replacement.selectionStart, 3);
+  } finally { dom.dispose(); }
+});
+
+test('plain refresh and intentional BOM deletion stop observation after the last expected source', () => {
+  const dom = fixture();
+  try {
+    dom.sync('plain', '', false);
+    assert.equal(dom.activeObservers().length, 0, 'Plain registrations do not observe the semantic tree');
+    dom.sync('first', '\uFEFFabc', false);
+    dom.sync('second', '\uFEFFdef', false);
+    dom.flush();
+    assert.equal(dom.activeObservers().length, 1, 'Loaded BOM sources share one scoped observer');
+    dom.sync('first', '', false);
+    const plain = dom.input('first');
+    plain.value = 'abc';
+    dom.added(plain);
+    assert.equal(plain.value, 'abc');
+    assert.equal(dom.activeObservers().length, 1, 'The remaining expected source keeps observation alive');
+    dom.remove('second');
+    assert.equal(dom.activeObservers().length, 0);
+
+    const input = dom.input('source');
+    input.value = 'abc';
+    dom.sync('source', '\uFEFFabc', true, 1);
+    dom.flush();
+    const deletedObserver = dom.activeObservers()[0];
+    dom.fire('beforeinput', input, { isTrusted: true });
+    assert.equal(dom.activeObservers().length, 0, 'Native editing invalidates the expectation before its mutation');
+    input.value = 'abc';
+    input.setSelectionRange(0, 0, 'forward');
+    dom.fire('input', input, { isTrusted: true });
+    deletedObserver.deliver(input);
+    dom.flush();
+    assert.equal(input.value, 'abc', 'A deliberate deletion cannot be reversed by queued mutation delivery');
+    assert.deepEqual([input.selectionStart, input.selectionEnd], [0, 0]);
+    dom.sync('source', '', true);
+    const replacement = dom.input('source');
+    replacement.value = 'abc';
+    deletedObserver.deliver(replacement);
+    assert.equal(replacement.value, 'abc');
+    assert.equal(dom.activeObservers().length, 0);
+  } finally { dom.dispose(); }
+});
+
+test('late projection observation preserves active composition and requires a fresh managed commit', () => {
+  const dom = fixture();
+  try {
+    const input = dom.input('source');
+    input.value = 'abc';
+    dom.sync('source', '\uFEFFabc', true, 1);
+    dom.flush();
+    dom.fire('compositionstart', input, { isTrusted: true });
+    assert.equal(dom.activeObservers().length, 0);
+    input.value = 'abc';
+    input.setSelectionRange(1, 2, 'backward');
+    dom.sync('source', '\uFEFFabc', true, 4);
+    dom.flush();
+    dom.added(dom.subtree(input));
+    assert.equal(input.value, 'abc', 'Subtree insertion does not take text ownership away from an active IME');
+    assert.deepEqual([input.selectionStart, input.selectionEnd, input.selectionDirection], [1, 2, 'backward']);
+    dom.fire('compositionend', input);
+    assert.equal(dom.activeObservers().length, 0);
+    dom.added(input);
+    assert.equal(input.value, 'abc', 'Ending composition cannot replay the old expected text');
+    input.value = 'あbc';
+    dom.sync('source', '\uFEFFあbc', true, 2);
+    assert.equal(input.value, '\uFEFFあbc');
+    assert.equal(input.selectionStart, 2);
+    assert.equal(dom.activeObservers().length, 1);
+    dom.remove('source');
+    assert.equal(dom.activeObservers().length, 0);
   } finally { dom.dispose(); }
 });
 
