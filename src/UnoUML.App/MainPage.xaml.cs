@@ -476,6 +476,12 @@ public sealed partial class MainPage : Page
     void SelectSourceRange(int start, int length)
     {
         var range = SourceProjection.ToEditorRange(start, length);
-        SourceEditor.Select(range.Start, range.Length);
+        // A canvas hit may identify one field or a merged DOT edge more precisely
+        // than the source offset does. Project that selection into the editor
+        // without reinterpreting the resulting SelectionChanged as a user edit.
+        bool wasSyncing = syncing;
+        syncing = true;
+        try { SourceEditor.Select(range.Start, range.Length); }
+        finally { syncing = wasSyncing; }
     }
 }
