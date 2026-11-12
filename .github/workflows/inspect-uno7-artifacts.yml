@@ -1,0 +1,52 @@
+name: Inspect Uno 7 validation artifacts
+on:
+  push:
+    branches: [codex/uno7-artifact-inspection]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: workspace-checks
+          run-id: 43138641183
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: diagnostics
+      - name: Summarize bounded public test diagnostics
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import {readFile,readdir} from 'node:fs/promises';
+          const root='diagnostics';
+          const files=await readdir(root);
+          console.log('Artifact files:',JSON.stringify(files));
+          for(const name of ['gantt-editing','canvas-editing','dot-structure','files-editing']) {
+            const file=name+'-diagnostics.json';
+            if(!files.includes(file))continue;
+            const d=JSON.parse(await readFile(root+'/'+file,'utf8'));
+            console.log('DIAGNOSTIC '+name+' '+JSON.stringify({keys:Object.keys(d),phases:d.phases,failures:d.failures,
+              finalState:d.finalState,pageErrors:d.pageErrors,requestFailures:d.requestFailures,
+              console:d.console?.slice(-48),nativeActions:d.nativeActions?.slice(-12)}).slice(0,48000));
+          }
+          for(const name of ['canvas-editing-failure.puml','files-editing-failure.puml']) {
+            if(!files.includes(name))continue;
+            const source=await readFile(root+'/'+name,'utf8');
+            console.log('SOURCE '+name+' '+JSON.stringify({length:source.length,bom:source.charCodeAt(0)===65279,
+              prefixUnits:source.slice(0,32).split('').map(c=>c.charCodeAt(0)),
+              crlf:(source.match(/\r\n/g)||[]).length,cr:(source.match(/\r/g)||[]).length,lf:(source.match(/\n/g)||[]).length,
+              text:source.slice(0,6000)}));
+          }
+          if(files.includes('dot-structure-failure.html')) {
+            const html=await readFile(root+'/dot-structure-failure.html','utf8');
+            const tags=[...html.matchAll(/<(?:div|button|input|textarea)\b[^>]*>/g)].map(m=>m[0])
+              .filter(tag=>/aria-label="(?:Table cell|Label table|Row [0-9])|role="listbox"/.test(tag));
+            console.log('DOT TABLE SEMANTICS '+JSON.stringify(tags.slice(-40)));
+          }
+          JS
