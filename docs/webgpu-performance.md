@@ -130,6 +130,27 @@ Measurements separate:
 5. Draw calls, live resources, uploads and render-bundle rebuilds.
 6. Paired GPU/SVG pixel comparisons and selection-mask evidence.
 
+Compilation time is elapsed wall time inside the scene compiler, including its
+raster awaits; it excludes the preceding `document.fonts.ready` wait. Public
+operation, compilation, native encoding, scope and dispatcher measurements have
+different boundaries and can overlap. They must not be added as disjoint stages.
+
+The pinned Uno 7.0.32 implementation has a separate compositor limit:
+[`WebGpuBrowserGraphicsContext`](https://github.com/unoplatform/uno/blob/78c746d28293975e64ba0f162af6f44f3c3daaab/src/Uno.UI.Composition.WebGpu.Init/WebGpuBrowserGraphicsContext.cs)
+allows at most two presented frames in flight, counted until the application's
+shared [queue completion promise](https://github.com/unoplatform/uno/blob/78c746d28293975e64ba0f162af6f44f3c3daaab/src/Uno.UI.Composition.WebGpu/ts/Runtime/WebGpuInit.ts)
+settles. The [custom canvas paint hook](https://github.com/unoplatform/uno/blob/78c746d28293975e64ba0f162af6f44f3c3daaab/src/AddIns/Uno.WinUI.Graphics3DWebGpu/WebGpuCanvasElement.cs)
+runs while the Uno frame is recorded. Operation-to-acknowledgement wall time can
+therefore include a wait before diagram encoding begins. Short native scope and
+dispatcher intervals would not establish that removing the diagram validation
+gate improves that wait.
+
+Error scopes are popped inside that paint hook, before Uno finishes recording
+and submitting the overall frame. Their callbacks cannot run while the same
+browser JavaScript/WebAssembly stack remains busy, so scope duration can also
+contain subsequent Uno CPU work and event-loop delay. Scope completion is not
+a GPU execution-completion measurement.
+
 A pass must retain current scene revision and surface-size agreement. Existing
 source/history assertions, unsupported-adapter behavior and pixel thresholds
 remain in force. Profiling must use Uno's existing device and must not add a
@@ -144,15 +165,103 @@ also passed held-write read-only transitions, byte-exact conflicts and all
 
 ## Results
 
-### Implementation correctness
+### Full implementation acceptance
 
-At implementation commit `bcd6446cb3181b360266144178ce34ae71f2b292`,
-the [shader/compiler job](https://github.com/wieslawsoltes/UnoUML/actions/runs/43315281818/job/131521570365)
-passed seven pipeline creations, all 29 existing pixel checks and eight full-frame
-direct/stencil comparisons with **zero differing RGBA channels**. The attached
-browser compiler passed **265 assertions across 18 scenarios**, including the
-new cancellation, captured-pixel reuse and invalidation cases. Existing native
-input, focus, coordinates and retained-overlay checks also passed.
+[Full integration CI](https://github.com/wieslawsoltes/UnoUML/actions/runs/43316750481)
+passed on `d304eab058143c49f8274a1cd98da5a1f4e41771`. The subsequent
+SDK-selection workflow fix changes no application code or measurement logic.
 
-Native/application integration CI and paired performance measurements are pending.
-These correctness results do not yet quantify latency or throughput improvements.
+| Gate | Result |
+| --- | --- |
+| Native GPU scene model | 1,291 assertions, 22 cases |
+| Core model | 4,065 assertions, 33 templates, 149 tools |
+| Node tests | 99 tests across eight suites |
+| Managed catalog | 296 fixtures |
+| Additional renderer checks | 161 DOT sizing, 302 canvas metadata, 73 structured and 87 Gantt assertions |
+| Production shaders | Seven pipelines, 4× MSAA, 29 existing pixel checks |
+| Direct/stencil equivalence | Eight complete frames, zero differing RGBA channels |
+| Attached-browser compiler | 265 assertions across 18 scenarios |
+| Retained overlays | 67 assertions across ten cases |
+| Native application | 24 camera acknowledgements with retained resources, visible selection paint and no-WebGPU fallback |
+| Published workspace | Desktop/mobile flow plus all six independent structured, DOT, files, network, canvas and Gantt scenarios |
+
+The full browser suite also covers source/history preservation, imports and ZIP
+members, native input/focus/modal semantics, native compatibility, free geometry,
+automatic layout, save/open and draft restoration.
+
+### Accepted starter and retained-camera evidence
+
+The [passing artifact extraction](https://github.com/wieslawsoltes/UnoUML/actions/runs/43322866007)
+reads the actual `gpu-presentation.json` from the successful integration job,
+artifact `13989416760`.
+
+The starter uses **65 draws instead of 88**, a **26.1% reduction**. All 52 commands
+remain visible, including 23 eligible direct meshes; 35 geometry buffers,
+17 image textures and 52 retained bundles remain present. Vertex/image payloads
+are 25,008 and 247,368 bytes. Its recorded mean channel error is exactly
+`0.733578218016399`, and its major-difference fraction is exactly
+`0.0024254464787150398`, matching the documented pre-optimization starter
+metrics. This confirms reduced draw work without changing those quality results.
+
+Across 24 accepted camera updates, uploads total **1,536 camera bytes**—64 per
+update—and **zero** geometry, texture, draw-uniform or gradient bytes. No render
+bundle is rebuilt. All 24 frames are submitted and acknowledged, with zero
+additional deferred render requests in this interval. This retention behavior
+was already established by the baseline and remains intact.
+
+| Candidate camera diagnostic | Median | p95 |
+| --- | ---: | ---: |
+| Native encoding | 0.5999 ms | 2.2 ms |
+| Native scope callback interval | 42 ms | 212.1 ms |
+| Native dispatcher interval | 0.3 ms | 45.7999 ms |
+| Operation-to-acknowledgement wall interval | 1,522.8 ms | 2,893.5 ms |
+
+These are descriptive samples from Chromium 156 on SwiftShader, not a paired
+latency comparison or a hardware FPS result. The boundaries differ and may overlap.
+For example, revision 22 has 2,893.5 ms wall time but only 35.9 ms scope and
+0.3999 ms dispatcher intervals; revision 14 has 1,522.8 ms wall time with 33.0999 ms
+scope and 0.2 ms dispatch. Removing the local validation gate would not explain
+most of the delay in those samples. It remains unchanged.
+
+Selection retains the same 654-pixel negative-control mask, with 98.1651% of those
+pixels closer to the painted reference than to the absent-overlay control.
+Clearing selection changes viewport command count from ten to one, uploads
+exactly one 256-byte viewport uniform and rebuilds one bundle. Geometry and
+textures remain resident. The captured browser error list is empty.
+
+### Benchmark setup and fractional-scale evidence
+
+The first paired attempt stopped before measurement because workload installation
+ran above both checkouts and selected the runner's .NET 11 SDK. The application
+checkouts both select .NET 10. The correction in `c119325f` verifies equal
+SDK selection and installs `wasm-tools` inside the candidate checkout.
+
+[The corrected run](https://github.com/wieslawsoltes/UnoUML/actions/runs/43318194480)
+built both immutable applications successfully. At the initially selected
+0.9 camera scale (resolution bucket 1), all 12 contexts failed the existing
+hard ink-count check before timed phases. The same failure occurs in the
+baseline and candidate; no latency or throughput gain can be inferred from it.
+
+[Artifact inspection](https://github.com/wieslawsoltes/UnoUML/actions/runs/43320896666)
+confirmed matching geometry/camera positions, native acknowledgement and 4× MSAA,
+with no GPU scope errors. The screenshots show sharper threshold-crossing GPU
+vector edges than the SVG reference at that fractional scale.
+
+| Workload at 0.9× | SVG ink pixels | GPU ink pixels | GPU/SVG ink | Mean channel error / 255 | Major difference fraction |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Starter | 3,030 | 3,481 | 1.148845 | 0.34039 | 0.00015795 |
+| 64 classes | 20,162 | 28,559 | 1.416477 | 1.52437 | 0.00210077 |
+| 256 classes | 18,764 | 29,831 | 1.589800 | 1.52605 | 0.00210252 |
+
+The second baseline 256-class reference contained 18,790 ink pixels; GPU ink
+remained 29,831. That small reference variation also requires investigation before
+claiming exact repeated-reference agreement. The mean-error and major-difference
+budgets pass, but the ink-ratio budget does not. No quality threshold has been
+relaxed. The initial 0.9× setup is not an accepted performance benchmark.
+
+The saved cold frames record the intended draw reductions (88→65, 577→457 and
+641→505), matching 23, 120 and 136 visible direct meshes. These are structural
+draw-count observations from a failed-quality setup, not warmed latency results.
+
+Further scale/reference characterization and accepted paired measurements are
+pending.

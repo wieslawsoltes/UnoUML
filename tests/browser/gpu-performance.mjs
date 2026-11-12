@@ -444,7 +444,7 @@ const report={
     wall:'Operation to validated native acknowledgment, including timer polling, WebAssembly, shared-device scope completion and dispatcher latency.',
     operation:'Synchronous/asynchronous public viewport operation, including native source parsing/layout on uncached edits; excludes later presentation.',
     encode:'Native CPU command encoding for the acknowledged frame; not GPU execution time.',
-    compilation:'CPU JS time for the last accepted scene compilation, not a sum of intermediate/canceled work. Camera samples report null instead of stale compilation times.',
+    compilation:'Elapsed wall time for the last accepted scene compilation, including awaited raster work but excluding the preceding document.fonts.ready wait; not a sum of intermediate/canceled work. Camera samples report null instead of stale compilation times.',
     scopes:'Passive original-promise popErrorScope calls started within each sample on the application shared device; can also include Uno UI scopes. Durations include only promises completed by the acknowledgment snapshot; observed/completed/pending counts expose that censoring. Pending promises have no measured completion duration.',
     rasterCache:'Per-operation differences of the lifetime hit/miss counters in before/after compiler snapshots. Camera distributions remain null. Raw lifetime snapshots are preserved.',
     nativeValidation:'Candidate-only native callback/dispatcher fields are additive diagnostics; absent baseline fields stay null.',
