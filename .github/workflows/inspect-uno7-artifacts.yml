@@ -90,14 +90,18 @@ jobs:
           };
           const html=await readFile(root+'/unouml-failure.html','utf8');
           emit('MODAL AND MENU DOM',summarizeSemantics(html),40000);
-          const source=await readFile(root+'/unouml-failure.puml','utf8');
-          emit('SOURCE',{
-            length:source.length,bom:source.charCodeAt(0)===65279,
-            sha256:createHash('sha256').update(source).digest('hex'),
-            prefixUnits:Array.from(source.slice(0,32),character=>character.charCodeAt(0)),
-            crlf:(source.match(/\r\n/g)||[]).length,cr:(source.match(/\r/g)||[]).length,lf:(source.match(/\n/g)||[]).length,
-            text:source.slice(0,1800)
-          });
+          if(files.includes('unouml-failure.puml')){
+            const source=await readFile(root+'/unouml-failure.puml','utf8');
+            emit('SOURCE',{
+              length:source.length,bom:source.charCodeAt(0)===65279,
+              sha256:createHash('sha256').update(source).digest('hex'),
+              prefixUnits:Array.from(source.slice(0,32),character=>character.charCodeAt(0)),
+              crlf:(source.match(/\r\n/g)||[]).length,cr:(source.match(/\r/g)||[]).length,lf:(source.match(/\n/g)||[]).length,
+              text:source.slice(0,1800)
+            });
+          }else{
+            emit('SOURCE',{available:false,reason:'No source snapshot was captured in the original failure artifact'});
+          }
           if(files.includes('browser-console.txt')){
             const lines=(await readFile(root+'/browser-console.txt','utf8')).split(/\r?\n/);
             emit('BROWSER CONSOLE',{lineCount:lines.length,last:lines.slice(-80).map(line=>line.slice(0,1200))},24000);
