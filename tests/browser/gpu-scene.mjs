@@ -5,6 +5,7 @@ import {verifyNativeModal} from './native-modal.mjs';
 import {verifyNativeTextBoxFocus} from './native-textbox-focus.mjs';
 import {verifySourceInput} from './source-input.mjs';
 import {verifyCanvasCoordinates} from './canvas-coordinates.mjs';
+import {verifyGpuOverlays} from './gpu-overlays.mjs';
 
 // Run against attached SVGs so Chromium supplies real CSS, CTMs, text shaping,
 // clipping and SVG image decoding. Fixtures never alter the editor document.
@@ -14,7 +15,8 @@ export async function verifyGpuScene(page,{artifactDir=process.env.SCREENSHOT_DI
     ['native semantic lifecycle',verifyNativeModal],
     ['native TextBox replacement focus',verifyNativeTextBoxFocus],
     ['native source input',verifySourceInput],
-    ['canvas coordinate agreement',verifyCanvasCoordinates]
+    ['canvas coordinate agreement',verifyCanvasCoordinates],
+    ['retained GPU editor overlays',verifyGpuOverlays]
   ]) {
     try {
       const result=await verify(page,{artifactDir});
