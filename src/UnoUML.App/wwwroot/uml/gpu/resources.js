@@ -273,9 +273,11 @@ export function worldRasterBounds(ctx,element){
  return[result[0]-pad,result[1]-pad,result[2]+pad*2,result[3]+pad*2];
 }
 export async function rasterCommands(ctx,element,id,reason,matrix){
+ ctx.checkpoint?.();
  const local=element!==ctx.svg&&element.localName!=='svg';
  ctx.fontEmbeddingCache??=new Map();
  const snapshot=await embedSvgFonts(ctx.svg,makeRasterSnapshot(ctx,element,{world:!local}),ctx.fontEmbeddingCache);
+ ctx.checkpoint?.();
  const scale=qualityBucket(ctx.scale*(local?maxScale(matrix):1));
  let bounds;
  if(local&&(reason==='text'||reason==='image'))bounds=localRasterBounds(element,ctx.style(element),scale,ctx,matrix);
@@ -290,7 +292,9 @@ export async function rasterCommands(ctx,element,id,reason,matrix){
  if(!(bounds[2]>0&&bounds[3]>0))return{commands:[],textures:[],reason};
  const tiles=rasterTiles(bounds,scale,ctx.rasterLimits),commands=[],textures=[];
  for(let i=0;i<tiles.length;i++){
-  const tile=tiles[i],resource=await ctx.rasterCache.get(snapshot,tile);textures.push(resource);
+  ctx.checkpoint?.();
+  const tile=tiles[i],resource=await ctx.rasterCache.get(snapshot,tile);
+  ctx.checkpoint?.();textures.push(resource);
   commands.push({id:id+':raster:'+i,kind:'image',matrix:local?matrix:identity(),bounds:tile.bounds,image:resource.id});
  }
  return{commands,textures,reason};

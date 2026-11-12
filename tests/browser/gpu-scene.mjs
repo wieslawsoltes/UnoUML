@@ -359,6 +359,75 @@ export async function verifyGpuScene(page,{artifactDir=process.env.SCREENSHOT_DI
       }finally{presentation.dispose();f.close();}
     });
 
+
+    await run('superseded raster compilation stops before remaining owners and source-version gaps',async()=>{
+      const f=fixture('<text x="5" y="25" font-size="20">Obsolete head</text><text x="5" y="55" font-size="20">Obsolete tail</text>');
+      const view={version:1,surface:f.host},updates=[],errors=[],jobs=[];
+      const presentation=new ScenePresentation(view,update=>updates.push(update),{
+        onError:error=>errors.push(error),
+        rasterOptions:{raster:(xml,width,height)=>new Promise(resolve=>jobs.push({
+          xml,complete:id=>resolve({id,width,height,rgba:bytesToBase64(new Uint8Array(width*height*4))})
+        }))}
+      });
+      let svg=f.svg;
+      const replace=markup=>{
+        const next=svg.cloneNode(false);next.innerHTML=markup;svg.replaceWith(next);svg=next;
+        presentation.setScene(svg,view.version);
+      };
+      try{
+        presentation.setScene(svg,view.version);
+        await until(()=>jobs.length===1||errors.length>0,'Old raster owner never started');
+        equal(errors,[],'Old raster starts without a compiler error');
+        view.version=2;
+        replace('<text x="5" y="25" font-size="20">Current head</text><text x="5" y="55" font-size="20">Current tail</text>');
+        jobs[0].complete('obsolete-head');
+        await until(()=>jobs.length===2||errors.length>0,'Current raster owner never started');
+        equal(errors,[],'Source replacement silently cancels stale compilation');
+        check(jobs[1].xml.includes('Current head'),'The next decode belongs to the replacement SVG');
+        equal(jobs.length,2,'No remaining obsolete owner is captured');
+        equal(updates.length,0,'Neither incomplete source publishes a transaction');
+        // Source layout is asynchronous: version can advance before setScene.
+        view.version=3;jobs[1].complete('superseded-head');
+        await until(()=>!presentation.running||jobs.length>2||errors.length>0,'Version-only invalidation did not stop compilation');
+        equal(jobs.length,2,'Version-only invalidation stops the remaining current-source owner');
+        equal(errors,[],'A source-version gap does not show a compiler error or fallback');
+        equal(updates.length,0,'A source-version gap never publishes the obsolete source');
+        replace('<rect x="5" y="5" width="40" height="30" fill="#259"/>');
+        await until(()=>updates.length===1||errors.length>0,'Latest vector source never committed');
+        equal(errors,[],'The latest source remains renderable after cancellation');
+        equal(updates[0].textures,[],'Cancelled sources contribute no stale texture payload');
+        equal(updates[0].commands.map(command=>command.kind),['fill'],'Only the latest vector source is submitted');
+        check(presentation.presented(updates[0].revision),'The latest exact source revision can be acknowledged');
+      }finally{presentation.dispose();for(const [index,job] of jobs.entries())job.complete('cleanup-'+index);f.close();}
+    });
+
+    await run('superseded tiled raster stops immediately after its active decode',async()=>{
+      const f=fixture('<g opacity=".5"><rect x="5" y="5" width="300" height="100" fill="#259"/></g>');
+      const view={version:1,surface:f.host},updates=[],errors=[],jobs=[];
+      const presentation=new ScenePresentation(view,update=>updates.push(update),{
+        onError:error=>errors.push(error),rasterLimits:{tileSize:64,maxTiles:256},
+        rasterOptions:{raster:(_xml,width,height)=>new Promise(resolve=>jobs.push({
+          width,height,complete:id=>resolve({id,width,height,rgba:bytesToBase64(new Uint8Array(width*height*4))})
+        }))}
+      });
+      try{
+        presentation.setScene(f.svg,view.version);
+        await until(()=>jobs.length===1||errors.length>0,'First raster tile never started');
+        equal(errors,[],'Tiled source starts without a compiler error');
+        check(jobs[0].width<=64&&jobs[0].height<=64,'The first decode is one tile of the larger owner');
+        const next=f.svg.cloneNode(false);next.innerHTML='<rect x="7" y="9" width="31" height="19" fill="#a53"/>';
+        f.svg.replaceWith(next);view.version=2;presentation.setScene(next,view.version);
+        jobs[0].complete('obsolete-tile');
+        await until(()=>updates.length===1||jobs.length>1||errors.length>0,'Cancellation did not release the presenter for the current source');
+        equal(jobs.length,1,'No second obsolete tile starts after the awaited decode completes');
+        equal(errors,[],'Tile cancellation does not request a fallback');
+        equal(updates.length,1,'The replacement source commits after the active old decode');
+        equal(updates[0].textures,[],'No obsolete tile is uploaded');
+        equal(updates[0].commands.map(command=>command.kind),['fill'],'The submitted source contains only the replacement rectangle');
+        check(presentation.presented(updates[0].revision),'Only the current revision is acknowledged');
+      }finally{presentation.dispose();for(const [index,job] of jobs.entries())job.complete('cleanup-'+index);f.close();}
+    });
+
     return {results,assertions,browser:navigator.userAgent,remainingFixtures:document.querySelectorAll('[data-gpu-compiler-fixture]').length};
   }).catch(error=>({results:[{name:'compiler fixture initialization',pass:false,error:error.message,stack:error.stack}],assertions:0}));
   report.fixtures=fixtures;
