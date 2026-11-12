@@ -32,9 +32,14 @@ export async function verifyFilesEditing(page, source) {
   const x=box.x+box.width/2,y=box.y+box.height/2;
   await page.keyboard.down('Alt');await page.mouse.move(x,y);await page.mouse.down();
   await page.mouse.move(x+85,y+36,{steps:8});await page.mouse.up();await page.keyboard.up('Alt');
-  await page.waitForFunction(input=>input.value.includes("' @unouml:canvas "),await source.elementHandle());
-  const arrangedSource=await source.inputValue(),arranged=(await snapshot()).state;
-  assert.equal((await snapshot()).body,input,'Free placement retains file paths and the BOM');
+  // Uno queues its BOM-safe semantic projection after the native text update.
+  // Wait for the complete projection and assert one snapshot, including its BOM.
+  const arrangedSource=await (await page.waitForFunction(input=>{
+    const text=input.value;
+    return text.startsWith("\uFEFF' @unouml:canvas ")?text:false;
+  },await source.elementHandle())).jsonValue();
+  const arrangedSnapshot=split(arrangedSource),arranged=arrangedSnapshot.state;
+  assert.equal(arrangedSnapshot.body,input,'Free placement retains file paths and the BOM');
   assert.equal(arranged.nodes.length,5);
 
   // The parent is inferred from two separate declarations. Editing its name
