@@ -112,7 +112,7 @@ public sealed partial class MainPage
         viewport.ArrangeCanvas(action, value == null ? "{}" : CanvasOptions(w => w.WriteString("value", value)));
     }
 
-    private void ShowArrangeMenu()
+    private void ShowArrangeMenu() => ShowAppMenu(arrangeButton, () =>
     {
         var menu = new MenuFlyout();
         MenuAction(menu, "Automatic layout…", () => _ = ShowCanvasLayoutAsync());
@@ -146,8 +146,8 @@ public sealed partial class MainPage
         menu.Items.Add(new MenuFlyoutSeparator());
         MenuAction(menu, "Select all shapes", () => CanvasAction("selectAll"));
         MenuAction(menu, "Restore renderer layout", () => CanvasAction("reset"));
-        menu.ShowAt(arrangeButton);
-    }
+        return menu;
+    });
 
     private void AddCanvasInspectorActions()
     {
