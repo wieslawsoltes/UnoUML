@@ -31,6 +31,9 @@ public sealed partial class MainPage
 
     private void OnCanvasCommand(string action, string text)
     {
+        // History belongs to the document, including while a new frame is being
+        // prepared or a literal-only selection has no structural commands.
+        if (action is "undo" or "redo") { History(action == "redo"); return; }
         if (renderedRevision != revision) return;
         if (action is "delete" or "cut" && !CanDeleteCanvasSelection()) return;
         if (TryHandleNetworkCanvasCommand(action, text) || TryHandleFilesCanvasCommand(action, text) || TryHandleGanttCanvasCommand(action, text)) return;

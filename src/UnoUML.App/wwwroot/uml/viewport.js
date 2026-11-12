@@ -321,11 +321,18 @@ class Viewport {
       event.stopPropagation();
     });
     s.addEventListener('keydown', event => {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229 ||
+          event.target.closest('input,textarea,select,[contenteditable]')) return;
       let action;
       if (event.key === 'Delete' || event.key === 'Backspace') action = 'delete';
-      if (event.ctrlKey || event.metaKey) {
-        if (event.key.toLowerCase() === 'd') action = 'duplicate';
-        if (event.key.toLowerCase() === 'g') action = event.shiftKey ? 'ungroup' : 'group';
+      if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+        const key = event.key.toLowerCase();
+        if (key === 'd') action = 'duplicate';
+        if (key === 'g') action = event.shiftKey ? 'ungroup' : 'group';
+        // The HTML canvas has its own focus owner. Native XAML focus can still
+        // identify the source TextBox, whose history must not consume this key.
+        if (key === 'z') action = event.shiftKey ? 'redo' : 'undo';
+        if (key === 'y' && !event.shiftKey) action = 'redo';
       }
       if (action) {
         event.preventDefault(); event.stopPropagation();

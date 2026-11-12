@@ -6,10 +6,38 @@ export async function verifyCanvasEvents(page, render) {
   const source = '@startuml\nclass "Customer" as A\nclass Orders\nA --> Orders\n@enduml';
   await render(source);
   await page.evaluate(() => { ui.setTool('diagram', 'select'); ui.setSelection('diagram', 'A', 1); });
+  // Owned canvas history must dispatch once and stop before Uno's document
+  // keyboard listener, regardless of the last native XAML focus owner.
+  const surface = page.locator('.surface').first();
+  const commandStart = await page.evaluate(() => {
+    globalThis.canvasHistoryKeys = [];
+    globalThis.canvasHistoryProbe = event => {
+      if ((event.ctrlKey || event.metaKey) && ['z','y'].includes(event.key.toLowerCase()))
+        canvasHistoryKeys.push(event.key);
+    };
+    document.addEventListener('keydown', canvasHistoryProbe);
+    return log.length;
+  });
+  try {
+    for (const key of ['Control+z','Control+Shift+z','Control+y','Meta+z','Meta+Shift+z'])
+      await surface.press(key);
+    assert.deepEqual(await page.evaluate(start => log.slice(start).filter(event => event.kind === 'command'), commandStart),
+      ['undo','redo','redo','undo','redo'].map(action => ({kind:'command', action, text:''})));
+    assert.deepEqual(await page.evaluate(() => canvasHistoryKeys), [], 'Claimed canvas history keys never reach native document dispatch');
+  } finally {
+    await page.evaluate(() => {
+      document.removeEventListener('keydown', canvasHistoryProbe);
+      delete globalThis.canvasHistoryProbe; delete globalThis.canvasHistoryKeys;
+    });
+  }
+  const historyCommands = await page.evaluate(() => log.filter(event => event.kind === 'command').length);
   const field = page.getByRole('textbox', {name:'Edit diagram label'});
   const begin = () => page.evaluate(() => ui.beginLabelEdit('diagram', 'Customer', 42));
   assert.equal(await begin(), true);
   await fillControl(page, field, 'Discarded');
+  await field.press('Control+z');
+  assert.equal(await page.evaluate(() => log.filter(event => event.kind === 'command').length), historyCommands,
+    'Inline label undo stays within its text editor');
   await field.press('Escape');
   assert.equal(await field.count(), 0);
   assert.equal(await page.evaluate(() => log.filter(x => x.kind === 'label').length), 0);
@@ -141,6 +169,14 @@ export async function verifyStudioEditing(page, source) {
   assert.ok((await source.inputValue()).includes('"n":false'));
   await surface.press('Control+z');
   await number.waitFor();
+  const editedJson = json.replace('"right":"same"', '"right":"second"');
+  assert.equal(await source.inputValue(), editedJson, 'Canvas undo restores exactly the preceding document transaction');
+  await surface.press('Control+Shift+z');
+  await page.locator('.paper text[data-json-kind="scalar"]').filter({hasText:/^false$/}).waitFor();
+  assert.equal(await source.inputValue(), editedJson.replace('"n":12', '"n":false'), 'Canvas redo restores exactly one document transaction');
+  await surface.press('Control+z');
+  await number.waitFor();
+  assert.equal(await source.inputValue(), editedJson);
   await fillControl(page, source, previous);
   await label.waitFor();
 }
