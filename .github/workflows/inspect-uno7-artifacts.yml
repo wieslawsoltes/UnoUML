@@ -1,4 +1,4 @@
-name: Validate Uno 7 overlay backend checkpoint
+name: Validate Uno 7 retained canvas overlay integration
 on:
   push:
     branches: [codex/uno7-artifact-inspection]
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      UNOUML_EXPECTED_COMMIT: '5669240189cd43ab555266e65077e7fb6ce0cf5c'
+      UNOUML_EXPECTED_COMMIT: '8bfba53aec62df83b0f8fb156334c3bab2317efa'
     steps:
       - uses: actions/checkout@v4
         with:
