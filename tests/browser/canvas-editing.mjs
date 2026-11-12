@@ -1,4 +1,5 @@
 import { fitCanvas } from './canvas-frame.mjs';
+import { traceNativeInput } from './native-input-trace.mjs';
 import { activateAccessibility, activateControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,readFile} from 'node:fs/promises';
@@ -126,8 +127,10 @@ export async function verifyCanvasEditing(page,source) {
     await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+dx,y+dy,{steps:8});await page.mouse.up();
     for(const key of modifiers.reverse())await page.keyboard.up(key);
   };
-  await fillControl(page, source, input);await shape('A').waitFor();await fitCanvas(page);
-  assert.equal(await paper.getAttribute('data-renderer'),'managed');
+  await traceNativeInput(page, source, 'canvas-initial-source', async () => {
+    await fillControl(page, source, input);await shape('A').waitFor();await fitCanvas(page);
+    assert.equal(await paper.getAttribute('data-renderer'),'managed');
+  }, { captureManagedInput: true, failureOnly: true });
   // Use the same DOM geometry API for snapshots and polling. Chromium's SVG
   // box-model protocol used by boundingBox() need not share these stroke bounds.
   const originalBounds=await measure(shape('A'));assert.ok(originalBounds);
