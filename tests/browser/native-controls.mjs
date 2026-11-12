@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { traceNativeInput } from './native-input-trace.mjs';
 
 const nativeControlActions = new WeakMap();
 
@@ -311,6 +312,11 @@ export async function fillControl(page, locator, value, options = {}) {
     return locator.fill(value, options);
   }
 
+  return traceNativeInput(page, locator, 'native-fill', () => fillNativeControl(page, locator, value, options),
+    { failureOnly: true });
+}
+
+async function fillNativeControl(page, locator, value, options) {
   assert.equal(typeof value, 'string', 'Native textbox replacement requires text');
   assert.ok(!options.force, 'Native textbox replacement must pass visibility and editability checks');
   const timeout = options.timeout ?? 30_000;

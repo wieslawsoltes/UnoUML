@@ -1,13 +1,68 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+let traceSequence = 0;
+
+// Keep failure evidence readable through GitHub's log API even when the ZIP
+// artifact cannot be extracted. Descriptions are interned by actual DOM object
+// identity; values stay short, and both ends of a bounded event stream survive.
+function compactNativeInputTrace(name, sequence, failure, report) {
+  const available = report.events ?? [];
+  let count = Math.min(96, available.length);
+  for (;;) {
+    const selected = available.length <= count ? available
+      : [...available.slice(0, Math.floor(count / 2)), ...available.slice(-Math.ceil(count / 2))];
+    const nodes = new Map();
+    const short = value => typeof value === 'string' ? value.slice(0, 80) : value ?? null;
+    const prefix = value => value?.prefix ? String.fromCharCode(...value.prefix.slice(0, 16)) : null;
+    const describe = value => {
+      if (!value) return null;
+      if (!nodes.has(value.identity)) nodes.set(value.identity, {
+        identity: value.identity, id: short(value.id), tag: short(value.tag),
+        automationId: short(value.automationId), name: short(value.name)
+      });
+      return {
+        node: value.identity, attached: value.connected,
+        ...(value.value ? { length: value.value.length, prefix: prefix(value.value) } : {}),
+        ...(value.start !== null || value.end !== null ? { selection: [value.start, value.end] } : {}),
+        ...(value.disabled === true ? { disabled: true } : {}),
+        ...(value.hidden ? { hidden: true } : {})
+      };
+    };
+    const events = selected.map(entry => ({
+      ms: Math.round(entry.elapsedMs * 100) / 100, phase: entry.phase, type: entry.type,
+      documentFocused: entry.documentFocused,
+      ...(entry.event ? {
+        key: short(entry.event.key), code: short(entry.event.code),
+        ctrl: entry.event.ctrl, meta: entry.event.meta, shift: entry.event.shift, alt: entry.event.alt,
+        trusted: entry.event.trusted, prevented: entry.event.defaultPrevented,
+        composing: entry.event.composing, inputType: short(entry.event.inputType),
+        ...(entry.event.data ? { dataLength: entry.event.data.length, dataPrefix: prefix(entry.event.data) } : {})
+      } : {}),
+      target: describe(entry.target), current: describe(entry.current),
+      active: describe(entry.active), sharedInput: describe(entry.sharedInput)
+    }));
+    const text = JSON.stringify({
+      name: short(name), sequence, failure: String(failure?.message ?? failure).slice(0, 2000),
+      id: short(report.id), automationId: short(report.automationId),
+      captureError: typeof report.captureError === 'string' ? report.captureError.slice(0, 2000) : undefined,
+      elapsedMs: report.elapsedMs,
+      dropped: (report.dropped ?? 0) + available.length - selected.length,
+      nodes: [...nodes.values()], events
+    });
+    if (text.length <= 48000 || count <= 8) return text;
+    count = Math.max(8, count - 8);
+  }
+}
+
 /**
  * Observe one failing native input sequence without changing its input path.
  * The action runs once. Listeners are passive; no focus, value, selection,
  * default-action, readiness or retry behavior is added by this diagnostic.
  */
-export async function traceNativeInput(page, locator, name, action, { artifactDir = process.env.SCREENSHOT_DIR } = {}) {
+export async function traceNativeInput(page, locator, name, action, { artifactDir = process.env.SCREENSHOT_DIR, failureOnly = false } = {}) {
   if (!/^[a-z0-9-]+$/.test(name)) throw new Error('Native input trace name must be a safe artifact stem');
+  const sequence = ++traceSequence;
   const capture = await locator.evaluateHandle(original => {
     const doc = original.ownerDocument;
     const root = original.closest('#uno-semantics-root');
@@ -110,10 +165,11 @@ export async function traceNativeInput(page, locator, name, action, { artifactDi
     catch (error) { report = { captureError: String(error.message) }; }
     try { await capture.dispose(); }
     catch (error) { report.disposeError = String(error.message); }
-    if (artifactDir) {
+    if (failure) console.error('Native input failure trace: ' + compactNativeInputTrace(name, sequence, failure, report));
+    if (artifactDir && (!failureOnly || failure)) {
       try {
         await mkdir(artifactDir, { recursive: true });
-        await writeFile(resolve(artifactDir, name + '-input.json'), JSON.stringify({ name, failure, ...report }, null, 2));
+        await writeFile(resolve(artifactDir, name + (failureOnly ? '-' + sequence : '') + '-input.json'), JSON.stringify({ name, sequence, failure, ...report }, null, 2));
       } catch (error) {
         // Diagnostics must not replace the action's original failure.
         console.warn(`Could not save ${name} native input trace: ${error.message}`);
