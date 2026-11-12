@@ -46,10 +46,9 @@ public sealed unsafe partial class DiagramGpuCanvas
             {
                 ref readonly RenderItem item = ref _renderItems[index];
                 GpuCommand command = item.Command;
-                Matrix3x2 combined = command.Matrix * _scene.Camera;
-                if (!command.Bounds.Transform(combined).Intersects((float)_scene.Width, (float)_scene.Height))
+                if (!command.ViewportBounds(_scene.Camera).Intersects((float)_scene.Width, (float)_scene.Height))
                     continue;
-                if (command.Clip is { } clip && !clip.Transform(_scene.Camera).Intersects((float)_scene.Width, (float)_scene.Height))
+                if (command.ViewportClip(_scene.Camera) is { } clip && !clip.Intersects((float)_scene.Width, (float)_scene.Height))
                     continue;
                 if (command.Paint.Opacity <= 0) continue;
                 _visibleBundles[visible++] = item.Bundle;
@@ -201,6 +200,7 @@ public sealed unsafe partial class DiagramGpuCanvas
         data[32] = paint.Radius; data[33] = paint.FocalRadius; data[34] = paint.Stops.Length;
         if (command.Clip is { } clip) PutRect(data, 36, clip);
         else data[38] = -1;
+        data[40] = command.Space == GpuCoordinateSpace.Viewport ? 1 : 0;
         WriteFloats(_drawBuffer, offset, data);
     }
 

@@ -175,7 +175,15 @@ public sealed class GpuSceneModel
         string? image = value.TryGetProperty("image", out var imageValue)
             ? imageValue.ValueKind == JsonValueKind.Null ? null : Id(imageValue) : old?.Image;
         if (kind == GpuCommandKind.Image && image is null) throw Invalid("An image command requires a texture.");
-        return new(id, kind, vertices, matrix, bounds, rule, paint, clip, image);
+        GpuCoordinateSpace space = value.TryGetProperty("space", out var spaceValue)
+            ? spaceValue.GetString() switch
+            {
+                "world" => GpuCoordinateSpace.World,
+                "viewport" => GpuCoordinateSpace.Viewport,
+                _ => throw Invalid("Unsupported GPU coordinate space.")
+            }
+            : old?.Space ?? GpuCoordinateSpace.World;
+        return new(id, kind, vertices, matrix, bounds, rule, paint, clip, image, space);
     }
 
     private static GpuPaint ReadPaint(JsonElement value)
@@ -273,8 +281,18 @@ public sealed class GpuSceneModel
 }
 
 internal enum GpuCommandKind { Fill, Mesh, Image }
+internal enum GpuCoordinateSpace { World, Viewport }
 internal sealed record GpuCommand(string Id, GpuCommandKind Kind, float[] Vertices, Matrix3x2 Matrix,
-    GpuRect Bounds, string Rule, GpuPaint Paint, GpuRect? Clip, string? Image);
+    GpuRect Bounds, string Rule, GpuPaint Paint, GpuRect? Clip, string? Image, GpuCoordinateSpace Space)
+{
+    // Viewport commands use CSS pixels. Their local transform remains retained,
+    // while the diagram camera never scales handles or moves viewport clipping.
+    internal GpuRect ViewportBounds(Matrix3x2 camera) =>
+        Bounds.Transform(Space == GpuCoordinateSpace.Viewport ? Matrix : Matrix * camera);
+
+    internal GpuRect? ViewportClip(Matrix3x2 camera) =>
+        Clip is { } clip ? Space == GpuCoordinateSpace.Viewport ? clip : clip.Transform(camera) : null;
+}
 internal sealed record GpuImage(string Id, int Width, int Height, byte[] Rgba);
 internal sealed record GpuStop(float Offset, float[] Color);
 internal sealed record GpuPaint(string Kind, float[] Color, float Opacity, Matrix3x2 Transform,

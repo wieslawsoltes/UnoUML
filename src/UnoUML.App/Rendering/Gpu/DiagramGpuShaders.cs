@@ -46,8 +46,13 @@ fn affine(p: vec2<f32>, m0: vec4<f32>, offset: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(m0.x * p.x + m0.z * p.y, m0.y * p.x + m0.w * p.y) + offset;
 }
 fn project(local: vec2<f32>, uv: vec2<f32>) -> VertexOutput {
+    // "world" is the command's drawing space: diagram units by default, or
+    // CSS viewport pixels for editor decorations. Paint and clip share it.
     let world = affine(local, draw.matrix0, draw.matrix1.xy);
-    let pixel = affine(world, globals.camera0, globals.camera1.xy);
+    var pixel = world;
+    if draw.options.x < 0.5 {
+        pixel = affine(world, globals.camera0, globals.camera1.xy);
+    }
     var result: VertexOutput;
     result.position = vec4<f32>(pixel.x / globals.camera1.z * 2.0 - 1.0,
         1.0 - pixel.y / globals.camera1.w * 2.0, 0.0, 1.0);
