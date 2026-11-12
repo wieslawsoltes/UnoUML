@@ -67,6 +67,12 @@ then verifies the complete resulting value. This updates the managed TextBox
 selection as well as its DOM projection; a browser-only selection could instead
 prepend text to the existing document.
 
+Native fill failures include opt-in snapshots of the public `FocusManager` owner
+and target TextBox at keyboard capture and bubble. They record identity, loaded,
+focus and enabled state, text length/BOM, and selection. Readers exist only while
+their TextBox is loaded and use `Utf8JsonWriter` for trimming-safe Release builds.
+These snapshots observe existing state without setting focus or changing input.
+
 Scoped compatibility repairs cover native accessibility defects
 observed in Uno 7.0.32:
 
@@ -167,6 +173,13 @@ trusted committed input and repairs only that event's exact missing-leading-BOM
 echo before subsequent input can observe it. Ordinary registrations use a constant
 empty envelope rather than serializing the document on every text change.
 
+Every document refresh invalidates the previous native text expectation before
+binding and publishes the final text, selection and focus. This also runs when
+LF/CRLF normalization leaves the TextBox value unchanged, so reopening equivalent
+source still refreshes its browser projection. Opening plain text cannot inherit
+an older document's BOM expectation. Async generation guards discard superseded
+projection work while the loaded editor keeps its composition registration.
+
 Both repair paths preserve UTF-16 selection and scroll position, account for DOM
 CRLF normalization, and leave active IME composition, deliberate BOM deletion,
 nonmatching transformations and untrusted input untouched. Element/registration
@@ -198,6 +211,14 @@ semantic statement replacement retains the existing document newline policy.
 The viewport layers `DiagramGpuCanvas` below a native `BrowserHtmlElement`.
 The HTML host retains the installed SVG for precise measurement, source identity,
 pointer hit testing, label editing, editor controls and vector export.
+
+Canvas history shortcuts dispatch directly to the document history bridge:
+Control/Command+Z undoes, Shift+Control/Command+Z redoes, and Control/Command+Y
+also redoes. Claimed keys stop before native document dispatch because the XAML
+focus owner can still be the source editor while the HTML canvas has browser
+focus. Inline text editors retain their own undo; composition, Alt combinations
+and already-handled events do not invoke canvas commands. Document history remains
+available while a new frame is pending and for literal-only canvas selections.
 
 The camera owns the viewport's complete pan/zoom transform. The HTML surface uses
 `overflow: clip`: `overflow: hidden` would still permit programmatic or
