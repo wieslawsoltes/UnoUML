@@ -1,0 +1,213 @@
+name: Probe Uno 7 imported editing and native compatibility
+on:
+  push:
+    branches: [codex/uno7-artifact-inspection]
+    paths: [.github/workflows/probe-uno7-imports.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  imported-editing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      UNOUML_APP_HEAD: '3c1dac1310b2bb880831cf0ef484e33c737bab89'
+      UNOUML_REQUIRE_WEBGPU: '1'
+    steps:
+      - name: Check out the exact application revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.UNOUML_APP_HEAD }}
+          persist-credentials: false
+      - name: Verify the immutable application checkout
+        run: test "$(git rev-parse HEAD)" = "$UNOUML_APP_HEAD"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Prepare native and browser dependencies
+        run: |
+          dotnet workload install wasm-tools --skip-manifest-update
+          npm ci --ignore-scripts
+          npm run prepare:renderer
+      - name: Publish and stage the exact Uno 7 WebGPU application
+        run: |
+          dotnet publish src/UnoUML.App -f net10.0-browserwasm -c Release -o "$RUNNER_TEMP/import-site"
+          node scripts/verify-uno7-assets.mjs src/UnoUML.App/obj/project.assets.json
+          node scripts/stage-pages.mjs "$RUNNER_TEMP/import-site/wwwroot" "$RUNNER_TEMP/import-pages"
+      - name: Write the focused runner using unchanged production test modules
+        run: |
+          cat > tests/browser/uno7-import-probe.mjs <<'PROBE'
+          import assert from 'node:assert/strict';
+          import { mkdir, writeFile } from 'node:fs/promises';
+          import { resolve } from 'node:path';
+          import { chromium } from 'playwright';
+          import { graphicsLaunchOptions } from './graphics-options.mjs';
+          import { publishedPrefix, servePublishedSite } from './published-site.mjs';
+          import { activateAccessibility, activateControl, getNativeControlDiagnostics } from './native-controls.mjs';
+          import { verifyArchiveImport, verifyArchiveAliasEditing } from './archive.mjs';
+          import { verifyImportedPageRouting } from './imported-editing.mjs';
+          import { verifyNativeCompatibility } from './native-compatibility.mjs';
+          
+          if (!process.argv[2] || !process.env.SCREENSHOT_DIR) throw new Error('Published site and artifact directory are required.');
+          const directory = resolve(process.env.SCREENSHOT_DIR);
+          await mkdir(directory, {recursive:true});
+          const server = await servePublishedSite(resolve(process.argv[2]));
+          const url = 'http://127.0.0.1:' + server.address().port + publishedPrefix;
+          const failures = [], results = [];
+          let browser;
+          
+          async function currentGpu(page, wait = false) {
+            const surface = page.locator('.surface').first();
+            const reader = await surface.evaluateHandle(async surface => ({
+              surface, rendererState:(await import(new URL('uml/viewport.js',document.baseURI))).rendererState
+            }));
+            try {
+              if (wait) {
+                const ready = await page.waitForFunction(({surface,rendererState}) => {
+                  const host = surface.getRootNode().host, rect = surface.getBoundingClientRect();
+                  const gpu = host && rendererState(host.id), ratio = devicePixelRatio || 1;
+                  return surface.isConnected && rect.width > 0 && rect.height > 0
+                    && gpu?.available && gpu.backend === 'webgpu' && !gpu.pending && !gpu.reason
+                    && gpu.presentedRevision === gpu.revision
+                    && Math.abs(gpu.statistics?.pixelWidth - Math.round(rect.width * ratio)) <= 1
+                    && Math.abs(gpu.statistics?.pixelHeight - Math.round(rect.height * ratio)) <= 1;
+                },reader,{polling:50,timeout:35000});
+                assert.equal(await ready.jsonValue(),true,'A current native WebGPU frame is required.');
+                await ready.dispose();
+              }
+              return await reader.evaluate(({surface,rendererState}) => rendererState(surface.getRootNode().host.id));
+            } finally { await reader.dispose(); }
+          }
+          
+          const describeError = error => ({
+            message:String(error.message ?? error).slice(0,4096), stack:error.stack?.slice(0,16384)
+          });
+          async function runScenario(name, steps) {
+            const started = Date.now();
+            const report = {name,appCommit:process.env.UNOUML_APP_HEAD,phases:[],console:[],pageErrors:[],requestFailures:[],dropped:{}};
+            const limits = {console:256,pageErrors:64,requestFailures:64};
+            const record = (field,value) => {
+              if (report[field].length < limits[field]) report[field].push({elapsedMs:Date.now()-started,...value});
+              else {
+                report.dropped[field] = (report.dropped[field] ?? 0) + 1;
+                if (field === 'console') { report[field].shift(); report[field].push({elapsedMs:Date.now()-started,...value}); }
+              }
+            };
+            const phase = name => { report.phase = name; report.phases.push({name,elapsedMs:Date.now()-started}); };
+            let context, page;
+            try {
+              context = await browser.newContext({viewport:{width:1390,height:860},colorScheme:'light',acceptDownloads:true});
+              page = await context.newPage();
+              page.setDefaultTimeout(35000);
+              page.on('console',message => record('console',{type:message.type(),text:message.text().slice(0,16384)}));
+              page.on('pageerror',error => record('pageErrors',describeError(error)));
+              page.on('requestfailed',request => record('requestFailures',{
+                url:request.url().slice(0,2048),failure:request.failure()?.errorText
+              }));
+              phase('startup');
+              await page.goto(url,{waitUntil:'domcontentloaded'});
+              await page.locator('.paper svg').first().waitFor({state:'visible',timeout:120000});
+              await activateAccessibility(page);
+              await activateControl(page,page.getByRole('button',{name:'Split',exact:true}));
+              const source = page.getByRole('textbox',{name:'PlantUML source',exact:true});
+              await source.waitFor({state:'visible'});
+              report.initialGpu = await currentGpu(page,true);
+              for (const [label,verify] of steps) {
+                phase(label);
+                await verify(page,source);
+                report.phases.push({name:label+' passed',elapsedMs:Date.now()-started,gpu:await currentGpu(page,true)});
+                console.log('Passed focused ' + label + '.');
+              }
+              assert.deepEqual(report.pageErrors,[],'The scenario must not emit browser errors.');
+              phase('passed');
+              report.passed = true;
+            } catch (error) {
+              report.failure = describeError(error);
+              report.passed = false;
+              failures.push(new Error(name + ' failed at ' + report.phase,{cause:error}));
+              console.error('Focused ' + name + ' failure:',error);
+              if (page && !page.isClosed()) {
+                const captures = [
+                  ['screenshot',() => page.screenshot({path:resolve(directory,name+'-failure.png'),timeout:10000})],
+                  ['html',async () => {
+                    const html = await page.content();
+                    await writeFile(resolve(directory,name+'-failure.html'),html.slice(0,2*1024*1024));
+                    report.htmlTruncated = html.length > 2*1024*1024;
+                  }],
+                  ['source',async () => {
+                    const source = page.getByRole('textbox',{name:'PlantUML source',exact:true,includeHidden:true});
+                    if (await source.count() === 1) {
+                      const text = await source.inputValue({timeout:1000});
+                      await writeFile(resolve(directory,name+'-failure.puml'),text.slice(0,1024*1024));
+                      report.sourceTruncated = text.length > 1024*1024;
+                    }
+                  }]
+                ];
+                for (const [label,capture] of captures) {
+                  try { await capture(); }
+                  catch (error) { (report.captureErrors ??= {})[label] = describeError(error); }
+                }
+              }
+            } finally {
+              if (page && !page.isClosed()) {
+                report.nativeActions = getNativeControlDiagnostics(page);
+                report.finalGpu = await currentGpu(page).catch(error => ({diagnosticError:describeError(error)}));
+                report.finalDom = await page.evaluate(() => {
+                  const describe = element => element ? {tag:element.localName,id:element.id,
+                    role:element.getAttribute('role'),name:element.getAttribute('aria-label'),
+                    automationId:element.getAttribute('xamlautomationid'),readOnly:element.readOnly,disabled:element.disabled} : null;
+                  return {visibility:document.visibilityState,hasFocus:document.hasFocus(),active:describe(document.activeElement),
+                    dialogs:[...document.querySelectorAll('[role="dialog"]')].slice(0,8).map(describe),
+                    textboxes:[...document.querySelectorAll('#uno-semantics-root textarea')].slice(0,16)
+                      .map(element => ({...describe(element),length:element.value.length,selection:[element.selectionStart,element.selectionEnd]}))};
+                }).catch(error => ({diagnosticError:describeError(error)}));
+              }
+              report.elapsedMs = Date.now()-started;
+              try { if (context) await context.close(); }
+              catch (error) { failures.push(new Error('Could not close ' + name + ' context',{cause:error})); }
+              await writeFile(resolve(directory,name+'-diagnostics.json'),JSON.stringify(report,null,2));
+              results.push({name,passed:!!report.passed,phase:report.phase,elapsedMs:report.elapsedMs,failure:report.failure});
+              console.log('Focused result: ' + JSON.stringify(results.at(-1)));
+            }
+          }
+          
+          try {
+            browser = await chromium.launch(graphicsLaunchOptions(true));
+            // Alias editing consumes the ZIP member changed and persisted by import.
+            await runScenario('archive-import',[
+              ['verifyArchiveImport',verifyArchiveImport],
+              ['verifyArchiveAliasEditing',verifyArchiveAliasEditing]
+            ]);
+            // This fixture creates its own include. Keep held-write/readOnly acceptance
+            // independent of archive UI failures without changing either test.
+            await runScenario('imported-page-routing',[
+              ['verifyImportedPageRouting',verifyImportedPageRouting]
+            ]);
+            await runScenario('native-compatibility',[
+              ['verifyNativeCompatibility',verifyNativeCompatibility]
+            ]);
+          } finally {
+            await writeFile(resolve(directory,'probe-results.json'),JSON.stringify({
+              appCommit:process.env.UNOUML_APP_HEAD,results,failures:failures.map(describeError)
+            },null,2));
+            if (browser) await browser.close();
+            await new Promise((resolve,reject) => server.close(error => error ? reject(error) : resolve()));
+          }
+          if (failures.length) throw new AggregateError(failures,'Focused published import/native checks failed.');
+          PROBE
+          node --check tests/browser/uno7-import-probe.mjs
+      - name: Verify imports, held writes and native compatibility with actual WebGPU
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/uno7-import-probe
+        run: CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/uno7-import-probe.mjs "$RUNNER_TEMP/import-pages"
+      - name: Preserve focused acceptance and bounded failure evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uno7-import-probe
+          path: ${{ runner.temp }}/uno7-import-probe/
+          if-no-files-found: ignore
