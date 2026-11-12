@@ -225,11 +225,15 @@ function nativeCommandState(element) {
     exposed = style.display !== 'none' && style.visibility !== 'hidden' && style.visibility !== 'collapse';
   }
   const enabled = !element.closest('[aria-disabled="true"], [disabled]') && !element.matches(':disabled');
-  const focused = element.ownerDocument.hasFocus() && element.ownerDocument.activeElement === element;
+  // Playwright routes keyboard input to this page's target, including parallel
+  // browser contexts. Its exact active element identifies the recipient;
+  // top-level window activation is diagnostic, not a cross-page input lock.
+  const focused = element.ownerDocument.activeElement === element;
   const rect = element.getBoundingClientRect();
   const active = element.ownerDocument.activeElement;
   return {
     native: !!root, attached: element.isConnected, exposed, enabled, focused,
+    documentFocused: element.ownerDocument.hasFocus(),
     supported: key !== null, key, role, tag, id: element.id,
     name: element.getAttribute('aria-label'),
     active: active ? { id: active.id, tag: active.localName, role: active.getAttribute('role') } : null,
