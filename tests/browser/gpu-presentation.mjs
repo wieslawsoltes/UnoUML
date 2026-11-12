@@ -143,6 +143,55 @@ async function comparePaint(page, name, {overlaySelector = null} = {}) {
 }
 
 
+function assertOverlayClearRetention(before, selected, cleared) {
+  const initial = before.statistics, prior = selected.statistics, current = cleared.statistics;
+  assert.ok(Number.isSafeInteger(prior.viewportCommands) && Number.isSafeInteger(current.viewportCommands)
+    && current.viewportCommands >= 0 && current.viewportCommands < prior.viewportCommands,
+  'Clearing selection must remove viewport command membership.');
+
+  // Capacity has already grown for selection and hover. Removing decorations
+  // must retain both shared arenas, irrespective of their adapter-aligned stride.
+  for (const field of ['drawUniformCapacityBytes','gradientCapacityBytes','uniformAndStopBytes']) {
+    assert.ok(Number.isSafeInteger(prior[field]) && prior[field] > 0,
+      'The native renderer must report its allocated ' + field);
+    assert.equal(current[field],prior[field],'Clearing overlays must retain ' + field);
+  }
+  for (const field of ['geometryUploadBytes','textureUploadBytes','imageTextures','textureBytes'])
+    assert.equal(current[field],prior[field],'Clearing overlays must retain ' + field);
+  const worldCommands = value => value.commands - value.viewportCommands;
+  const worldBuffers = value => value.geometryBuffers - value.viewportCommands;
+  assert.equal(worldCommands(prior),worldCommands(initial),'Selection keeps every diagram command.');
+  assert.equal(worldCommands(current),worldCommands(initial),'Clearing selection keeps every diagram command.');
+  // The overlay producer emits vector commands, each with one retained mesh.
+  assert.equal(worldBuffers(prior),worldBuffers(initial),'Selection keeps every diagram vertex buffer.');
+  assert.equal(worldBuffers(current),worldBuffers(initial),'Clearing releases only removed overlay vertex buffers.');
+  assert.ok(current.vertexBytes <= prior.vertexBytes && current.vertexBytes >= initial.vertexBytes,
+    'Removing overlay geometry preserves the diagram vertex payload.');
+  for (const field of ['generation','sourceVersion','viewVersion']) {
+    assert.equal(selected.compilation[field],before.compilation[field],
+      'Selection must not change compiler ' + field);
+    assert.equal(cleared.compilation[field],selected.compilation[field],
+      'Clearing selection must not change compiler ' + field);
+  }
+
+  // Each changed draw uploads a 256-byte payload, even when adapter alignment
+  // makes its arena stride larger. Culling happens after uniform synchronization,
+  // so total remaining viewport commands are the conservative upload bound.
+  const drawUniformUploadDelta = current.drawUniformUploadBytes - prior.drawUniformUploadBytes;
+  const drawUniformUploadBudget = current.viewportCommands * 256;
+  assert.ok(Number.isSafeInteger(drawUniformUploadDelta) && drawUniformUploadDelta >= 0
+    && drawUniformUploadDelta % 256 === 0 && drawUniformUploadDelta <= drawUniformUploadBudget,
+  'Clearing selection must upload only remaining changed viewport uniforms: ' +
+    drawUniformUploadDelta + ' bytes; viewport budget ' + drawUniformUploadBudget + ' bytes.');
+  const bundleBuildDelta = current.bundleBuilds - prior.bundleBuilds;
+  assert.ok(Number.isSafeInteger(bundleBuildDelta) && bundleBuildDelta >= 0
+    && bundleBuildDelta <= current.viewportCommands,
+  'Clearing selection must retain diagram bundles and rebuild only changed viewport slots.');
+  return {fromRevision:selected.revision,toRevision:cleared.revision,
+    viewportCommandsBefore:prior.viewportCommands,viewportCommandsAfter:current.viewportCommands,
+    drawUniformUploadDelta,drawUniformUploadBudget,bundleBuildDelta};
+}
+
 async function verifySelectionOverlay(page) {
   const surface = page.locator('.surface').first();
   const selection = surface.locator('.selection');
@@ -169,7 +218,7 @@ async function verifySelectionOverlay(page) {
   assert.equal(await selection.isHidden(),true,'The overlay check begins without a selected object.');
   const before = await presented(page);
   const target = surface.locator('.paper .participant-head[data-uml-hit]').filter({hasText:'Storefront'}).first();
-  let selected, decoration, quality, failure, cleared;
+  let selected, decoration, quality, failure, cleared, clearBaseline;
   try {
     await target.click();
     await page.mouse.move(1,1);
@@ -197,7 +246,8 @@ async function verifySelectionOverlay(page) {
     quality = await comparePaint(page,'gpu-selection-overlay',{overlaySelector:'.selection'});
   } catch (error) { failure=error; }
   try {
-    const revision = (await presented(page)).revision;
+    clearBaseline = await presented(page);
+    const revision = clearBaseline.revision;
     await surface.press('Escape');
     await page.mouse.move(1,1);
     await selection.waitFor({state:'hidden'});
@@ -209,7 +259,8 @@ async function verifySelectionOverlay(page) {
   if (failure) throw failure;
   assert.deepEqual(await documentState(),originalDocument,'Pointer selection and Escape preserve the source document.');
   assert.deepEqual(await history(),originalHistory,'Overlay interaction must not create undo or redo entries.');
-  return {before,selected,cleared,decoration,quality};
+  const retention = assertOverlayClearRetention(before,clearBaseline,cleared);
+  return {before,selected,clearBaseline,cleared,decoration,quality,retention};
 }
 
 export async function verifyGpuPresentation(page) {
