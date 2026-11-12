@@ -7,7 +7,14 @@ export async function verifyFilesEditing(page, source) {
   await page.setViewportSize({width:1480,height:960});
   const paper=page.locator('.paper').first(),surface=page.locator('.surface').first();
   const row=path=>paper.locator(`[data-files-path=${JSON.stringify(path)}]`);
-  const waitSource=async expected=>page.waitForFunction(({input,expected})=>input.value===expected,{input:await source.elementHandle(),expected});
+  const sourceAutomationId=await source.getAttribute('xamlautomationid');
+  assert.ok(sourceAutomationId,'Native source editor exposes its public AutomationId');
+  // Native semantic nodes can be replaced when the inspector rebuilds. Resolve
+  // the current editor for each poll instead of retaining a detached textarea.
+  const waitSource=async expected=>page.waitForFunction(({automationId,expected})=>{
+    const input=document.querySelector('textarea[xamlautomationid="'+CSS.escape(automationId)+'"]');
+    return input?.isConnected&&input.value===expected;
+  },{automationId:sourceAutomationId,expected});
   const split=text=>{
     const bom=text.startsWith('\uFEFF')?'\uFEFF':'',body=text.slice(bom.length),newline=body.indexOf('\n');
     if(!body.startsWith("' @unouml:canvas "))return {state:null,body:text};
@@ -34,10 +41,11 @@ export async function verifyFilesEditing(page, source) {
   await page.mouse.move(x+85,y+36,{steps:8});await page.mouse.up();await page.keyboard.up('Alt');
   // Uno queues its BOM-safe semantic projection after the native text update.
   // Wait for the complete projection and assert one snapshot, including its BOM.
-  const arrangedSource=await (await page.waitForFunction(input=>{
-    const text=input.value;
+  const arrangedSource=await (await page.waitForFunction(automationId=>{
+    const input=document.querySelector('textarea[xamlautomationid="'+CSS.escape(automationId)+'"]');
+    const text=input?.isConnected?input.value:'';
     return text.startsWith("\uFEFF' @unouml:canvas ")?text:false;
-  },await source.elementHandle())).jsonValue();
+  },sourceAutomationId)).jsonValue();
   const arrangedSnapshot=split(arrangedSource),arranged=arrangedSnapshot.state;
   assert.equal(arrangedSnapshot.body,input,'Free placement retains file paths and the BOM');
   assert.equal(arranged.nodes.length,5);
