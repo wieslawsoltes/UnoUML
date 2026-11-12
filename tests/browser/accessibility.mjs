@@ -74,7 +74,10 @@ export async function verifyAccessibility(page) {
     assert.equal(await focusReady.jsonValue(), true, 'Keyboard focus remains in the modal or its controlled popup');
     await focusReady.dispose();
     const domain = choices.getByRole('option', { name: 'Domain model', exact: true });
-    await traceNativeInput(page, source, 'native-option-focus', async () => {
+    // Observe the background editor's public native-owner reader while the
+    // modal excludes that editor from the accessible interaction tree.
+    const diagnosticSource = page.getByRole('textbox', { name: 'PlantUML source', exact: true, includeHidden: true });
+    await traceNativeInput(page, diagnosticSource, 'native-option-focus', async () => {
       await domain.focus();
       // Native focused-item projection is queued. Re-resolve the current
       // semantic option while acknowledging focus; do not request focus again.
