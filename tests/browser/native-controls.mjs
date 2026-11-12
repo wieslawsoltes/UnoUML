@@ -317,6 +317,8 @@ export async function fillControl(page, locator, value, options = {}) {
     state = await locator.evaluate(element => ({
       attached: element.isConnected,
       focused: element.ownerDocument.activeElement === element,
+      id: element.id,
+      automationId: element.getAttribute('xamlautomationid'),
       tag: element.localName,
       name: element.getAttribute('aria-label'),
       start: element.selectionStart,
@@ -329,18 +331,81 @@ export async function fillControl(page, locator, value, options = {}) {
   assert.ok(state?.attached && state.focused && state.start === 0 && state.end === state.length,
     `Native textbox did not select its complete value: ${JSON.stringify(state)}`);
   assert.equal(await locator.isEditable(), true, 'Native textbox remains editable before replacement');
-  if (value.length) await page.keyboard.insertText(value);
-  else await page.keyboard.press('Backspace');
 
-  // Browser textareas normalize line endings; single-line inputs remove them.
-  // Never retry insertion: a failed replacement must retain its actual result
-  // for the scenario's diagnostics, rather than applying another edit.
-  const expected = state.tag === 'textarea' ? value.replace(/\r\n?/g, '\n') : value.replace(/[\r\n]/g, '');
-  let actual;
-  while (Date.now() < deadline) {
-    actual = await locator.inputValue({ timeout: remaining() });
-    if (actual === expected) return;
-    await page.waitForTimeout(Math.min(25, remaining() || 25));
+  // Capture only the observed leading-BOM regression. These passive listeners
+  // observe the original insertion, including any native projection feedback;
+  // they never cancel, modify, redispatch or retry an input event.
+  const trace = value.startsWith('\uFEFF') ? recordNativeAction(page, 'fill', {
+    ...state, requestedLength: value.length, requestedPrefix: value.slice(0, 16).split('').map(c => c.charCodeAt(0))
+  }) : null;
+  let traceHandle;
+  if (trace) {
+    traceHandle = await locator.evaluateHandle(element => {
+      const doc = element.ownerDocument, id = element.id, automationId = element.getAttribute('xamlautomationid');
+      const events = [], frames = new Set(), started = performance.now();
+      let active = true, dropped = 0;
+      const types = ['beforeinput', 'input', 'compositionstart', 'compositionupdate', 'compositionend'];
+      const current = () => automationId
+        ? doc.querySelector('textarea[xamlautomationid="' + CSS.escape(automationId) + '"],input[xamlautomationid="' + CSS.escape(automationId) + '"]')
+        : doc.getElementById(id);
+      const valueState = input => input ? {
+        id: input.id, attached: input.isConnected, length: input.value?.length,
+        prefix: typeof input.value === 'string' ? input.value.slice(0, 16).split('').map(c => c.charCodeAt(0)) : null,
+        start: input.selectionStart, end: input.selectionEnd
+      } : null;
+      const belongs = event => event.target === element || event.target.id === id
+        || automationId && event.target.getAttribute?.('xamlautomationid') === automationId;
+      const record = (event, phase) => {
+        if (!active) return false;
+        if (events.length === 64) { dropped++; return false; }
+        events.push({ elapsedMs: performance.now() - started, phase, type: event.type,
+          inputType: event.inputType, composing: event.isComposing, trusted: event.isTrusted,
+          dataLength: typeof event.data === 'string' ? event.data.length : null,
+          dataPrefix: typeof event.data === 'string' ? event.data.slice(0, 16).split('').map(c => c.charCodeAt(0)) : null,
+          target: valueState(event.target), current: valueState(current()) });
+        return true;
+      };
+      const capture = event => {
+        if (!belongs(event) || !record(event, 'capture')) return;
+        queueMicrotask(() => record(event, 'microtask'));
+        const frame = requestAnimationFrame(() => { frames.delete(frame); record(event, 'frame'); });
+        frames.add(frame);
+      };
+      const bubble = event => { if (belongs(event)) record(event, 'bubble'); };
+      for (const type of types) {
+        doc.addEventListener(type, capture, { capture: true, passive: true });
+        doc.addEventListener(type, bubble, { passive: true });
+      }
+      return { stop: () => {
+        active = false;
+        for (const type of types) { doc.removeEventListener(type, capture, true); doc.removeEventListener(type, bubble); }
+        for (const frame of frames) cancelAnimationFrame(frame);
+        return { events, dropped, current: valueState(current()) };
+      } };
+    });
   }
-  assert.equal(actual, expected, 'Native textbox replacement must replace the complete previous value');
+
+  try {
+    if (value.length) await page.keyboard.insertText(value);
+    else await page.keyboard.press('Backspace');
+
+    // Browser textareas normalize line endings; single-line inputs remove them.
+    // Never retry insertion: a failed replacement must retain its actual result
+    // for the scenario's diagnostics, rather than applying another edit.
+    const expected = state.tag === 'textarea' ? value.replace(/\r\n?/g, '\n') : value.replace(/[\r\n]/g, '');
+    let actual;
+    while (Date.now() < deadline) {
+      actual = await locator.inputValue({ timeout: remaining() });
+      if (actual === expected) return;
+      await page.waitForTimeout(Math.min(25, remaining() || 25));
+    }
+    assert.equal(actual, expected, 'Native textbox replacement must replace the complete previous value');
+  } finally {
+    if (traceHandle) {
+      try { trace.input = await traceHandle.evaluate(value => value.stop()); }
+      catch (error) { trace.inputCaptureError = String(error.message).slice(0, 2048); }
+      await traceHandle.dispose();
+    }
+    if (trace) await completeNativeAction(page, trace);
+  }
 }
