@@ -4,10 +4,13 @@ import { activateControl } from './native-controls.mjs';
 async function waitForCanvasFrame(page, centered) {
   const surface = page.locator('.surface').first();
   await surface.waitFor({state:'visible'});
-  const witness = await surface.evaluateHandle((surface, centered) =>
-    ({surface, centered, signature:null, stable:0, last:null, svg:null}), centered);
+  const witness = await surface.evaluateHandle(async (surface, centered) => {
+    const module = await import(new URL('uml/viewport.js', document.baseURI).href);
+    return {surface, centered, rendererState:module.rendererState, signature:null, stable:0, last:null, svg:null};
+  }, centered);
   try {
-    await page.waitForFunction(async witness => {
+    // Keep this predicate synchronous: a Promise itself is a truthy poll result.
+    await page.waitForFunction(witness => {
       const {surface} = witness;
       const svg = surface.querySelector('.paper > svg');
       const rect = surface.getBoundingClientRect(), matrix = svg?.getScreenCTM();
@@ -17,8 +20,7 @@ async function waitForCanvasFrame(page, centered) {
         return false;
       }
       const host = surface.getRootNode().host;
-      const module = await import(new URL('uml/viewport.js', document.baseURI).href);
-      const gpu = module.rendererState(host.id);
+      const gpu = witness.rendererState(host.id);
       const ratio = devicePixelRatio || 1;
       const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
       const center = {x:matrix.a * cx + matrix.c * cy + matrix.e, y:matrix.b * cx + matrix.d * cy + matrix.f};
