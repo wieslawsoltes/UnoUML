@@ -1,5 +1,6 @@
 import { activateControl, fillControl } from './native-controls.mjs';
 import {fitCanvas} from './canvas-frame.mjs';
+import {traceNativeInput} from './native-input-trace.mjs';
 import assert from 'node:assert/strict';
 import {mkdir} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -38,8 +39,13 @@ export async function verifyFilesEditing(page, source) {
     return row&&row.dataset.canvasNode===row.dataset.canvasId;
   },{surface:await surface.elementHandle(),path});
   const input='\uFEFF@startfiles\n/src/A.cs\n/src/nested/B.cs\n/docs/\n@endfiles';
-  await fillControl(page, source, input);await row('/src/A.cs').waitFor();await fitCanvas(page);
-  assert.equal(await paper.getAttribute('data-renderer'),'managed');
+  // Retain passive input evidence through the renderer's initial acknowledgement.
+  await traceNativeInput(page,source,'files-source-replacement',async()=>{
+    await fillControl(page, source, input);
+    await row('/src/A.cs').waitFor();
+    await fitCanvas(page);
+    assert.equal(await paper.getAttribute('data-renderer'),'managed');
+  },{failureOnly:true,captureManagedInput:true});
   assert.equal(await paper.locator('[data-files-path]').count(),5,'Implicit directories have distinct selectable rows');
   const oldIds=new Map();
   for(const path of ['/src/','/src/A.cs','/src/nested/','/src/nested/B.cs','/docs/'])oldIds.set(path,await id(path));
