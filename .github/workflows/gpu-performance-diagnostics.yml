@@ -77,3 +77,72 @@ jobs:
             cameraEvidence:'This run did not serialize the camera matrix. Its common harness explicitly normalized scale to 0.9 before initial capture; do not infer translations from native counters.'
           }));
           NODE
+  passing-workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      INTEGRATION_RUN_ID: '43316750481'
+      INTEGRATION_ARTIFACT_ID: '13989416760'
+      INTEGRATION_ARTIFACT_NAME: gpu-workspace
+      INTEGRATION_CANDIDATE_SHA: d304eab058143c49f8274a1cd98da5a1f4e41771
+    steps:
+      - name: Download the passing shared-device workspace evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.INTEGRATION_ARTIFACT_NAME }}
+          run-id: ${{ env.INTEGRATION_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: passing-evidence
+      - name: Print accepted starter quality and camera measurements
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          const report=JSON.parse(await readFile('passing-evidence/gpu-presentation.json','utf8'));
+          function distribution(values) {
+            const sorted=values.filter(Number.isFinite).sort((a,b)=>a-b);
+            if(!sorted.length)return null;
+            return {count:sorted.length,min:sorted[0],
+              median:sorted[Math.floor(sorted.length*.5)],
+              p95:sorted[Math.floor(sorted.length*.95)],max:sorted.at(-1)};
+          }
+          const frame=value=>value?{
+            revision:value.revision,presentedRevision:value.presentedRevision,
+            backend:value.backend,pending:value.pending,statistics:value.statistics
+          }:null;
+          const cumulative=['geometryUploadBytes','textureUploadBytes','cameraUploadBytes',
+            'drawUniformUploadBytes','gradientUploadBytes','bundleBuilds','presentedFrames',
+            'submittedFrames','deferredFrameRequests'];
+          console.log('GPU_PASSING_ORIGIN '+JSON.stringify({
+            runId:process.env.INTEGRATION_RUN_ID,artifactId:process.env.INTEGRATION_ARTIFACT_ID,
+            artifactName:process.env.INTEGRATION_ARTIFACT_NAME,candidateSha:process.env.INTEGRATION_CANDIDATE_SHA
+          }));
+          console.log('GPU_PASSING_PRESENTATION '+JSON.stringify({
+            purpose:report.purpose,driver:report.driver,userAgent:report.userAgent,
+            devicePixelRatio:report.devicePixelRatio,probeAdapter:report.probeAdapter,
+            quality:report.quality,initial:report.initial,final:report.final,
+            cameraWallMilliseconds:report.cameraWallMilliseconds,
+            cameraWallSamples:report.samples.map(sample=>sample.wallMilliseconds),
+            cameraNativeDistributions:Object.fromEntries([
+              'cpuEncodeMilliseconds','validationScopeMilliseconds','validationDispatchMilliseconds',
+              'drawCalls','visibleDirectMeshCommands'
+            ].map(key=>[key,distribution(report.samples.map(sample=>sample[key]))])),
+            cameraUploadAndFrameDeltas:Object.fromEntries(cumulative.map(key=>[key,
+              Number.isFinite(report.initial.statistics[key])&&Number.isFinite(report.final.statistics[key])
+                ?report.final.statistics[key]-report.initial.statistics[key]:null])),
+            cameraSamples:report.samples.map(sample=>({
+              revision:sample.revision,wallMilliseconds:sample.wallMilliseconds,
+              cpuEncodeMilliseconds:sample.cpuEncodeMilliseconds,
+              validationScopeMilliseconds:sample.validationScopeMilliseconds,
+              validationDispatchMilliseconds:sample.validationDispatchMilliseconds,
+              drawCalls:sample.drawCalls,visibleDirectMeshCommands:sample.visibleDirectMeshCommands
+            })),
+            overlay:report.overlay?{
+              quality:report.overlay.quality,retention:report.overlay.retention,
+              before:frame(report.overlay.before),selected:frame(report.overlay.selected),
+              clearBaseline:frame(report.overlay.clearBaseline),cleared:frame(report.overlay.cleared)
+            }:null
+          }));
+          const errors=JSON.parse(await readFile('passing-evidence/gpu-browser-errors.json','utf8'));
+          console.log('GPU_PASSING_BROWSER_ERRORS '+JSON.stringify(errors));
+          NODE
