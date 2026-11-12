@@ -29,7 +29,15 @@ export async function verifySourceInput(page, { artifactDir } = {}) {
       globalThis.sourceModule = await import(url);
       const state = globalThis.sourceInputFixture = {
         owner: 'source-input-owner', mode: 'echo', events: [], oldInput: null,
-        decode: value => new TextDecoder().decode(new TextEncoder().encode(value))
+        decode: value => {
+          const bytes = new Uint8Array(value.length * 2);
+          for (let index = 0; index < value.length; index++) {
+            const code = value.charCodeAt(index);
+            bytes[index * 2] = code & 255;
+            bytes[index * 2 + 1] = code >>> 8;
+          }
+          return new TextDecoder('utf-16le').decode(bytes);
+        }
       };
       state.attach = input => {
         const nativeEcho = event => {
