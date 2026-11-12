@@ -15,6 +15,7 @@ internal static partial class BrowserAccessibility
     private const string Module = "UnoUML.NativeAccessibility";
     private static Task<JSObject>? import;
     private static readonly ConditionalWeakTable<ComboBox, object> comboAttachments = new();
+    private static readonly ConditionalWeakTable<TextBox, object> textBoxAttachments = new();
 
     internal static async Task InitializeAsync()
     {
@@ -29,8 +30,48 @@ internal static partial class BrowserAccessibility
         InstallKeyboardBoundary();
     }
 
-    internal static void SetName(FrameworkElement element, string name) =>
+    internal static void SetName(FrameworkElement element, string name)
+    {
+        // Inspector factories name their controls before inserting them.
+        if (element is TextBox text) AttachTextBox(text);
         AutomationProperties.SetName(element, name);
+    }
+
+    internal static void AttachTextBox(TextBox text)
+    {
+        if (!OperatingSystem.IsBrowser() || textBoxAttachments.TryGetValue(text, out _)) return;
+        textBoxAttachments.Add(text, new object());
+        string automationId = AutomationProperties.GetAutomationId(text);
+        if (automationId.Length == 0)
+        {
+            automationId = "UnoUML.TextBox." + Guid.NewGuid().ToString("N");
+            AutomationProperties.SetAutomationId(text, automationId);
+        }
+        int generation = 0;
+        bool loaded = false;
+        void Begin()
+        {
+            if (loaded) return;
+            loaded = true;
+            try { BeginTextBoxScope(automationId, ++generation, text.IsEnabled); }
+            catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+        }
+        text.Loaded += (_, _) => Begin();
+        text.IsEnabledChanged += (_, _) =>
+        {
+            if (!loaded) return;
+            try { UpdateTextBoxScope(automationId, generation, text.IsEnabled); }
+            catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+        };
+        text.Unloaded += (_, _) =>
+        {
+            if (!loaded) return;
+            loaded = false;
+            try { EndTextBoxScope(automationId, generation); }
+            catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); }
+        };
+        if (text.IsLoaded) Begin();
+    }
 
     internal static void AttachComboBox(ComboBox combo)
     {
@@ -171,6 +212,7 @@ internal static partial class BrowserAccessibility
     {
         if (!visited.Add(root)) return;
         if (root is ComboBox picker) AttachComboBox(picker);
+        if (root is TextBox editor) AttachTextBox(editor);
         if (root is FrameworkElement element && element is Button or TextBox or ComboBox or ToggleButton or ToggleSwitch)
         {
             string name = AutomationProperties.GetName(element);
@@ -219,4 +261,13 @@ internal static partial class BrowserAccessibility
 
     [JSImport("focusComboScope", Module)]
     private static partial void FocusComboScope(string automationId, int generation, int focusRevision, int focusedIndex);
+
+    [JSImport("beginTextBoxScope", Module)]
+    private static partial void BeginTextBoxScope(string automationId, int generation, bool isEnabled);
+
+    [JSImport("updateTextBoxScope", Module)]
+    private static partial void UpdateTextBoxScope(string automationId, int generation, bool isEnabled);
+
+    [JSImport("endTextBoxScope", Module)]
+    private static partial void EndTextBoxScope(string automationId, int generation);
 }

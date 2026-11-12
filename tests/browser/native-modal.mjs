@@ -325,6 +325,77 @@ export async function verifyNativeModal(page, { artifactDir } = {}) {
     await comboScope('endComboScope', 4);
     report.cases.push('generation-scoped native ComboBox focus lifetime');
 
+    const textBoxScope = (operation, generation, isEnabled) => frame.evaluate(({ operation, generation, isEnabled }) =>
+      modalModule[operation]('state-editor', generation, isEnabled), { operation, generation, isEnabled });
+    await frame.evaluate(() => {
+      const root = document.getElementById('uno-semantics-root');
+      root.innerHTML = '<button id="uno-semantics-state-focus">State focus sentinel</button>';
+      globalThis.textStateFixture = { root };
+    });
+    await frame.getByRole('button', { name: 'State focus sentinel', exact: true }).focus();
+    await textBoxScope('beginTextBoxScope', 1, false);
+    await frame.evaluate(() => {
+      const input = document.createElement('input');
+      input.id = 'uno-semantics-state-input'; input.type = 'text';
+      input.setAttribute('aria-label', 'State editor'); input.tabIndex = 7;
+      input.readOnly = true; input.value = 'keep value'; input.setSelectionRange(1, 4);
+      textStateFixture.root.append(input);
+    });
+    equal(await frame.locator('#uno-semantics-state-input').isDisabled(), false,
+      'An unrelated input is unchanged before the public AutomationId arrives');
+    await frame.locator('#uno-semantics-state-input').evaluate(element => element.setAttribute('xamlautomationid', 'state-editor'));
+    await frame.getByRole('textbox', { name: 'State editor', exact: true, disabled: true }).waitFor({ state: 'attached' });
+    equal(await frame.locator('#uno-semantics-state-input').evaluate(element => ({
+      disabled: element.disabled, ariaDisabled: element.getAttribute('aria-disabled'),
+      readOnly: element.readOnly, tabIndex: element.tabIndex, value: element.value,
+      start: element.selectionStart, end: element.selectionEnd
+    })), { disabled: true, ariaDisabled: 'true', readOnly: true, tabIndex: 7, value: 'keep value', start: 1, end: 4 },
+    'Initial effective disabled state preserves readonly, tab order, text and selection');
+    equal(await frame.evaluate(() => document.activeElement.id), 'uno-semantics-state-focus',
+      'Initial state metadata does not focus another control');
+    report.cases.push('initial TextBox disabled state and late public identity');
+
+    await textBoxScope('updateTextBoxScope', 1, true);
+    equal(await frame.locator('#uno-semantics-state-input').evaluate(element => [element.disabled, element.getAttribute('aria-disabled'), element.readOnly, element.tabIndex]),
+      [false, 'false', true, 7], 'Enabling updates only disabled metadata');
+    await frame.locator('#uno-semantics-state-input').focus();
+    await textBoxScope('updateTextBoxScope', 1, true);
+    equal(await frame.evaluate(() => document.activeElement.id), 'uno-semantics-state-input',
+      'Idempotent state projection preserves existing input focus');
+    await textBoxScope('updateTextBoxScope', 1, false);
+    equal(await frame.locator('#uno-semantics-state-input').evaluate(element => [element.disabled, element.getAttribute('aria-disabled')]),
+      [true, 'true'], 'A later native disable updates both reflected and ARIA state');
+    await frame.evaluate(() => {
+      textStateFixture.oldInput = document.getElementById('uno-semantics-state-input');
+      textStateFixture.oldInput.remove();
+      textStateFixture.root.insertAdjacentHTML('beforeend', '<textarea id="uno-semantics-state-input" xamlautomationid="state-editor" aria-label="State editor" tabindex="2">replacement</textarea>');
+    });
+    await frame.getByRole('textbox', { name: 'State editor', exact: true, disabled: true }).waitFor({ state: 'attached' });
+    equal(await frame.evaluate(() => !textStateFixture.oldInput.isConnected), true, 'A replacement textarea gets a distinct owned state baseline');
+    await textBoxScope('endTextBoxScope', 1);
+    equal(await frame.locator('#uno-semantics-state-input').evaluate(element => [element.disabled, element.getAttribute('aria-disabled'), element.readOnly, element.tabIndex, element.value]),
+      [false, null, false, 2, 'replacement'], 'Unload restores only unchanged owned metadata on the replacement node');
+    report.cases.push('TextBox state changes and replacement-node restoration');
+
+    await textBoxScope('beginTextBoxScope', 2, false);
+    equal(await textBoxScope('updateTextBoxScope', 1, true), false, 'A stale loaded generation cannot enable a current TextBox');
+    equal(await textBoxScope('endTextBoxScope', 1), false, 'A stale unload cannot release a reloaded TextBox');
+    equal(await frame.locator('#uno-semantics-state-input').isDisabled(), true, 'The reloaded control keeps its current effective disabled state');
+    await frame.locator('#uno-semantics-state-input').evaluate(element => {
+      element.disabled = false; element.setAttribute('aria-disabled', 'false');
+    });
+    await textBoxScope('endTextBoxScope', 2);
+    equal(await frame.locator('#uno-semantics-state-input').evaluate(element => [element.disabled, element.getAttribute('aria-disabled')]),
+      [false, 'false'], 'Unload preserves a later native or external metadata value');
+    await frame.evaluate(async () => {
+      document.getElementById('uno-semantics-state-input').remove();
+      textStateFixture.root.insertAdjacentHTML('beforeend', '<input id="uno-semantics-state-input" xamlautomationid="state-editor" aria-label="State editor">');
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    equal(await frame.locator('#uno-semantics-state-input').evaluate(element => [element.disabled, element.getAttribute('aria-disabled')]),
+      [false, null], 'No TextBox observer projects after the final unload');
+    report.cases.push('TextBox reload generation and scoped metadata lifetime');
+
     // Model the tagged Uno event ordering: the public enable handler removes
     // its element and focuses a native control before document key forwarding.
     await frame.evaluate(() => {

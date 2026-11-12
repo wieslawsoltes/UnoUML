@@ -103,6 +103,13 @@ observed in Uno 7.0.32:
   restoration preserves later native metadata changes. Focus and selection
   continue through the native control; `aria-activedescendant` identifies focus
   and is not treated as the selected index.
+- TextBox semantic creation omits its initial disabled state even when the real
+  control's effective `IsEnabled` is false. Public `Loaded` and
+  `IsEnabledChanged` snapshots project that effective value onto the current
+  input/textarea's reflected `disabled` property and `aria-disabled` attribute.
+  `Unloaded` ends the scope. Pre-tree identity, generation checks, replacement
+  node tracking and conditional restoration preserve lifecycle correctness;
+  readonly state, tab order, text, selection and focus remain native.
 
 ComboBox registration is idempotent and assigns `AutomationId` before the native
 semantic head is created: Uno 7.0.32 does not project subsequent AutomationId
@@ -110,6 +117,12 @@ changes onto an existing head. Dialog preparation walks public content, border
 children and panel children before `ShowAsync`; both inspector picker factories
 attach before insertion, and the persistent page picker attaches during page
 construction. The later dialog `Opened` traversal also names generated controls.
+
+TextBox registration uses the same pre-tree identity rule. Dialog content and
+named inspector fields attach before insertion; the source and library-search
+editors attach during page construction. Observation is confined to the stable
+semantic root while registered controls are loaded, so late accessibility
+activation and replaced semantic nodes receive the current effective state.
 
 The framework's native focus resolver also omits ComboBox-specific virtualized
 regions and can focus a semantic ancestor instead of the actual option. While a
@@ -353,6 +366,7 @@ guarantee or completed “AAA” hardware qualification is claimed without measu
 - [Uno 7.0.32 ComboBox semantic lifecycle](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/WebAssemblyAccessibility.ComboBox.cs)
 - [Uno 7.0.32 virtualized semantic regions](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/VirtualizedSemanticRegion.cs)
 - [Uno 7.0.32 semantic element identity](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/SemanticElementFactory.cs)
+- [Uno 7.0.32 native state updates](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/WebAssemblyAccessibility.cs)
 - [Uno 7.0.32 native focus synchronization](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/FocusSynchronizer.cs)
 - [Uno 7.0.32 public focus manager](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI/UI/Xaml/Input/FocusManager.cs)
 - [Uno 7.0.32 modal focus isolation](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/FocusTrap.ts)

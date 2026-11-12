@@ -33,6 +33,8 @@ public sealed partial class MainPage : Page
     {
         InitializeComponent();
         BrowserSourceText.Attach(SourceEditor);
+        BrowserAccessibility.AttachTextBox(SourceEditor);
+        BrowserAccessibility.AttachTextBox(SearchBox);
         BrowserAccessibility.AttachComboBox(PagePicker);
         BuildCommands();
         ViewportHost.Children.Add(viewport);
