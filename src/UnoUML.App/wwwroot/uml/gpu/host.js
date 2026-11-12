@@ -141,7 +141,14 @@ export class GpuPresentationHost {
     return {
       available: this.available, backend: this.backend, pending: this.pending,
       revision: this.renderer?.lastRevision ?? -1, presentedRevision: this.presentedRevision,
-      reason: this.reason, statistics: this.stats, compiler: this.compileStats
+      reason: this.reason, statistics: this.stats, compiler: this.compileStats,
+      compilation: this.renderer ? {
+        running: this.renderer.running, dirty: this.renderer.dirty,
+        pendingScene: this.renderer.pendingScene, reset: this.renderer.reset,
+        frameScheduled: !!this.renderer.frame, generation: this.renderer.generation,
+        sourceVersion: this.renderer.sourceVersion, viewVersion: this.view.version,
+        svgConnected: !!this.renderer.svg?.isConnected
+      } : null
     };
   }
 
