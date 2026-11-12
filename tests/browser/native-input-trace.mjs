@@ -61,10 +61,10 @@ function compactNativeInputTrace(name, sequence, failure, report) {
  * The action runs once. Listeners are passive; no focus, value, selection,
  * default-action, readiness or retry behavior is added by this diagnostic.
  */
-export async function traceNativeInput(page, locator, name, action, { artifactDir = process.env.SCREENSHOT_DIR, failureOnly = false } = {}) {
+export async function traceNativeInput(page, locator, name, action, { artifactDir = process.env.SCREENSHOT_DIR, failureOnly = false, captureManagedInput = false } = {}) {
   if (!/^[a-z0-9-]+$/.test(name)) throw new Error('Native input trace name must be a safe artifact stem');
   const sequence = ++traceSequence;
-  const capture = await locator.evaluateHandle(async original => {
+  const capture = await locator.evaluateHandle(async (original, captureManagedInput) => {
     const doc = original.ownerDocument;
     const root = original.closest('#uno-semantics-root');
     const automationId = original.getAttribute('xamlautomationid');
@@ -122,10 +122,12 @@ export async function traceNativeInput(page, locator, name, action, { artifactDi
         target: describe(event?.target), active: describe(doc.activeElement),
         original: describe(original), current: describe(current()),
         sharedInput: describe(doc.getElementById('uno-input')),
-        // Synchronous public native state at the actual keyboard boundary.
-        // Keep reads limited to these phases; ordinary focus/input events remain passive DOM evidence.
+        // Public native state at the keyboard boundary. A caller tracing a
+        // delayed text commit can also opt into the actual input boundaries.
         ...((phase === 'begin' || phase === 'end' ||
-          (type === 'keydown' && (phase === 'capture' || phase === 'bubble')))
+          ((type === 'keydown' || (captureManagedInput &&
+            ['beforeinput', 'input', 'compositionend'].includes(type))) &&
+            (phase === 'capture' || phase === 'bubble')))
           ? { managed: readManaged() } : {})
       };
       counts[phase + ':' + (type ?? '')] = (counts[phase + ':' + (type ?? '')] ?? 0) + 1;
@@ -168,7 +170,7 @@ export async function traceNativeInput(page, locator, name, action, { artifactDi
         };
       }
     };
-  });
+  }, captureManagedInput);
   let failure;
   try {
     return await action();

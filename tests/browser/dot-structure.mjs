@@ -1,5 +1,6 @@
 import { activateControl, fillControl } from './native-controls.mjs';
 import assert from 'node:assert/strict';
+import {traceNativeInput} from './native-input-trace.mjs';
 
 export async function verifyDotStructuralAuthoring(page, source) {
   await page.setViewportSize({width:1480,height:960});
@@ -80,7 +81,11 @@ export async function verifyDotStructuralAuthoring(page, source) {
       await previous?.dispose();
     }
   };
-  const load = value => change(() => fillControl(page, source, value),value,'The fixture renders natively');
+  // Keep the source-input trace alive through the native source/render
+  // acknowledgement: a successful DOM fill alone can precede a delayed commit.
+  const load = value => traceNativeInput(page, source, 'dot-source-replacement',
+    () => change(() => fillControl(page, source, value),value,'The fixture renders natively'),
+    {failureOnly:true,captureManagedInput:true});
   const undo = (value,message) => change(() => surface.press('Control+z'),value,message);
   const choose = async (name,caption) => {
     await activateControl(page, page.getByRole('combobox',{name,exact:true}));
