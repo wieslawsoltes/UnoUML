@@ -57,10 +57,13 @@ export async function verifyDotStructuralAuthoring(page, source) {
   // resolve to an old SVG whose source spans or selection snapshot are stale.
   const change = async (action,expected,message) => {
     const previous = await paper.locator('svg').elementHandle();
-    const input = await source.elementHandle();
     try {
       await action();
-      await page.waitForFunction(({input,expected}) => input.value === expected,{input,expected});
+      // Native accessibility can replace the semantic TextBox after an edit.
+      // Resolve its current public projection instead of polling a detached
+      // element whose value can never reflect the committed source.
+      await page.waitForFunction(expected =>
+        document.querySelector('#uno-semantics-root textarea[aria-label="PlantUML source"]')?.value === expected, expected);
       if (previous) await page.waitForFunction(svg => !svg.isConnected,previous);
       await paper.locator('svg').waitFor();
       assert.equal(await source.inputValue(),expected,message);
@@ -75,7 +78,6 @@ export async function verifyDotStructuralAuthoring(page, source) {
     } finally {
       await pointerTrace?.evaluate(trace => trace.stop()).catch(() => {});
       await pointerTrace?.dispose(); pointerTrace = undefined;
-      await input?.dispose();
       await previous?.dispose();
     }
   };
