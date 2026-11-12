@@ -306,6 +306,12 @@ internal enum GpuCoordinateSpace { World, Viewport }
 internal sealed record GpuCommand(string Id, GpuCommandKind Kind, float[] Vertices, Matrix3x2 Matrix,
     GpuRect Bounds, string Rule, GpuPaint Paint, GpuRect? Clip, string? Image, GpuCoordinateSpace Space)
 {
+    // A mesh is a union of triangles. An unclipped opaque solid writes the same
+    // color to every covered MSAA sample, so overlaps need no stencil/cover pass.
+    // Gradient interpolation and fractional alpha/clip coverage retain that pass.
+    internal bool CanPaintMeshDirectly => Kind == GpuCommandKind.Mesh && Clip is null &&
+        Paint.Kind == "solid" && Paint.Opacity == 1f && Paint.Color[3] == 1f;
+
     // Viewport commands use CSS pixels. Their local transform remains retained,
     // while the diagram camera never scales handles or moves viewport clipping.
     internal GpuRect ViewportBounds(Matrix3x2 camera) =>
@@ -356,6 +362,7 @@ public sealed record DiagramGpuStatistics(long Revision, long PresentedFrames, i
     public int RenderBundles { get; init; }
     public int ViewportCommands { get; init; }
     public int VisibleViewportCommands { get; init; }
+    public int VisibleDirectMeshCommands { get; init; }
     public long UniformAndStopBytes { get; init; }
     public long DrawUniformCapacityBytes { get; init; }
     public long GradientCapacityBytes { get; init; }

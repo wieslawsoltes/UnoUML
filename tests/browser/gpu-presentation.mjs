@@ -273,7 +273,8 @@ export async function verifyGpuPresentation(page) {
   initial = await presented(page);
   assert.equal(initial.statistics.sampleCount, 4, 'The diagram renderer must use the required 4× MSAA target.');
   assert.equal(initial.statistics.backend, 'Uno shared WebGPU');
-  assert.equal(initial.statistics.pipelineCount, 6);
+  assert.equal(initial.statistics.pipelineCount, 7);
+  assert.ok(initial.statistics.visibleDirectMeshCommands > 0, 'Opaque starter strokes must use the one-draw mesh pipeline.');
   assert.ok(initial.statistics.renderBundles > 0);
   assert.ok(initial.statistics.drawCalls > 0);
   assert.ok(initial.statistics.vertexBytes > 0);

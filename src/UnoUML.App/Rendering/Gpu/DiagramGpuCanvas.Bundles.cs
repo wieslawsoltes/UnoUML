@@ -28,25 +28,26 @@ public sealed unsafe partial class DiagramGpuCanvas
         {
             var command = _scene.Commands[_scene.Order[index]];
             uint offset = checked((uint)index * _drawStride);
+            bool directPaint = command.CanPaintMeshDirectly;
             TextureResource texture = command.Kind == GpuCommandKind.Image ? _textures[command.Image!] : _whiteTexture!;
             BindGroup* bindings = GetBindings(texture);
             GpuBuffer* vertices = command.Kind == GpuCommandKind.Image ? null : _meshes[command.Id].Buffer;
             if (!_commandBundles.TryGetValue(command.Id, out var existing) ||
                 existing.BindingGeneration != _bindingGeneration || existing.Bindings != bindings ||
                 existing.Vertices != vertices || existing.Offset != offset ||
-                existing.Kind != command.Kind || existing.Rule != command.Rule)
+                existing.Kind != command.Kind || existing.Rule != command.Rule || existing.DirectPaint != directPaint)
             {
-                RenderBundle* replacement = RecordCommandBundle(command, vertices, bindings, offset);
+                RenderBundle* replacement = RecordCommandBundle(command, vertices, bindings, offset, directPaint);
                 if (existing is not null) _api!.RenderBundleRelease(existing.Bundle);
-                existing = new(replacement, bindings, vertices, offset, command.Kind, command.Rule, _bindingGeneration);
+                existing = new(replacement, bindings, vertices, offset, command.Kind, command.Rule, directPaint, _bindingGeneration);
                 _commandBundles[command.Id] = existing;
             }
             _renderItems[index] = new(command, (nint)existing.Bundle,
-                command.Kind == GpuCommandKind.Image ? 1 : 2, _stopOffsets.GetValueOrDefault(command.Id));
+                command.Kind == GpuCommandKind.Image || directPaint ? 1 : 2, _stopOffsets.GetValueOrDefault(command.Id));
         }
     }
 
-    private RenderBundle* RecordCommandBundle(GpuCommand command, GpuBuffer* vertices, BindGroup* bindings, uint offset)
+    private RenderBundle* RecordCommandBundle(GpuCommand command, GpuBuffer* vertices, BindGroup* bindings, uint offset, bool directPaint)
     {
         TextureFormat format = _targetFormat;
         var descriptor = new RenderBundleEncoderDescriptor {
@@ -66,12 +67,15 @@ public sealed unsafe partial class DiagramGpuCanvas
             else
             {
                 _api.RenderBundleEncoderSetVertexBuffer(encoder, 0, vertices, 0, (ulong)command.Vertices.Length * sizeof(float));
-                RenderPipeline* pipeline = command.Kind == GpuCommandKind.Mesh ? _unionPipeline
+                RenderPipeline* pipeline = directPaint ? _directMeshPipeline : command.Kind == GpuCommandKind.Mesh ? _unionPipeline
                     : command.Rule == "evenodd" ? _evenoddPipeline : _nonzeroPipeline;
                 _api.RenderBundleEncoderSetPipeline(encoder, pipeline);
                 _api.RenderBundleEncoderDraw(encoder, (uint)command.Vertices.Length / 2, 1, 0, 0);
-                _api.RenderBundleEncoderSetPipeline(encoder, _paintPipeline);
-                _api.RenderBundleEncoderDraw(encoder, 6, 1, 0, 0);
+                if (!directPaint)
+                {
+                    _api.RenderBundleEncoderSetPipeline(encoder, _paintPipeline);
+                    _api.RenderBundleEncoderDraw(encoder, 6, 1, 0, 0);
+                }
             }
             RenderBundle* bundle = _api.RenderBundleEncoderFinish(encoder, null);
             Ensure(bundle, "retained command bundle");
@@ -89,7 +93,7 @@ public sealed unsafe partial class DiagramGpuCanvas
     }
 
     private sealed class CommandBundle(RenderBundle* bundle, BindGroup* bindings, GpuBuffer* vertices,
-        uint offset, GpuCommandKind kind, string rule, long bindingGeneration)
+        uint offset, GpuCommandKind kind, string rule, bool directPaint, long bindingGeneration)
     {
         internal readonly RenderBundle* Bundle = bundle;
         internal readonly BindGroup* Bindings = bindings;
@@ -97,6 +101,7 @@ public sealed unsafe partial class DiagramGpuCanvas
         internal readonly uint Offset = offset;
         internal readonly GpuCommandKind Kind = kind;
         internal readonly string Rule = rule;
+        internal readonly bool DirectPaint = directPaint;
         internal readonly long BindingGeneration = bindingGeneration;
     }
     private readonly record struct RenderItem(GpuCommand Command, nint Bundle, int Draws, uint StopOffset)

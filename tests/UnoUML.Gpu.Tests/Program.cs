@@ -45,6 +45,7 @@ internal static class Program
             ("viewport overlays retain pixel geometry across camera changes", ViewportOverlays),
             ("coordinate-space validation is atomic", CoordinateSpaceValidation),
             ("gradient and clipping protocol", PaintAndClip),
+            ("direct mesh painting requires an unclipped opaque solid", DirectMeshEligibility),
             ("overlay tail edits retain diagram uniform slots", OverlayUniformRetention),
             ("gradient repacking and painter reorders refresh affected uniform slots", UniformSlotRepacking),
             ("command changes and recreated arenas invalidate draw uniforms", UniformContentsAndLifetime),
@@ -587,6 +588,44 @@ internal static class Program
         Check(ReferenceEquals(model.Commands["triangle"].Paint, command.Paint), "Removing a clip retains its paint");
     }
 
+
+
+    private static void DirectMeshEligibility()
+    {
+        var model = Seed();
+        Check(!model.Commands["triangle"].CanPaintMeshDirectly, "General fill triangles still require winding coverage");
+        Check(!model.Commands["label"].CanPaintMeshDirectly, "Image commands keep their image pipeline");
+        Accept(model, """
+            {"revision":2,"commands":[{"id":"stroke","kind":"mesh","vertices":[0,0,8,0,0,8],"bounds":[0,0,8,8]}],
+              "order":["triangle","label","stroke"]}
+            """);
+        Check(model.Commands["stroke"].CanPaintMeshDirectly, "Default opaque white mesh can paint each covered sample directly");
+        (string Patch, bool Direct)[] patches =
+        [
+            ("""{"paint":{"kind":"solid","color":[0.2,0.4,0.8,1]}}""", true),
+            ("""{"paint":{"kind":"solid","color":[0.2,0.4,0.8,0.99999994]}}""", false),
+            ("""{"paint":{"kind":"solid","color":[0.2,0.4,0.8,1],"opacity":0.99999994}}""", false),
+            ("""{"paint":{"kind":"solid","color":[0.2,0.4,0.8,1],"opacity":0}}""", false),
+            ("""{"paint":{"kind":"solid","color":[0.2,0.4,0.8,1],"opacity":1}}""", true),
+            ("""{"clip":[0,0,8,8]}""", false),
+            ("""{"clip":[0,0,0,0]}""", false),
+            ("""{"clip":null}""", true),
+            ("""{"paint":{"kind":"linear","stops":[{"offset":0,"color":[1,0,0,1]},{"offset":1,"color":[0,0,1,1]}]}}""", false),
+            ("""{"paint":{"kind":"radial","stops":[{"offset":0,"color":[1,0,0,1]},{"offset":1,"color":[0,0,1,1]}]}}""", false),
+            ("""{"paint":{"kind":"solid","color":[0.2,0.4,0.8,0.5]}}""", false),
+            ("""{"paint":{"kind":"solid","color":[0.2,0.4,0.8,1],"opacity":0.5}}""", false),
+            ("""{"paint":{"kind":"solid","color":[0.2,0.4,0.8,1]}}""", true),
+            ("""{"matrix":[-1,0.25,0.5,1,20,30],"space":"viewport","rule":"evenodd"}""", true),
+            ("""{"kind":"fill","vertices":[0,0,8,0,0,8],"bounds":[0,0,8,8]}""", false),
+            ("""{"kind":"mesh","vertices":[0,0,8,0,0,8],"bounds":[0,0,8,8]}""", true)
+        ];
+        int revision = 3;
+        foreach (var (patch, direct) in patches)
+        {
+            Accept(model, "{\"revision\":" + revision++ + ",\"commands\":[{\"id\":\"stroke\"," + patch[1..^1] + "}]}");
+            Equal(model.Commands["stroke"].CanPaintMeshDirectly, direct);
+        }
+    }
 
     private static void OverlayUniformRetention()
     {
