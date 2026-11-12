@@ -22,6 +22,7 @@ import { verifyFilesEditing } from './files-editing.mjs';
 import { verifyNetworkEditing } from './network-editing.mjs';
 import { verifyGanttEditing } from './gantt-editing.mjs';
 import { verifyImportedPageRouting } from './imported-editing.mjs';
+import { traceNativeInput } from './native-input-trace.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright';
@@ -269,8 +270,16 @@ try {
   await page.locator('.paper [data-qualified-name="LineItemCopy"]').first().waitFor();
   await selectPair();
   await click('Group in package…');
-  await click('Group');
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1')).Source.includes('package "Group"'));
+  const groupDialog = page.getByRole('dialog', {name:'Group selected objects',exact:true});
+  // A semantic command can be visible before native Opened/focus setup and the
+  // modal contract are complete. Activate once inside the ready named dialog.
+  await groupDialog.and(page.locator('[aria-modal="true"]')).waitFor({state:'visible'});
+  await traceNativeInput(page, groupDialog.getByRole('textbox', {name:'Package name',exact:true}),
+    'group-dialog-activation', async () => {
+      await activateControl(page, groupDialog.getByRole('button', {name:'Group',exact:true}));
+      await groupDialog.waitFor({state:'hidden'});
+      await page.waitForFunction(() => JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1')).Source.includes('package "Group"'));
+    }, {failureOnly:true,captureManagedInput:true});
   await click('Objects');
   await click('Standard library…');
   const search = page.getByRole('textbox', { name: 'Search include paths', exact: true });
@@ -303,6 +312,62 @@ try {
   assert.deepEqual(errors, []);
   console.log('Passed published workspace startup, native hit testing, source edit, toolbox insertion, zoom, template pages, multi-select, duplicate and group, standard library search and inclusion, source download, mobile layout and draft restoration.');
 } catch (error) {
+  if (page) {
+    try {
+      const state = await page.evaluate(() => {
+        const root = document.getElementById('uno-semantics-root');
+        const describe = element => {
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return {
+            id: element.id, tag: element.localName, role: element.getAttribute('role'),
+            name: element.getAttribute('aria-label')?.slice(0, 256),
+            automationId: element.getAttribute('xamlautomationid'),
+            attached: element.isConnected, focused: document.activeElement === element,
+            hidden: !!element.closest('[aria-hidden="true"], [hidden], [inert]'),
+            disabled: element.disabled ?? null, readOnly: element.readOnly ?? null,
+            ariaDisabled: element.getAttribute('aria-disabled'), ariaModal: element.getAttribute('aria-modal'),
+            ...(typeof element.value === 'string' ? {
+              value: element.value.slice(0, 512), valueLength: element.value.length,
+              selection: [element.selectionStart, element.selectionEnd]
+            } : {}),
+            rect: {x:rect.x,y:rect.y,width:rect.width,height:rect.height}
+          };
+        };
+        let draft = null, draftError = null;
+        try {
+          const source = JSON.parse(localStorage.getItem('UnoUML:unouml.document.v1'))?.Source;
+          if (typeof source === 'string') draft = {
+            source:source.slice(0,8192), length:source.length, truncated:source.length > 8192
+          };
+        } catch (failure) { draftError = String(failure.message).slice(0,1024); }
+        const inputs = [...(root?.querySelectorAll('input, textarea') ?? [])]
+          .filter(element => element.closest('[xamlautomationid^="UnoUML.Dialog."]')
+            || element.getAttribute('aria-label') === 'PlantUML source' || element === document.activeElement);
+        return {
+          documentFocused:document.hasFocus(), active:describe(document.activeElement),
+          dialogs:[...(root?.querySelectorAll('[role="dialog"]') ?? [])].slice(-8).map(describe),
+          inputs:inputs.slice(0,12).map(describe), inputCount:inputs.length, draft, draftError
+        };
+      });
+      const nativeActions = getNativeControlDiagnostics(page).slice(-16).map(entry => ({
+        at:entry.at, action:entry.action,
+        before:{id:entry.before.id,name:entry.before.name?.slice(0,256),role:entry.before.role,
+          key:entry.before.key,attached:entry.before.attached,exposed:entry.before.exposed,
+          visible:entry.before.visible,enabled:entry.before.enabled,focused:entry.before.focused,
+          documentFocused:entry.before.documentFocused,active:entry.before.active,rect:entry.before.rect},
+        after:entry.after ? {attached:entry.after.attached,rect:entry.after.rect,
+          dialogs:entry.after.dialogs?.slice(0,8)} : null,
+        diagnosticsError:entry.diagnosticsError?.slice(0,1024)
+      }));
+      const diagnostics = {error:{message:String(error.message).slice(0,2048),stack:error.stack?.slice(0,4096)},state,nativeActions};
+      console.error('Primary native failure state: ' + JSON.stringify(diagnostics));
+      if (process.env.SCREENSHOT_DIR) {
+        await mkdir(process.env.SCREENSHOT_DIR, {recursive:true});
+        await writeFile(resolve(process.env.SCREENSHOT_DIR, 'unouml-failure-diagnostics.json'), JSON.stringify(diagnostics,null,2));
+      }
+    } catch (captureError) { console.error('Could not capture primary native diagnostics:', captureError); }
+  }
   if (page && process.env.SCREENSHOT_DIR) {
     try {
       await mkdir(process.env.SCREENSHOT_DIR, { recursive: true });
