@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: __APP_CHECKOUT_SHA__
+          ref: 3f66790a3b7f4774a8ca322d812e12b232000e0b
           persist-credentials: false
       - name: Record actual application revision
         run: |
