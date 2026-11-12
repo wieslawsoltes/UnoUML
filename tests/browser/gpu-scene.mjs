@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {verifyNativeModal} from './native-modal.mjs';
+import {verifyNativeTextBoxFocus} from './native-textbox-focus.mjs';
 import {verifySourceInput} from './source-input.mjs';
 import {verifyCanvasCoordinates} from './canvas-coordinates.mjs';
 
@@ -11,6 +12,7 @@ export async function verifyGpuScene(page,{artifactDir=process.env.SCREENSHOT_DI
   const fixtures=[];
   for(const [name,verify] of [
     ['native semantic lifecycle',verifyNativeModal],
+    ['native TextBox replacement focus',verifyNativeTextBoxFocus],
     ['native source input',verifySourceInput],
     ['canvas coordinate agreement',verifyCanvasCoordinates]
   ]) {
