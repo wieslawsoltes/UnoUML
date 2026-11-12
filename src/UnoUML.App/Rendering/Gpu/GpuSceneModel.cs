@@ -332,6 +332,8 @@ public sealed record DiagramGpuStatistics(long Revision, long PresentedFrames, i
     public int ViewportCommands { get; init; }
     public int VisibleViewportCommands { get; init; }
     public long UniformAndStopBytes { get; init; }
+    public long DrawUniformCapacityBytes { get; init; }
+    public long GradientCapacityBytes { get; init; }
     public long GeometryUploadBytes { get; init; }
     public long TextureUploadBytes { get; init; }
     public long CameraUploadBytes { get; init; }

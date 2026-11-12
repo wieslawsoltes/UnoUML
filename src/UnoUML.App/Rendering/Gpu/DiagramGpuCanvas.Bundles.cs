@@ -41,7 +41,8 @@ public sealed unsafe partial class DiagramGpuCanvas
                 existing = new(replacement, bindings, vertices, offset, command.Kind, command.Rule, _bindingGeneration);
                 _commandBundles[command.Id] = existing;
             }
-            _renderItems[index] = new(command, (nint)existing.Bundle, command.Kind == GpuCommandKind.Image ? 1 : 2);
+            _renderItems[index] = new(new(command, _stopOffsets.GetValueOrDefault(command.Id)),
+                (nint)existing.Bundle, command.Kind == GpuCommandKind.Image ? 1 : 2);
         }
     }
 
@@ -98,5 +99,8 @@ public sealed unsafe partial class DiagramGpuCanvas
         internal readonly string Rule = rule;
         internal readonly long BindingGeneration = bindingGeneration;
     }
-    private readonly record struct RenderItem(GpuCommand Command, nint Bundle, int Draws);
+    private readonly record struct RenderItem(GpuDrawUniformSlot Uniform, nint Bundle, int Draws)
+    {
+        internal GpuCommand Command => Uniform.Command!;
+    }
 }

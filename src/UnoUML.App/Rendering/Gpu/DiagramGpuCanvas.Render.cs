@@ -76,6 +76,7 @@ public sealed unsafe partial class DiagramGpuCanvas
             {
                 PipelineCount = 6, GeometryBuffers = _meshes.Count, ImageTextures = _textures.Count,
                 RenderBundles = _commandBundles.Count, UniformAndStopBytes = (long)(_drawCapacity + _stopCapacity + GlobalUniformBytes),
+                DrawUniformCapacityBytes = (long)_drawCapacity, GradientCapacityBytes = (long)_stopCapacity,
                 GeometryUploadBytes = _geometryUploadBytes, TextureUploadBytes = _textureUploadBytes,
                 CameraUploadBytes = _cameraUploadBytes, DrawUniformUploadBytes = _drawUniformUploadBytes,
                 GradientUploadBytes = _gradientUploadBytes, BundleBuilds = _bundleBuilds,
@@ -97,7 +98,7 @@ public sealed unsafe partial class DiagramGpuCanvas
         bool orderChanged = !_uploadedOrder.SequenceEqual(_scene.Order, StringComparer.Ordinal);
         bool stopsChanged = orderChanged || _scene.Commands.Any(pair =>
             !_uploadedCommands.TryGetValue(pair.Key, out var previous) || !ReferenceEquals(pair.Value.Paint, previous.Paint));
-        bool uniformsChanged = EnsureBufferCapacity(
+        bool arenaReplaced = EnsureBufferCapacity(
             checked((ulong)Math.Max(1, _scene.Order.Length) * _drawStride),
             ref _drawBuffer, ref _drawCapacity, BufferUsage.Uniform | BufferUsage.CopyDst);
 
@@ -144,7 +145,7 @@ public sealed unsafe partial class DiagramGpuCanvas
                     stop.Color.CopyTo(stopData, start + 4);
                 }
             }
-            EnsureBufferCapacity((ulong)stopData.Length * sizeof(float), ref _stopBuffer, ref _stopCapacity,
+            arenaReplaced |= EnsureBufferCapacity((ulong)stopData.Length * sizeof(float), ref _stopBuffer, ref _stopCapacity,
                 BufferUsage.Storage | BufferUsage.CopyDst);
             WriteFloats(_stopBuffer, 0, stopData);
         }
@@ -152,9 +153,13 @@ public sealed unsafe partial class DiagramGpuCanvas
         for (int index = 0; index < _scene.Order.Length; index++)
         {
             GpuCommand command = _scene.Commands[_scene.Order[index]];
-            if (uniformsChanged || orderChanged || stopsChanged ||
-                !_uploadedCommands.TryGetValue(command.Id, out var previous) || !ReferenceEquals(previous, command))
-                WriteDraw(command, checked((ulong)index * _drawStride));
+            uint stopOffset = _stopOffsets.GetValueOrDefault(command.Id);
+            // Render items still describe the preceding uploaded frame here.
+            // A moved command changes its slot occupant; gradient repacking can
+            // change its stop offset without changing the command itself.
+            GpuDrawUniformSlot previous = index < _renderItems.Length ? _renderItems[index].Uniform : default;
+            if (previous.NeedsUpload(command, stopOffset, arenaReplaced))
+                WriteDraw(command, checked((ulong)index * _drawStride), stopOffset);
         }
         SynchronizeBundles();
         _uploadedCommands = _scene.Commands;
@@ -185,7 +190,7 @@ public sealed unsafe partial class DiagramGpuCanvas
         WriteFloats(_globalBuffer, 0, data);
     }
 
-    private void WriteDraw(GpuCommand command, ulong offset)
+    private void WriteDraw(GpuCommand command, ulong offset, uint stopOffset)
     {
         Span<float> data = stackalloc float[64];
         data.Clear();
@@ -198,7 +203,7 @@ public sealed unsafe partial class DiagramGpuCanvas
         paint.Color.AsSpan().CopyTo(data.Slice(12, 4));
         PutMatrix(data, 16, paint.Transform);
         data[20] = paint.Transform.M31; data[21] = paint.Transform.M32;
-        data[22] = paint.Opacity; data[23] = _stopOffsets.GetValueOrDefault(command.Id);
+        data[22] = paint.Opacity; data[23] = stopOffset;
         data[24] = paint.Start.X; data[25] = paint.Start.Y; data[26] = paint.End.X; data[27] = paint.End.Y;
         data[28] = paint.Center.X; data[29] = paint.Center.Y; data[30] = paint.Focal.X; data[31] = paint.Focal.Y;
         data[32] = paint.Radius; data[33] = paint.FocalRadius; data[34] = paint.Stops.Length;
