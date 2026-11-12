@@ -1,4 +1,5 @@
 import { activateControl, fillControl } from './native-controls.mjs';
+import { traceNativeInput } from './native-input-trace.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyStructuredEditing(page, source) {
@@ -107,9 +108,12 @@ export async function verifyStructuredEditing(page, source) {
   await activateControl(page, dialog.getByRole('combobox',{name:'Axis',exact:true}));
   await activateControl(page, page.getByRole('listbox',{name:'Axis',exact:true}).getByRole('option',{name:'Vertical (v-axis)',exact:true}));
   await fillControl(page, dialog.getByRole('textbox',{name:'Axis label',exact:true}), 'Value');
-  await fillControl(page, dialog.getByRole('textbox',{name:'Axis maximum',exact:true}), '3');
-  await activateControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));
-  await dialog.waitFor({state:'hidden'});
+  const maximum = dialog.getByRole('textbox',{name:'Axis maximum',exact:true});
+  await traceNativeInput(page, maximum, 'structured-axis-maximum', async () => {
+    await fillControl(page, maximum, '3');
+    await activateControl(page, dialog.getByRole('button',{name:'Apply',exact:true}));
+    await dialog.waitFor({state:'hidden'});
+  });
   await paper.locator('g.vertical-axis text').filter({hasText:/^Value$/}).waitFor();
   assert.equal(await source.inputValue(),line.replace('v-axis 0 --> 2','v-axis "Value" 0 --> 3'));
   await surface.press('Control+z');

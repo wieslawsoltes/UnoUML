@@ -1,4 +1,5 @@
 import { activateControl, fillControl } from './native-controls.mjs';
+import { traceNativeInput } from './native-input-trace.mjs';
 import assert from 'node:assert/strict';
 
 export async function verifyNetworkEditing(page, source) {
@@ -9,7 +10,7 @@ export async function verifyNetworkEditing(page, source) {
   const fixture = '@startnwdiag\nnwdiag {\n  network dmz {\n    address = "192.0.2.0/24"; // subnet retained\n    shared [address=".1", description="Gateway", color="#112233"];\n    client [address=".2"];\n  }\n  network lan {\n    shared [address="10.0.0.1"];\n    db [shape=database];\n  }\n  network spare {\n  }\n}\n@endnwdiag';
   const semantic = text => text.startsWith("' @unouml:canvas ") ? text.slice(text.indexOf('\n') + 1) : text;
   const geometry = text => JSON.parse(text.slice("' @unouml:canvas ".length,text.indexOf('\n')));
-  await fillControl(page, source, fixture);
+  await traceNativeInput(page, source, 'network-source', () => fillControl(page, source, fixture));
   await paper.locator('g.entity[data-qualified-name="shared"]').waitFor();
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
