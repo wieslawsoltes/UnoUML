@@ -1,0 +1,50 @@
+name: WebGPU scale and coverage diagnostics
+on:
+  push:
+    branches: [codex/webgpu-quality-diagnostics]
+permissions:
+  contents: read
+concurrency:
+  group: unouml-webgpu-quality-diagnostics
+  cancel-in-progress: true
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      UNOUML_REQUIRE_WEBGPU: '1'
+      UNOUML_GPU_DRIVER: software
+      UNOUML_DIAGNOSTIC_URL: https://wieslawsoltes.github.io/UnoUML/
+      EXPECTED_MAIN_SHA: b25c990167b13db19dca318ca2f25420085e3518
+    steps:
+      - name: Check out the immutable diagnostic harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify deployed main remains the approved baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: test "$(gh api repos/wieslawsoltes/UnoUML/commits/main --jq .sha)" = "$EXPECTED_MAIN_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install the pinned browser harness
+        run: npm ci --ignore-scripts
+      - name: Diagnose all scales with unchanged hard quality gates
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/gpu-quality-diagnostics
+        run: CHROMIUM_PATH="$(command -v google-chrome)" node tests/browser/gpu-quality-diagnostics.mjs
+      - name: Verify main stayed immutable throughout diagnostics
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: test "$(gh api repos/wieslawsoltes/UnoUML/commits/main --jq .sha)" = "$EXPECTED_MAIN_SHA"
+      - name: Preserve every quality comparison and diagnostic profile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-quality-diagnostics-${{ github.sha }}
+          path: ${{ runner.temp }}/gpu-quality-diagnostics/
+          if-no-files-found: warn
