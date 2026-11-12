@@ -1,4 +1,5 @@
 import { activateControl, fillControl } from './native-controls.mjs';
+import {fitCanvas} from './canvas-frame.mjs';
 import assert from 'node:assert/strict';
 import {mkdir} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -37,7 +38,7 @@ export async function verifyFilesEditing(page, source) {
     return row&&row.dataset.canvasNode===row.dataset.canvasId;
   },{surface:await surface.elementHandle(),path});
   const input='\uFEFF@startfiles\n/src/A.cs\n/src/nested/B.cs\n/docs/\n@endfiles';
-  await fillControl(page, source, input);await row('/src/A.cs').waitFor();await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fillControl(page, source, input);await row('/src/A.cs').waitFor();await fitCanvas(page);
   assert.equal(await paper.getAttribute('data-renderer'),'managed');
   assert.equal(await paper.locator('[data-files-path]').count(),5,'Implicit directories have distinct selectable rows');
   const oldIds=new Map();
@@ -104,6 +105,9 @@ export async function verifyFilesEditing(page, source) {
   assert.equal(pasted.nodes.length,7);
   await surface.press('Control+z');await waitSource(arrangedSource);await row('/docs/nested/B.cs').waitFor({state:'detached'});
   await surface.press('Control+y');await waitSource(pastedSource);await row('/docs/nested/B.cs').waitFor();
+  // Clipboard offsets can place the clone beyond the preserved camera's clip.
+  // Fit the committed geometry before selecting it with a real pointer.
+  await fitCanvas(page);
   await activateControl(page, row('/docs/nested/'));await surface.press('Delete');
   await row('/docs/nested/B.cs').waitFor({state:'detached'});
   await waitSource(arrangedSource);
@@ -118,7 +122,7 @@ export async function verifyFilesEditing(page, source) {
   assert.ok((await snapshot()).body.includes('/docs/nested/New.cs\n@endfiles'));
   await surface.press('Control+z');await waitSource(pastedSource);await row('/docs/nested/New.cs').waitFor({state:'detached'});
 
-  await activateControl(page, page.getByRole('button',{name:'Fit diagram',exact:true}));
+  await fitCanvas(page);
   if(process.env.SCREENSHOT_DIR){await mkdir(process.env.SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:resolve(process.env.SCREENSHOT_DIR,'files-authoring.png')});}
   console.log('Verified Files inferred-folder direct editing, atomic path and geometry remapping, collision guards, inspector move/insert, keyboard subtree copy/paste/delete, BOM preservation and exact undo/redo.');
 }
