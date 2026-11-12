@@ -9,6 +9,48 @@ const commits = new WeakMap();
 const events = ['focusin', 'beforeinput', 'input', 'compositionstart', 'compositionend'];
 const commitEvents = ['input', 'compositionend'];
 
+let projectionObserver = null;
+let projectionRoot = null;
+
+// Accessibility can expose a loaded TextBox long after its first native frame.
+// Watch only that semantic tree, and only while a registered editor expects a
+// BOM. Value writes and unrelated canvas/HTML mutations are never observed.
+function observeProjections() {
+  const required = [...registrations.values()].some(entry => entry.expected);
+  const root = required ? document.getElementById('uno-semantics-root') : null;
+  if (root === projectionRoot && projectionObserver) return;
+  projectionObserver?.disconnect();
+  projectionObserver = null;
+  projectionRoot = null;
+  if (!root?.isConnected) return;
+
+  const observer = new MutationObserver(records => {
+    // A detached observer may already have a delivery queued. It cannot repair
+    // an editor after a plain-source refresh, removal, or root replacement.
+    if (projectionObserver !== observer || projectionRoot !== root ||
+        !root.isConnected || document.getElementById('uno-semantics-root') !== root) return;
+    const candidates = new Set();
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (node.matches('textarea[xamlautomationid]')) candidates.add(node);
+        for (const input of node.querySelectorAll('textarea[xamlautomationid]')) candidates.add(input);
+      }
+    }
+    for (const input of candidates) {
+      const entry = registrations.get(input.getAttribute('xamlautomationid'));
+      // Resolve the live registration and node at delivery time, rather than
+      // retaining an old document's expected text in the mutation callback.
+      if (!entry?.expected || !input.isConnected || !root.contains(input) ||
+          semanticInput(entry) !== input) continue;
+      repair(entry);
+    }
+  });
+  projectionRoot = root;
+  projectionObserver = observer;
+  observer.observe(root, { childList: true, subtree: true });
+}
+
 function semanticInput(entry) {
   return document.querySelector('textarea[xamlautomationid="' + CSS.escape(entry.id) + '"]');
 }
@@ -55,8 +97,8 @@ function schedule(entry) {
       repair(entry);
     });
   }
-  // Semantic projection can be created during the next composition frame.
-  // One coalesced frame is sufficient; there is no document-wide observer/poll.
+  // Coalesce the current native frame; the scoped semantic observer handles
+  // editors created later without extending this into continuous frame polling.
   if (!entry.frame) {
     entry.frame = requestAnimationFrame(() => {
       entry.frame = 0;
@@ -109,6 +151,7 @@ function onEditorEvent(event) {
       entry.expected = null;
     }
   }
+  if (owned.length && event.type !== 'focusin') observeProjections();
   if (captured) commits.set(event, captured);
 }
 
@@ -161,6 +204,7 @@ export function syncSourceText(id, json, focused = false, selectionStart = 0, se
     start: domOffset(source, start),
     end: domOffset(source, Math.min(source.length, start + length))
   });
+  observeProjections();
   if (entry.expected) schedule(entry);
 }
 
@@ -169,5 +213,6 @@ export function removeSourceText(id) {
   if (!entry) return;
   registrations.delete(id);
   if (entry.frame) cancelAnimationFrame(entry.frame);
+  observeProjections();
   if (registrations.size === 0) setListeners(false);
 }
