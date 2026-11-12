@@ -45,7 +45,9 @@ accessibility entry with Enter. Native command checks resolve the live role,
 require exposed ancestry and enabled state, focus the actual control through its
 semantic element, verify that focus, and send one real Space or Enter key.
 `activateControl` never dispatches a synthetic click or repeats an activation
-after sending the key. SVG and HTML editor controls retain ordinary browser
+after sending the key. Dedicated button checks can request Enter or Space;
+other native roles retain their defined activation key. The requested key is
+validated again against the current role after focus. SVG and HTML editor controls retain ordinary browser
 actionability; diagram dragging, resizing, docking and routing use real pointer
 input. A separate native toolbar check clicks Split and Design through the
 composition canvas and verifies the source pane opens and closes.
@@ -61,8 +63,11 @@ explicit `clickControl` pointer helper still checks visibility, bounds stability
 viewport inclusion and an actual hit on Uno's canvas for the toolbar smoke test.
 
 Automation waits for Uno's visible startup cover to disappear and re-resolves
-native semantic controls if a framework subtree rebuild replaces them. Native
-text replacement uses the real Select All keyboard command before insertion,
+native semantic controls if a framework subtree rebuild replaces them. Text input
+classification reads connection and semantic ancestry together: a detached
+subtree is re-resolved before either the native or DOM edit path starts. No input
+is retried after dispatch. Native text replacement uses the real Select All
+keyboard command before insertion,
 then verifies the complete resulting value. This updates the managed TextBox
 selection as well as its DOM projection; a browser-only selection could instead
 prepend text to the existing document.
@@ -70,8 +75,8 @@ prepend text to the existing document.
 Native fill failures include opt-in snapshots of the public `FocusManager` owner
 and target TextBox at keyboard capture and bubble. A source-transaction trace can
 also sample beforeinput, input and composition-end boundaries until the source and
-render acknowledge the edit. They record identity, loaded,
-focus and enabled state, text length/BOM, and selection. Readers exist only while
+render acknowledge the edit. They record original/current DOM identity and
+semantic ancestry, loaded, focus and enabled state, text length/BOM, and selection. Readers exist only while
 their TextBox is loaded and use `Utf8JsonWriter` for trimming-safe Release builds.
 These snapshots observe existing state without setting focus or changing input.
 
@@ -163,7 +168,11 @@ focus clears pending work. Deferred DOM focus waits for the corresponding
 option, preserves scroll position and is cancelled by intervening DOM focus or
 window blur. The observer and public focus subscriptions end on popup close or
 unload. The real application test waits for this known queued projection while
-requiring focus to remain inside the modal or its controlled popup.
+requiring focus to remain inside the modal or its controlled popup. After one
+explicit option focus request, it waits for the current semantic option to become
+`:focus` before the existing exact focus assertion and one Enter dispatch. Passive
+failure tracing can inspect the modal-isolated source editor's public native-owner
+reader; interaction locators continue to enforce modal exclusion.
 
 Uno's virtualized listbox container is intentionally a logical accessibility root
 without its own visual rectangle. Individual option nodes can also retain zero
@@ -421,7 +430,7 @@ Verified rendering gates:
 - GPU model tests passed 738 assertions in 12 cases.
 - Geometry, source-input projection and presentation-host tests cover 16, 23 and eight cases respectively. The source cases include stale BOM invalidation, equivalent LF/CRLF refresh without a native text-change event, and semantic editors created after the initial frame.
 - Native semantic fixtures passed 82 assertions across 22 cases, including modal, ComboBox focus/selection and TextBox enabled-state lifecycles. The published application passed the corresponding reopened-dialog and renderer-toggle checks.
-- Separate native TextBox focus fixtures cover real replacement and delayed insertion, current selection/scroll and subsequent keyboard input, fresh native ownership, explicit user focus changes, composition and loaded-generation cleanup. They run through the existing fast and published-browser gates.
+- Separate native TextBox focus fixtures passed **30 assertions across 11 cases** in both the fast Chromium gate and the published application. They cover real replacement and delayed insertion, current selection/scroll and subsequent keyboard input, fresh native ownership, explicit user focus changes, composition, hidden/inert/disabled replacements and loaded-generation cleanup.
 - Independent Canvas, DOT, structured-diagram, Network and Gantt authoring suites passed in CI #66, including free geometry and automatic layout, shared-edge and table restructuring, chart axes, task dragging/resizing, dependency propagation, byte-exact BOM/CRLF Save/Open/draft restoration and atomic undo.
 - The Core suite passed 4,065 assertions, including 103 new source-projection checks and unchanged startup history for all 33 starter templates.
 - Production WGSL passed six pipeline creations and 17 offscreen pixel checks.
