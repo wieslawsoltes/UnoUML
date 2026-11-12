@@ -129,13 +129,13 @@ export async function verifyNetworkEditing(page, source) {
   await clickControl(page, hosts);
   const hostChoices = page.getByRole('listbox',{name:'Shared host',exact:true});
   await clickControl(page, hostChoices.getByRole('option',{name:'Second · b',exact:true}));
-  await hostChoices.waitFor({state:'hidden'});
+  await hostChoices.waitFor({state:'detached'});
   await hosts.press('Enter');
   const selectedHost = hostChoices.getByRole('option',{name:'Second · b',exact:true,selected:true});
-  await selectedHost.waitFor({state:'visible'});
+  await selectedHost.waitFor({state:'attached'});
   assert.equal(await hosts.getAttribute('aria-activedescendant'),await selectedHost.getAttribute('id'));
   await hosts.press('Escape');
-  await hostChoices.waitFor({state:'hidden'});
+  await hostChoices.waitFor({state:'detached'});
   // Restore focus to the ambiguous outline button before the shortcut, so a
   // native picker cannot consume Delete as an input gesture.
   await sourceRow.press('Delete');

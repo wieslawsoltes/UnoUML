@@ -44,10 +44,10 @@ export async function verifyDotStructuralAuthoring(page, source) {
     await picker.press('Enter');
     const selected = page.getByRole('listbox',{name:'Table cell',exact:true})
       .getByRole('option',{name:`Row ${row}, column ${column}: ${text}`,exact:true,selected:true});
-    await selected.waitFor({state:'visible'});
+    await selected.waitFor({state:'attached'});
     assert.equal(await picker.getAttribute('aria-activedescendant'),await selected.getAttribute('id'));
     await picker.press('Escape');
-    await selected.waitFor({state:'hidden'});
+    await selected.waitFor({state:'detached'});
     await page.waitForFunction(value => document.querySelector('input[aria-label="Table cell text"],textarea[aria-label="Table cell text"]')?.value === value,text);
     assert.equal(await field('Table cell text').inputValue(),text,'The inspector resolves the selected cell before applying structure');
   };

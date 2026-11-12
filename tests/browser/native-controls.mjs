@@ -1,5 +1,46 @@
 import assert from 'node:assert/strict';
 
+// Uno's virtualized ComboBox options can retain their initial zero bounds even
+// while the native popup is visible. The public option focus and keyboard path
+// still targets the actual ComboBoxItem; validate that live relationship before
+// using it. Ordinary controls must continue through the canvas pointer gates.
+function nativeVirtualOptionState(element) {
+  const root = element.closest('#uno-semantics-root');
+  const listbox = element.closest('[role="listbox"]');
+  const rect = element.getBoundingClientRect();
+  const exposed = node => {
+    if (!node?.isConnected || node.closest('[aria-hidden="true"], [hidden], [inert]')) return false;
+    for (let current = node; current; current = current.parentElement) {
+      const style = getComputedStyle(current);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') return false;
+    }
+    return true;
+  };
+  const enabled = node => !!node && !node.closest('[aria-disabled="true"], [disabled]');
+  const owners = root && listbox?.id ? [...root.querySelectorAll('[role="combobox"][aria-expanded="true"]')]
+    .filter(owner => (owner.getAttribute('aria-controls') ?? '').split(/\s+/).includes(listbox.id)) : [];
+  const owner = owners.length === 1 ? owners[0] : null;
+  const ownerRect = owner?.getBoundingClientRect();
+  const position = Number(element.getAttribute('aria-posinset'));
+  const size = Number(element.getAttribute('aria-setsize'));
+  const validPosition = Number.isInteger(position) && Number.isInteger(size) && position > 0 && position <= size;
+  return {
+    virtualOption: true,
+    actionable: element.getAttribute('role') === 'option' && rect.width === 0 && rect.height === 0
+      && !!element.id && !!root && listbox?.closest('#uno-semantics-root') === root
+      && exposed(element) && exposed(listbox) && exposed(owner) && enabled(element) && enabled(owner)
+      && ownerRect?.width > 0 && ownerRect?.height > 0 && validPosition,
+    attached: element.isConnected,
+    focused: element.ownerDocument.activeElement === element,
+    name: element.getAttribute('aria-label'),
+    listbox: listbox?.id,
+    owner: owner?.getAttribute('aria-label'),
+    owners: owners.length,
+    position, size,
+    rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+  };
+}
+
 /** Activate Uno's public, keyboard-accessible entry after the window is ready. */
 export async function activateAccessibility(page) {
   // The SVG and semantic tree can exist while Uno's startup splash still
@@ -26,45 +67,64 @@ export async function clickControl(page, locator, options = {}) {
   while (Date.now() < deadline) {
     try {
       await locator.waitFor({ state: 'attached', timeout: remaining() });
-      const target = await locator.evaluate(element => ({
-        attached: element.isConnected, native: !!element.closest('#uno-semantics-root')
-      }));
+      const target = await locator.evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        return {
+          attached: element.isConnected, native: !!element.closest('#uno-semantics-root'),
+          virtualOption: element.getAttribute('role') === 'option' && rect.width === 0 && rect.height === 0
+        };
+      });
       if (!target.attached) {
         state = { detached: true };
       } else if (!target.native) {
         return locator.click(options);
       } else {
         assert.ok(!options.force, 'Native controls must pass visibility, enabled, stability and canvas hit checks');
-        await locator.waitFor({ state: 'visible', timeout: remaining() });
-        await locator.scrollIntoViewIfNeeded({ timeout: remaining() });
-        if (await locator.isEnabled()) {
-          state = await locator.evaluate(async (element, position) => {
-            const read = () => {
-              const rect = element.getBoundingClientRect();
-              return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-            };
-            await new Promise(resolve => requestAnimationFrame(resolve));
-            const first = read();
-            await new Promise(resolve => requestAnimationFrame(resolve));
-            const rect = read();
-            const x = rect.x + (position?.x ?? rect.width / 2);
-            const y = rect.y + (position?.y ?? rect.height / 2);
-            const hit = document.elementFromPoint(x, y);
-            return {
-              x, y, rect,
-              attached: element.isConnected && !!element.closest('#uno-semantics-root'),
-              stable: Object.keys(rect).every(key => rect[key] === first[key]),
-              inViewport: x >= 0 && y >= 0 && x < innerWidth && y < innerHeight,
-              onCanvas: hit === document.getElementById('uno-canvas'),
-              hit: hit ? `${hit.tagName.toLowerCase()}#${hit.id}` : null,
-              name: element.getAttribute('aria-label')
-            };
-          }, options.position ?? null);
-          state.actionable = state.attached && state.stable && state.rect.width > 0 && state.rect.height > 0
-            && state.inViewport && state.onCanvas && await locator.isEnabled();
-          if (state.actionable) break;
+        if (target.virtualOption) {
+          assert.ok((options.button ?? 'left') === 'left' && (options.clickCount ?? 1) === 1
+            && !options.position && !(options.modifiers?.length),
+          'A zero-bound native option supports one unmodified selection through its public keyboard contract');
+          state = await locator.evaluate(nativeVirtualOptionState);
+          state.actionable &&= await locator.isEnabled();
+          if (state.actionable) {
+            if (options.trial) break;
+            await locator.focus({ timeout: remaining() });
+            state = await locator.evaluate(nativeVirtualOptionState);
+            state.actionable &&= state.focused && await locator.isEnabled();
+            if (state.actionable) break;
+          }
         } else {
-          state = { disabled: true };
+          await locator.waitFor({ state: 'visible', timeout: remaining() });
+          await locator.scrollIntoViewIfNeeded({ timeout: remaining() });
+          if (await locator.isEnabled()) {
+            state = await locator.evaluate(async (element, position) => {
+              const read = () => {
+                const rect = element.getBoundingClientRect();
+                return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+              };
+              await new Promise(resolve => requestAnimationFrame(resolve));
+              const first = read();
+              await new Promise(resolve => requestAnimationFrame(resolve));
+              const rect = read();
+              const x = rect.x + (position?.x ?? rect.width / 2);
+              const y = rect.y + (position?.y ?? rect.height / 2);
+              const hit = document.elementFromPoint(x, y);
+              return {
+                x, y, rect,
+                attached: element.isConnected && !!element.closest('#uno-semantics-root'),
+                stable: Object.keys(rect).every(key => rect[key] === first[key]),
+                inViewport: x >= 0 && y >= 0 && x < innerWidth && y < innerHeight,
+                onCanvas: hit === document.getElementById('uno-canvas'),
+                hit: hit ? `${hit.tagName.toLowerCase()}#${hit.id}` : null,
+                name: element.getAttribute('aria-label')
+              };
+            }, options.position ?? null);
+            state.actionable = state.attached && state.stable && state.rect.width > 0 && state.rect.height > 0
+              && state.inViewport && state.onCanvas && await locator.isEnabled();
+            if (state.actionable) break;
+          } else {
+            state = { disabled: true };
+          }
         }
       }
     } catch (error) {
@@ -76,8 +136,13 @@ export async function clickControl(page, locator, options = {}) {
     }
     await page.waitForTimeout(Math.min(25, remaining() || 25));
   }
-  assert.ok(state?.actionable, `Native control was not actionable on the Uno canvas: ${JSON.stringify(state)}`);
+  assert.ok(state?.actionable, `Native control was not actionable: ${JSON.stringify(state)}`);
   if (options.trial) return;
+  if (state.virtualOption) {
+    // Focus was verified above. Enter is dispatched once through the browser;
+    // Uno's ComboBox popup commits the focused item and closes itself.
+    return locator.press('Enter', { timeout: remaining(), delay: options.delay });
+  }
 
   const modifiers = options.modifiers ?? [];
   try {
