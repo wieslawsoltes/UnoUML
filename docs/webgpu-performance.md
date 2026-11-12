@@ -95,8 +95,10 @@ fresh browser context with a 1,390 × 860 desktop viewport, DPR 1, light color
 scheme, Chromium, the explicit software driver and 4× MSAA. The starter and
 64/256-class diagrams exercise camera changes; the class scenes additionally
 measure distinct same-length label edits and saved-state translation of an
-interior unconnected node. Camera scale starts at 0.9 to avoid resolution-bucket
-crossings. Warmups are excluded from the reported distributions.
+interior unconnected node. Camera scale starts at 1.5, an explicitly characterized setup that passes the
+unchanged quality gates for all three workloads and stays inside resolution
+bucket 2 during the small camera updates. Failed scale cases remain recorded
+below. Warmups are excluded from the reported distributions.
 
 Each camera phase has six measured samples after two warmups; source and transform
 phases have four after two warmups. Source strings are distinct to bypass the
@@ -263,5 +265,58 @@ The saved cold frames record the intended draw reductions (88→65, 577→457 an
 641→505), matching 23, 120 and 136 visible direct meshes. These are structural
 draw-count observations from a failed-quality setup, not warmed latency results.
 
-Further scale/reference characterization and accepted paired measurements are
-pending.
+### Fixed-scale and coverage characterization
+
+The [focused diagnostic](https://github.com/wieslawsoltes/UnoUML/actions/runs/43324405731)
+uses the deployed immutable baseline, verifies its content-directory assets
+against `b25c9901`, and records 18 captures on Chromium 157.0.8103.78.
+Every capture has an accepted native revision, 4× MSAA and unchanged scene
+geometry during comparison. The diagnostic deliberately retains all ten failing
+quality cases and exits unsuccessfully; it does not turn them into passes.
+
+| Scale | Starter GPU/SVG ink | 64 classes GPU/SVG ink | 256 classes GPU/SVG ink |
+| --- | --- | --- | --- |
+| 0.9 | 1.1488 — fails | 1.4165 — fails | 1.5898 — fails |
+| 1.0 | 0.9927 — passes | 0.6902 — fails | 0.6884 — fails |
+| 1.25 | 0.9599 — passes | 0.8679 — fails | 0.8682 — fails |
+| 1.5 | 0.9761 — passes | 1.0052 — passes | 1.0108 — passes |
+| 1.65 | 0.9911 — passes | 0.9942 — passes | 0.9950 — passes |
+
+All listed failures are the existing binary ink-ratio gate. The mean-error and
+major-difference budgets pass at these scales. At 1.5, mean channel errors are
+0.6820, 1.4302 and 1.3873 respectively, with major-difference fractions 0.0026,
+0.0069 and 0.0066.
+
+The recorded RGB profiles explain why a binary ink count must not be interpreted
+as geometric coverage. At the sampled 64-class edge at scale 1.0, adjacent GPU
+rows are `[150,151,160]` and `[147,147,155]`; SVG rows are
+`[149,151,159]` and `[146,147,154]`. The strict minimum-channel threshold
+below 150 counts one GPU row and two SVG rows, although their integrated
+coverage is 0.9956 and 1.0026. At 0.9, the same edge's integrated coverage is
+0.9956 versus 0.9487; integrated darkness over the whole scene differs by about
+1%, while the binary ink ratio differs by 41.6%. This establishes threshold
+amplification in the inspected pixels; it does not establish universal
+cross-scale equivalence.
+
+A separate, restored reference-only experiment changes `will-change: transform`
+to `auto` without changing SVG geometry or camera matrices. It changes 64,651
+reference pixels for the 64-class scene and 65,201 for 256 classes. Those
+captures are diagnostic controls only; the shared comparison helper, application
+CSS and benchmark quality budgets are unchanged.
+
+Immediate, scale-roundtrip and fresh-context repetitions of the 256-class
+0.9 scene have zero differing SVG or GPU pixels. The earlier 26-ink-pixel
+reference variation did not reproduce. The paired benchmark therefore keeps
+its exact SVG-reference comparison and records the initial SVG, camera and font
+state so a recurrence can be inspected.
+
+The common measurement scale is now **1.5**, with resolution bucket 2. It passes
+every existing gate for all three scenes and gives sampled edge coverage
+1.5083 versus 1.5134. The 64/256-class scenes each expose 144 visible commands
+while retaining 384/1,536 total commands, so scene size and visible work are
+reported separately. This is an accepted setup for the comparison, not a fix
+for all fractional-scale rasterization differences. Camera normalization also
+accepts an already matching validated frame instead of waiting for a revision
+that an unchanged camera deliberately does not emit.
+
+Paired measurements at this characterized setup are pending.
