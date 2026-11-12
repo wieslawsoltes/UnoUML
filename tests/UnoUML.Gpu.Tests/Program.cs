@@ -41,6 +41,9 @@ internal static class Program
             ("viewport overlays retain pixel geometry across camera changes", ViewportOverlays),
             ("coordinate-space validation is atomic", CoordinateSpaceValidation),
             ("gradient and clipping protocol", PaintAndClip),
+            ("overlay tail edits retain diagram uniform slots", OverlayUniformRetention),
+            ("gradient repacking and painter reorders refresh affected uniform slots", UniformSlotRepacking),
+            ("command changes and recreated arenas invalidate draw uniforms", UniformContentsAndLifetime),
             ("bounded command and texture payloads", Budgets),
             ("reset replaces the retained scene", ResetScene)
         ];
@@ -424,6 +427,158 @@ internal static class Program
         Accept(model, """{"revision":3,"commands":[{"id":"triangle","clip":null}]}""");
         Check(model.Commands["triangle"].Clip is null, "Explicit null must remove a retained clip");
         Check(ReferenceEquals(model.Commands["triangle"].Paint, command.Paint), "Removing a clip retains its paint");
+    }
+
+
+    private static void OverlayUniformRetention()
+    {
+        var model = Seed();
+        var upload = new UniformUploadProbe();
+        Equal(upload.Upload(model), "triangle,label");
+        var diagram = model.Commands["triangle"];
+        var label = model.Commands["label"];
+        Accept(model, """
+            {"revision":2,"commands":[
+              {"id":"overlay:selection","kind":"mesh","space":"viewport","vertices":[0,0,10,0,0,10]},
+              {"id":"overlay:shadow","kind":"fill","space":"viewport","vertices":[0,0,10,0,0,10],
+               "paint":{"kind":"linear","stops":[{"offset":0,"color":[0,0,0,0.3]},{"offset":1,"color":[0,0,0,0]}]}},
+              {"id":"overlay:focus","kind":"mesh","space":"viewport","vertices":[0,0,10,0,0,10]}
+            ],"order":["triangle","label","overlay:selection","overlay:shadow","overlay:focus"]}
+            """);
+        Equal(upload.Upload(model), "overlay:selection,overlay:shadow,overlay:focus");
+        Check(ReferenceEquals(diagram, model.Commands["triangle"]), "Overlay insertion retains the diagram command");
+        Check(ReferenceEquals(label, model.Commands["label"]), "Overlay insertion retains the text command");
+
+        Accept(model, """{"revision":3,"commands":[{"id":"overlay:selection","matrix":[1,0,0,1,20,30]}]}""");
+        Equal(upload.Upload(model), "overlay:selection");
+
+        var focus = model.Commands["overlay:focus"];
+        Accept(model, """
+            {"revision":4,"remove":["overlay:selection","overlay:shadow"],
+             "order":["triangle","label","overlay:focus"]}
+            """);
+        Check(ReferenceEquals(focus, model.Commands["overlay:focus"]), "The surviving focus command itself is unchanged");
+        Equal(upload.Upload(model), "overlay:focus");
+        Equal(upload.SlotCount, 3);
+        Equal(upload.StopOffset(2), 0u);
+
+        Accept(model, """{"revision":5,"remove":["overlay:focus"],"order":["triangle","label"]}""");
+        Equal(upload.Upload(model), "");
+        Equal(upload.SlotCount, 2);
+        Accept(model, """{"revision":6,"camera":[1,0,0,1,37,19]}""");
+        Equal(upload.Upload(model), "");
+
+        Accept(model, """
+            {"revision":7,"commands":[{"id":"overlay:focus","kind":"mesh","space":"viewport",
+              "vertices":[0,0,10,0,0,10]}],"order":["triangle","label","overlay:focus"]}
+            """);
+        Equal(upload.Upload(model), "overlay:focus");
+        Accept(model, """{"revision":8,"reset":true}""");
+        Equal(upload.Upload(model), "");
+        Equal(upload.SlotCount, 0);
+    }
+
+    private static void UniformSlotRepacking()
+    {
+        var model = Seed();
+        Accept(model, """
+            {"revision":2,"commands":[
+              {"id":"triangle","paint":{"kind":"linear","stops":[
+                {"offset":0,"color":[1,0,0,1]},{"offset":1,"color":[0,0,1,1]}]}},
+              {"id":"tail","kind":"mesh","vertices":[0,0,10,0,0,10]}
+            ],"order":["triangle","label","tail"]}
+            """);
+        var upload = new UniformUploadProbe();
+        Equal(upload.Upload(model), "triangle,label,tail");
+        Equal(upload.StopOffset(1), 2u);
+        var label = model.Commands["label"];
+        var tail = model.Commands["tail"];
+        Accept(model, """
+            {"revision":3,"commands":[{"id":"triangle","paint":{"kind":"linear","stops":[
+              {"offset":0,"color":[1,0,0,1]},{"offset":0.5,"color":[0,1,0,1]},{"offset":1,"color":[0,0,1,1]}]}}]}
+            """);
+        Check(ReferenceEquals(label, model.Commands["label"]) && ReferenceEquals(tail, model.Commands["tail"]),
+            "Gradient packing can move offsets of otherwise unchanged commands");
+        Equal(upload.Upload(model), "triangle,label,tail");
+        Equal(upload.StopOffset(1), 3u);
+        Equal(upload.StopOffset(2), 3u);
+
+        Accept(model, """
+            {"revision":4,"commands":[{"id":"triangle","paint":{"kind":"linear","stops":[
+              {"offset":0,"color":[0.5,0,0,1]},{"offset":0.5,"color":[0,0.5,0,1]},{"offset":1,"color":[0,0,0.5,1]}]}}]}
+            """);
+        Equal(upload.Upload(model), "triangle");
+
+        Accept(model, """{"revision":5,"order":["tail","label","triangle"]}""");
+        Equal(upload.Upload(model), "tail,label,triangle");
+        Equal(upload.StopOffset(1), 0u);
+        Accept(model, """{"revision":6,"order":["label","tail","triangle"]}""");
+        Equal(upload.Upload(model), "label,tail");
+        Equal(upload.Upload(model), "");
+    }
+
+    private static void UniformContentsAndLifetime()
+    {
+        var model = Seed();
+        var upload = new UniformUploadProbe();
+        Equal(upload.Upload(model), "triangle,label");
+        string[] patches =
+        [
+            """{"matrix":[1,0,0,1,5,6]}""",
+            """{"bounds":[-1,-2,24,15]}""",
+            """{"paint":{"kind":"solid","color":[0.2,0.4,0.8,1]}}""",
+            """{"paint":{"kind":"solid","color":[0.2,0.4,0.8,1],"opacity":0.5,"transform":[2,0,0,2,3,4]}}""",
+            """{"clip":[0,0,8,9]}""",
+            """{"space":"viewport"}""",
+            """{"clip":null}""",
+            """{"space":"world"}""",
+            """{"rule":"evenodd"}""",
+            """{"vertices":[0,0,30,0,0,15]}"""
+        ];
+        int revision = 2;
+        foreach (string patch in patches)
+        {
+            Accept(model, "{\"revision\":" + revision++ + ",\"commands\":[{\"id\":\"triangle\"," + patch[1..^1] + "}]}");
+            Equal(upload.Upload(model), "triangle");
+            Equal(upload.Upload(model), "");
+        }
+
+        // Texture replacement changes a binding/resource, not the image draw's
+        // uniform contents. The existing render-bundle binding checks own it.
+        Accept(model, "{\"revision\":" + revision++ + ",\"textures\":[{\"id\":\"glyph\",\"width\":1,\"height\":1,\"rgba\":\"AAAAAA==\"}]}");
+        Equal(upload.Upload(model), "");
+        Equal(upload.Upload(model, arenaReplaced: true), "triangle,label");
+        Equal(upload.Upload(model), "");
+        // Device teardown discards render items; an identical retained scene must
+        // populate its new arena even when every command reference is unchanged.
+        upload = new UniformUploadProbe();
+        Equal(upload.Upload(model), "triangle,label");
+    }
+
+    // Drive the production slot state using real accepted scene transactions.
+    // Expected upload IDs above are fixed by visual ownership and packing changes;
+    // this probe has no GPU, no duplicate dirty predicate, and no mocked renderer.
+    private sealed class UniformUploadProbe
+    {
+        private GpuDrawUniformSlot[] slots = [];
+        internal int SlotCount => slots.Length;
+        internal uint StopOffset(int index) => slots[index].StopOffset;
+        internal string Upload(GpuSceneModel model, bool arenaReplaced = false)
+        {
+            var next = new GpuDrawUniformSlot[model.Order.Length];
+            var uploaded = new List<string>();
+            uint stopOffset = 0;
+            for (int index = 0; index < model.Order.Length; index++)
+            {
+                GpuCommand command = model.Commands[model.Order[index]];
+                GpuDrawUniformSlot previous = index < slots.Length ? slots[index] : default;
+                if (previous.NeedsUpload(command, stopOffset, arenaReplaced)) uploaded.Add(command.Id);
+                next[index] = new(command, stopOffset);
+                stopOffset = checked(stopOffset + (uint)command.Paint.Stops.Length);
+            }
+            slots = next;
+            return string.Join(",", uploaded);
+        }
     }
 
     private static void Budgets()

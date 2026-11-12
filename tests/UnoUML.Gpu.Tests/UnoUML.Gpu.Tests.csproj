@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/UnoUML.App/Rendering/Gpu/GpuSceneModel.cs" Link="Rendering/GpuSceneModel.cs" />
+    <Compile Include="../../src/UnoUML.App/Rendering/Gpu/GpuDrawUniformSlot.cs" Link="Rendering/GpuDrawUniformSlot.cs" />
   </ItemGroup>
 </Project>
