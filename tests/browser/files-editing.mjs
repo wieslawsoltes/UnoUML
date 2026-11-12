@@ -20,7 +20,16 @@ export async function verifyFilesEditing(page, source) {
     if(!body.startsWith("' @unouml:canvas "))return {state:null,body:text};
     return {state:JSON.parse(body.slice("' @unouml:canvas ".length,newline)),body:bom+body.slice(newline+1)};
   };
-  const snapshot=async()=>split(await source.inputValue());
+  // Native text and the BOM-safe semantic projection settle separately from
+  // diagram rendering. Observe the live editor and take one complete snapshot.
+  const projectedSource=async expectedBody=>(await page.waitForFunction(({automationId,expectedBody})=>{
+    const input=document.querySelector('textarea[xamlautomationid="'+CSS.escape(automationId)+'"]');
+    const text=input?.isConnected?input.value:'',newline=text.indexOf('\n');
+    if(!text.startsWith("\uFEFF' @unouml:canvas ")||newline<0)return false;
+    if(expectedBody!==null&&'\uFEFF'+text.slice(newline+1)!==expectedBody)return false;
+    return text;
+  },{automationId:sourceAutomationId,expectedBody:expectedBody??null})).jsonValue();
+  const snapshot=async expectedBody=>split(await projectedSource(expectedBody));
   const id=async path=>row(path).getAttribute('data-canvas-id');
   const node=async path=>{const identity=await id(path);return (await snapshot()).state.nodes.find(item=>item.id===identity);};
   const waitApplied=async path=>page.waitForFunction(({surface,path})=>{
@@ -39,13 +48,7 @@ export async function verifyFilesEditing(page, source) {
   const x=box.x+box.width/2,y=box.y+box.height/2;
   await page.keyboard.down('Alt');await page.mouse.move(x,y);await page.mouse.down();
   await page.mouse.move(x+85,y+36,{steps:8});await page.mouse.up();await page.keyboard.up('Alt');
-  // Uno queues its BOM-safe semantic projection after the native text update.
-  // Wait for the complete projection and assert one snapshot, including its BOM.
-  const arrangedSource=await (await page.waitForFunction(automationId=>{
-    const input=document.querySelector('textarea[xamlautomationid="'+CSS.escape(automationId)+'"]');
-    const text=input?.isConnected?input.value:'';
-    return text.startsWith("\uFEFF' @unouml:canvas ")?text:false;
-  },sourceAutomationId)).jsonValue();
+  const arrangedSource=await projectedSource(input);
   const arrangedSnapshot=split(arrangedSource),arranged=arrangedSnapshot.state;
   assert.equal(arrangedSnapshot.body,input,'Free placement retains file paths and the BOM');
   assert.equal(arranged.nodes.length,5);
@@ -57,7 +60,8 @@ export async function verifyFilesEditing(page, source) {
   await editor.waitFor();assert.equal(await editor.inputValue(),'src');
   await fillControl(page, editor, 'library');await editor.press('Enter');
   await row('/library/nested/B.cs').waitFor();await waitApplied('/library/A.cs');
-  assert.equal((await snapshot()).body,input.replaceAll('/src/','/library/'));
+  const renamedBody=input.replaceAll('/src/','/library/');
+  assert.equal((await snapshot(renamedBody)).body,renamedBody);
   for(const [path,oldId] of oldIds){
     const current=path.startsWith('/src/')?'/library/'+path.slice(5):path;
     assert.deepEqual(await node(current),{...arranged.nodes.find(item=>item.id===oldId),id:await id(current)},'Renamed paths keep their exact authored geometry');
@@ -72,13 +76,15 @@ export async function verifyFilesEditing(page, source) {
   let dialog=page.getByRole('dialog',{name:'Move file or folder',exact:true});
   await fillControl(page, dialog.getByRole('textbox',{name:'Destination path',exact:true}), '/docs/');
   await activateControl(page, dialog.getByRole('button',{name:'Move',exact:true}));await dialog.waitFor({state:'hidden'});
+  await waitSource(arrangedSource);
   assert.equal(await source.inputValue(),arrangedSource,'Existing folders are not silently merged');
   await activateControl(page, row('/src/nested/'));await activateControl(page, page.getByRole('button', {name:'Move file or folder…',exact:true}));
   dialog=page.getByRole('dialog',{name:'Move file or folder',exact:true});
   await fillControl(page, dialog.getByRole('textbox',{name:'Destination path',exact:true}), '/docs/models/');
   await activateControl(page, dialog.getByRole('button',{name:'Move',exact:true}));await dialog.waitFor({state:'hidden'});
   await row('/docs/models/B.cs').waitFor();
-  assert.equal((await snapshot()).body,input.replace('/src/nested/B.cs','/docs/models/B.cs'));
+  const movedBody=input.replace('/src/nested/B.cs','/docs/models/B.cs');
+  assert.equal((await snapshot(movedBody)).body,movedBody);
   assert.deepEqual(await node('/docs/models/B.cs'),{...arranged.nodes.find(item=>item.id===oldIds.get('/src/nested/B.cs')),id:await id('/docs/models/B.cs')});
   await surface.press('Control+z');await waitSource(arrangedSource);await row('/src/nested/').waitFor();
 
@@ -87,8 +93,9 @@ export async function verifyFilesEditing(page, source) {
   await activateControl(page, row('/src/nested/'));await surface.press('Control+c');
   await activateControl(page, row('/docs/'));await surface.press('Control+v');
   await row('/docs/nested/B.cs').waitFor();
-  const pastedSource=await source.inputValue(),pasted=(await snapshot()).state;
-  assert.equal((await snapshot()).body,input.replace('@endfiles','/docs/nested/B.cs\n@endfiles'));
+  const pastedBody=input.replace('@endfiles','/docs/nested/B.cs\n@endfiles');
+  const pastedSource=await projectedSource(pastedBody),pastedSnapshot=split(pastedSource),pasted=pastedSnapshot.state;
+  assert.equal(pastedSnapshot.body,pastedBody);
   for(const [oldPath,newPath] of [['/src/nested/','/docs/nested/'],['/src/nested/B.cs','/docs/nested/B.cs']]){
     const before=arranged.nodes.find(item=>item.id===oldIds.get(oldPath));
     const offset=arranged.settings.gridSize*2;
@@ -99,6 +106,7 @@ export async function verifyFilesEditing(page, source) {
   await surface.press('Control+y');await waitSource(pastedSource);await row('/docs/nested/B.cs').waitFor();
   await activateControl(page, row('/docs/nested/'));await surface.press('Delete');
   await row('/docs/nested/B.cs').waitFor({state:'detached'});
+  await waitSource(arrangedSource);
   assert.equal(await source.inputValue(),arrangedSource,'Delete removes the subtree and its geometry');
   await surface.press('Control+z');await waitSource(pastedSource);await row('/docs/nested/').waitFor();
 
