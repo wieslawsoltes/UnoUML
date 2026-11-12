@@ -98,7 +98,16 @@ export async function verifyArchiveImport(page, source) {
   const chooser = page.waitForEvent('filechooser');
   await activateControl(page, page.getByRole('menuitem', {name:'Load ZIP archive…',exact:true}));
   await (await chooser).setFiles({name:'resources.zip',mimeType:'application/zip',buffer:archiveBytes});
-  await page.waitForFunction(async () => (await import(new URL('uml/viewport.js',document.baseURI))).readArchiveVersion('resources.zip') > 0);
+  const archiveVersionReader = await page.evaluateHandle(async () =>
+    (await import(new URL('uml/viewport.js',document.baseURI))).readArchiveVersion);
+  try {
+    // Import once before polling: the predicate must return the current boolean,
+    // not a Promise that Playwright can accept before archive registration.
+    const registered = await page.waitForFunction(readVersion => readVersion('resources.zip') > 0, archiveVersionReader);
+    await registered.dispose();
+  } finally {
+    await archiveVersionReader.dispose();
+  }
   await fillControl(page, source, '@startuml\n!import resources.zip\n!include models/main.iuml\n@enduml');
   const paper = page.locator('.paper').first();
   await paper.locator('[data-qualified-name="Archived"] text').filter({hasText:/^Archived service$/}).waitFor();
