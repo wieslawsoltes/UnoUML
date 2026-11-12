@@ -110,6 +110,11 @@ and error-scope calls. They return the original values/promises, create no
 additional GPU device and submit no profiling work. Device identity and adapter
 information are recorded from the actual application request. The same observer
 runs on both revisions; shared-device events may include Uno UI work.
+Only promises completed by the acknowledgement snapshot contribute duration
+samples; observed, completed and pending counts make that boundary explicit.
+Raster cache hit/miss summaries use per-operation differences of lifetime
+counters. Camera compilation/cache summaries stay null because camera movement
+retains the last compilation snapshot without creating a new compilation.
 
 Baseline and candidate SVG reference pixels must match exactly, and paired GPU
 RGB channels may differ by at most one quantization unit. The existing GPU/SVG

@@ -160,19 +160,29 @@ function distribution(values) {
     p95:quantile(.95),max:sorted.at(-1)};
 }
 function phaseSummary(samples) {
+  const scopeEvents=samples.flatMap(sample=>sample.observer.events)
+    .filter(event=>event.kind==='popErrorScope');
+  const completedScopes=scopeEvents.filter(event=>Number.isFinite(event.milliseconds));
   return {
+    scopePromises:{observed:scopeEvents.length,completed:completedScopes.length,
+      pending:scopeEvents.filter(event=>!Number.isFinite(event.milliseconds)&&!event.thrown).length,
+      synchronousFailures:scopeEvents.filter(event=>event.thrown).length,
+      rejected:scopeEvents.filter(event=>event.rejected).length},
     wallMilliseconds:distribution(samples.map(sample=>sample.wallMilliseconds)),
     operationMilliseconds:distribution(samples.map(sample=>sample.operationMilliseconds)),
     cpuEncodeMilliseconds:distribution(samples.map(sample=>sample.after.statistics.cpuEncodeMilliseconds)),
     compilationMilliseconds:distribution(samples.filter(sample=>sample.operation!=='camera')
       .map(sample=>sample.after.compiler?.compileMs)),
-    compiler:Object.fromEntries(['geometryBuilds','geometryCacheHits','rasterCacheHits','rasterCacheMisses',
-      'textureBytes','cacheBytes'].map(key=>[key,distribution(samples.filter(sample=>sample.operation!=='camera')
+    compiler:Object.fromEntries(['geometryBuilds','geometryCacheHits','textureBytes','cacheBytes']
+      .map(key=>[key,distribution(samples.filter(sample=>sample.operation!=='camera')
         .map(sample=>sample.after.compiler?.[key]))])),
+    rasterCacheDeltas:Object.fromEntries(['rasterCacheHits','rasterCacheMisses'].map(key=>[key,
+      distribution(samples.filter(sample=>sample.operation!=='camera').map(sample=>
+        Number.isFinite(sample.before.compiler?.[key])&&Number.isFinite(sample.after.compiler?.[key])
+          ?sample.after.compiler[key]-sample.before.compiler[key]:null))])),
     validationScopeMilliseconds:distribution(samples.map(sample=>sample.after.statistics.validationScopeMilliseconds)),
     validationDispatchMilliseconds:distribution(samples.map(sample=>sample.after.statistics.validationDispatchMilliseconds)),
-    scopePromiseMilliseconds:distribution(samples.flatMap(sample=>sample.observer.events
-      .filter(event=>event.kind==='popErrorScope').map(event=>event.milliseconds))),
+    scopePromiseMilliseconds:distribution(completedScopes.map(event=>event.milliseconds)),
     queueSubmitCallMilliseconds:distribution(samples.flatMap(sample=>sample.observer.events
       .filter(event=>event.kind==='queue.submit').map(event=>event.callMilliseconds))),
     drawCalls:distribution(samples.map(sample=>sample.after.statistics.drawCalls)),
@@ -435,7 +445,8 @@ const report={
     operation:'Synchronous/asynchronous public viewport operation, including native source parsing/layout on uncached edits; excludes later presentation.',
     encode:'Native CPU command encoding for the acknowledged frame; not GPU execution time.',
     compilation:'CPU JS time for the last accepted scene compilation, not a sum of intermediate/canceled work. Camera samples report null instead of stale compilation times.',
-    scopes:'Passive original-promise popErrorScope completion on the application shared device; can also include Uno UI scopes.',
+    scopes:'Passive original-promise popErrorScope calls started within each sample on the application shared device; can also include Uno UI scopes. Durations include only promises completed by the acknowledgment snapshot; observed/completed/pending counts expose that censoring. Pending promises have no measured completion duration.',
+    rasterCache:'Per-operation differences of the lifetime hit/miss counters in before/after compiler snapshots. Camera distributions remain null. Raw lifetime snapshots are preserved.',
     nativeValidation:'Candidate-only native callback/dispatcher fields are additive diagnostics; absent baseline fields stay null.',
     source:'Repeated new same-length label values through the public native viewport renderer and saved canvas projection; not editor keystroke latency.',
     transform:'Public saved-state authoring of one interior unconnected node with unchanged world bounds.',
