@@ -68,7 +68,9 @@ selection as well as its DOM projection; a browser-only selection could instead
 prepend text to the existing document.
 
 Native fill failures include opt-in snapshots of the public `FocusManager` owner
-and target TextBox at keyboard capture and bubble. They record identity, loaded,
+and target TextBox at keyboard capture and bubble. A source-transaction trace can
+also sample beforeinput, input and composition-end boundaries until the source and
+render acknowledge the edit. They record identity, loaded,
 focus and enabled state, text length/BOM, and selection. Readers exist only while
 their TextBox is loaded and use `Utf8JsonWriter` for trimming-safe Release builds.
 These snapshots observe existing state without setting focus or changing input.
@@ -187,6 +189,15 @@ LF/CRLF normalization leaves the TextBox value unchanged, so reopening equivalen
 source still refreshes its browser projection. Opening plain text cannot inherit
 an older document's BOM expectation. Async generation guards discard superseded
 projection work while the loaded editor keeps its composition registration.
+
+A restored draft can precede native accessibility's creation of its textarea.
+While at least one current source registration expects a BOM, a child-list
+observer watches only Uno's stable semantic root for added editor nodes. It
+resolves the current AutomationId, registration and connected node at delivery,
+then applies the same exact-echo repair and composition/selection guards. Plain
+source, committed input that invalidates the expectation, and unload end unused
+observation. This handles late creation and replacement after the initial frame
+without intercepting value properties or polling future frames.
 
 Both repair paths preserve UTF-16 selection and scroll position, account for DOM
 CRLF normalization, and leave active IME composition, deliberate BOM deletion,
@@ -389,7 +400,7 @@ Verified rendering gates:
 - Release Uno browser build and native graphics link succeeded.
 - Restored Uno framework packages are 7.0.32; Silk.NET.WebGPU is 2.23.0.
 - GPU model tests passed 738 assertions in 12 cases.
-- Geometry, source-input projection and presentation-host tests cover 16, 18 and eight cases respectively. The source cases include stale BOM invalidation and equivalent LF/CRLF refresh without a native text-change event.
+- Geometry, source-input projection and presentation-host tests cover 16, 23 and eight cases respectively. The source cases include stale BOM invalidation, equivalent LF/CRLF refresh without a native text-change event, and semantic editors created after the initial frame.
 - Native semantic fixtures passed 82 assertions across 22 cases, including modal, ComboBox focus/selection and TextBox enabled-state lifecycles. The published application passed the corresponding reopened-dialog and renderer-toggle checks.
 - The complete structured-diagram and Gantt authoring suites passed after the migration, including chart axes, task dragging/resizing, dependency propagation and atomic undo.
 - The Core suite passed 4,065 assertions, including 103 new source-projection checks and unchanged startup history for all 33 starter templates.
