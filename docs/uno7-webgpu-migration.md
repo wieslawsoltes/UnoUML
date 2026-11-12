@@ -52,7 +52,7 @@ then verifies the complete resulting value. This updates the managed TextBox
 selection as well as its DOM projection; a browser-only selection could instead
 prepend text to the existing document.
 
-Two narrowly scoped compatibility repairs cover native accessibility defects
+Three scoped compatibility repairs cover native accessibility defects
 observed in Uno 7.0.32:
 
 - The public accessibility activation button handles Enter/Space, removes itself
@@ -78,6 +78,34 @@ observed in Uno 7.0.32:
   nodes and nested/out-of-order closure without restoring stale hidden states or
   overwriting later external attribute changes. Generation checks reject stale
   callbacks. Native Tab trapping and focus restoration remain in place.
+- Virtualized ComboBox option creation omits the initial `aria-selected` value;
+  only a later selection property change normally supplies it. The application
+  snapshots the real control's public `SelectedIndex` on `DropDownOpened` and
+  updates that snapshot through `SelectionChanged`. A scoped projector follows
+  the head's live `aria-controls` relationship and each option's `aria-posinset`
+  to provide selected and unselected metadata. `DropDownClosed` and `Unloaded`
+  end observation. Generation checks protect reopened controls, and conditional
+  restoration preserves later native metadata changes. Focus and selection
+  continue through the native control; `aria-activedescendant` identifies focus
+  and is not treated as the selected index.
+
+ComboBox registration is idempotent and assigns `AutomationId` before the native
+semantic head is created: Uno 7.0.32 does not project subsequent AutomationId
+changes onto an existing head. Dialog preparation walks public content, border
+children and panel children before `ShowAsync`; both inspector picker factories
+attach before insertion, and the persistent page picker attaches during page
+construction. The later dialog `Opened` traversal also names generated controls.
+
+Uno's virtualized listbox container is intentionally a logical accessibility root
+without its own visual rectangle. Individual option nodes can also retain zero
+projected bounds after deferred creation while the native popup is fully painted.
+The migration's failure screenshot confirmed that distinction. Browser tests wait
+for accessible roles, names, relationships and selected-state metadata on these
+logical nodes. Focusing an option invokes Uno's native `ComboBoxItem` focus path;
+a real Enter key commits the focused index through the native popup handler and
+closes it. Reopening verifies both the committed selection and deselected peers.
+Bounded native controls retain the canvas bounds, stability and hit-test checks
+used for physical pointer input.
 
 The bridge does not invoke private framework callbacks or replace its focus trap.
 Its small module is installed before the native host starts, so keyboard
@@ -293,6 +321,9 @@ guarantee or completed “AAA” hardware qualification is claimed without measu
 - [Uno 7.0.32 accessibility activation](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/Accessibility.ts)
 - [Uno 7.0.32 native keyboard forwarding](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/BrowserKeyboardInputSource.ts)
 - [Uno 7.0.32 semantic control actions](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/SemanticElements.ts)
+- [Uno 7.0.32 ComboBox semantic lifecycle](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/WebAssemblyAccessibility.ComboBox.cs)
+- [Uno 7.0.32 virtualized semantic regions](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/VirtualizedSemanticRegion.cs)
+- [Uno 7.0.32 semantic element identity](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/Accessibility/SemanticElementFactory.cs)
 - [Uno 7.0.32 modal focus isolation](https://github.com/unoplatform/uno/blob/7.0.32/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/FocusTrap.ts)
 - [Uno WebGPU backend](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/features/using-webgpu-rendering.md)
 - [Custom WebGpuCanvasElement](https://github.com/unoplatform/uno/blob/7.0.32/doc/articles/controls/WebGpuCanvasElement.md)
