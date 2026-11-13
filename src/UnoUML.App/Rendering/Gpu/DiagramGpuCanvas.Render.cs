@@ -16,7 +16,7 @@ public sealed unsafe partial class DiagramGpuCanvas
         CommandEncoder* encoder = null;
         RenderPassEncoder* pass = null;
         CommandBuffer* commands = null;
-        int visible = 0, draws = 1, viewportCommands = 0, visibleViewportCommands = 0;
+        int visible = 0, draws = 1, viewportCommands = 0, visibleViewportCommands = 0, directMeshes = 0;
         try
         {
             encoder = api.DeviceCreateCommandEncoder(context.Device, null);
@@ -55,6 +55,7 @@ public sealed unsafe partial class DiagramGpuCanvas
                 if (command.Paint.Opacity <= 0) continue;
                 _visibleBundles[visible++] = item.Bundle;
                 if (viewport) visibleViewportCommands++;
+                if (command.Kind == GpuCommandKind.Mesh && item.Draws == 1) directMeshes++;
                 draws += item.Draws;
             }
             if (visible > 0)
@@ -70,17 +71,19 @@ public sealed unsafe partial class DiagramGpuCanvas
             commands = api.CommandEncoderFinish(encoder, null);
             Ensure(commands, "frame command buffer");
             api.QueueSubmit(context.Queue, 1, &commands);
+            _submittedFrames++;
             return new(_scene.Revision, _presentedFrames, draws, _scene.CommandCount, visible,
                 _scene.CommandCount - visible, _scene.VertexBytes, _scene.TextureBytes, 0,
                 context.PixelWidth, context.PixelHeight, (int)Samples)
             {
-                PipelineCount = 6, GeometryBuffers = _meshes.Count, ImageTextures = _textures.Count,
+                PipelineCount = 7, GeometryBuffers = _meshes.Count, ImageTextures = _textures.Count,
                 RenderBundles = _commandBundles.Count, UniformAndStopBytes = (long)(_drawCapacity + _stopCapacity + GlobalUniformBytes),
                 DrawUniformCapacityBytes = (long)_drawCapacity, GradientCapacityBytes = (long)_stopCapacity,
                 GeometryUploadBytes = _geometryUploadBytes, TextureUploadBytes = _textureUploadBytes,
                 CameraUploadBytes = _cameraUploadBytes, DrawUniformUploadBytes = _drawUniformUploadBytes,
                 GradientUploadBytes = _gradientUploadBytes, BundleBuilds = _bundleBuilds,
-                ViewportCommands = viewportCommands, VisibleViewportCommands = visibleViewportCommands
+                ViewportCommands = viewportCommands, VisibleViewportCommands = visibleViewportCommands,
+                VisibleDirectMeshCommands = directMeshes
             };
         }
         finally

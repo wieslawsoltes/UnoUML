@@ -28,6 +28,7 @@ public sealed unsafe partial class DiagramGpuCanvas
     private RenderPipeline* _nonzeroPipeline;
     private RenderPipeline* _evenoddPipeline;
     private RenderPipeline* _unionPipeline;
+    private RenderPipeline* _directMeshPipeline;
     private RenderPipeline* _paintPipeline;
     private RenderPipeline* _imagePipeline;
     private GpuBuffer* _globalBuffer;
@@ -122,6 +123,7 @@ public sealed unsafe partial class DiagramGpuCanvas
             _nonzeroPipeline = CreatePipeline(shader, "mesh_vertex", "stencil_fragment", true, 1);
             _evenoddPipeline = CreatePipeline(shader, "mesh_vertex", "stencil_fragment", true, 2);
             _unionPipeline = CreatePipeline(shader, "mesh_vertex", "stencil_fragment", true, 3);
+            _directMeshPipeline = CreatePipeline(shader, "mesh_vertex", "paint_fragment", true, 0);
             _paintPipeline = CreatePipeline(shader, "cover_vertex", "paint_fragment", false, 4);
             _imagePipeline = CreatePipeline(shader, "cover_vertex", "image_fragment", false, 0);
         }
@@ -310,6 +312,7 @@ public sealed unsafe partial class DiagramGpuCanvas
         ReleaseBuffer(ref _globalBuffer); ReleaseBuffer(ref _drawBuffer); ReleaseBuffer(ref _stopBuffer);
         ReleasePipeline(ref _backgroundPipeline); ReleasePipeline(ref _nonzeroPipeline);
         ReleasePipeline(ref _evenoddPipeline); ReleasePipeline(ref _unionPipeline);
+        ReleasePipeline(ref _directMeshPipeline);
         ReleasePipeline(ref _paintPipeline); ReleasePipeline(ref _imagePipeline);
         if (_sampler != null) { _api.SamplerRelease(_sampler); _sampler = null; }
         if (_pipelineLayout != null) { _api.PipelineLayoutRelease(_pipelineLayout); _pipelineLayout = null; }

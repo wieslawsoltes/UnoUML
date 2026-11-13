@@ -48,6 +48,7 @@ try {
         ['nonzero','mesh_vertex','stencil_fragment',true,1],
         ['evenodd','mesh_vertex','stencil_fragment',true,2],
         ['mesh','mesh_vertex','stencil_fragment',true,3],
+        ['direct','mesh_vertex','paint_fragment',true,0],
         ['paint','cover_vertex','paint_fragment',false,4],
         ['image','cover_vertex','image_fragment',false,0]
       ];
@@ -132,8 +133,8 @@ try {
             if (command.kind === 'image') { bundle.setPipeline(pipelines.get('image'));bundle.draw(6); }
             else {
               bundle.setVertexBuffer(0,command.vertexBuffer);
-              bundle.setPipeline(pipelines.get(command.kind || 'nonzero'));bundle.draw(command.vertexCount);
-              bundle.setPipeline(pipelines.get('paint'));bundle.draw(6);
+              bundle.setPipeline(pipelines.get(command.direct ? 'direct' : command.kind || 'nonzero'));bundle.draw(command.vertexCount);
+              if (!command.direct) { bundle.setPipeline(pipelines.get('paint'));bundle.draw(6); }
             }
             return bundle.finish();
           });
@@ -147,10 +148,33 @@ try {
         readback.unmap();
         const error = await device.popErrorScope();
         if (error) throw new Error(error.message);
-        return (x,y) => Array.from(pixels.slice((y*64+x)*4,(y*64+x)*4+4));
+        return Object.assign((x,y) => Array.from(pixels.slice((y*64+x)*4,(y*64+x)*4+4)), {pixels});
       }
 
-      const checks = [];
+      const checks = [], directMeshEquivalence = [];
+      // Compare every resolved RGBA byte against the established stencil+cover path.
+      // Direct indices are explicit test inputs, independent of native eligibility.
+      async function compareDirect(name, specifications, directIndices = [0], camera = [1,0,0,1,0,0], cssSize = 64) {
+        const reference = await draw(specifications, false, camera, cssSize);
+        const candidate = await draw(specifications.map((specification,index) =>
+          ({...specification,direct:directIndices.includes(index)})), false, camera, cssSize);
+        let differingChannels = 0, maxDifference = 0, firstDifference = null;
+        for (let index = 0; index < reference.pixels.length; index++) {
+          const difference = Math.abs(reference.pixels[index] - candidate.pixels[index]);
+          if (difference) {
+            differingChannels++;
+            maxDifference = Math.max(maxDifference, difference);
+            firstDifference ??= {x:Math.floor(index/4)%64,y:Math.floor(index/(64*4)),channel:index%4,
+              reference:reference.pixels[index],candidate:candidate.pixels[index]};
+          }
+        }
+        const referenceDraws = specifications.reduce((sum,specification) => sum + (specification.kind === 'image' ? 1 : 2), 0);
+        const result = {name,pixels:64*64,channels:reference.pixels.length,samples:4,
+          referenceDraws,directDraws:referenceDraws-directIndices.length,
+          differingChannels,maxDifference,firstDifference,pass:differingChannels === 0};
+        directMeshEquivalence.push(result);
+        if (!result.pass) throw new Error('Direct mesh differs from stencil coverage: ' + JSON.stringify(result));
+      }
       function pixel(name, actual, expected, tolerance = 3) {
         const pass = actual.every((value,index) => Math.abs(value-expected[index])<=tolerance);
         checks.push({name,actual,expected,tolerance,pass});
@@ -217,13 +241,42 @@ try {
       ],false,[4,0,0,4,90,-50],32);
       pixel('Viewport CSS geometry scales with target pixel density',sample(16,16),[255,0,0,255]);
       pixel('Viewport CSS bounds remain exact at double pixel density',sample(26,16),[255,255,255,255]);
+
+      const crossing = [...rect(6.25,22.125,50,13.5),...rect(23.75,5.375,12.5,51)];
+      const opaque = {kind:'mesh',vertices:crossing,color:[.137,.431,.827,1]};
+      await compareDirect('Fractional overlapping stroke triangles', [opaque]);
+      const reversedCrossing = [];
+      for (let i=0;i<crossing.length;i+=6)
+        reversedCrossing.push(...crossing.slice(i,i+2),...crossing.slice(i+4,i+6),...crossing.slice(i+2,i+4));
+      await compareDirect('Duplicate, reversed and degenerate union triangles',
+        [{...opaque,vertices:[...crossing,...crossing,...reversedCrossing,10,10,10,10,10,10]}]);
+      await compareDirect('Affine rotation and shear',
+        [{...opaque,matrix:[.8,.25,-.2,.9,13.25,-1.125]}]);
+      await compareDirect('Reflected local geometry',
+        [{...opaque,matrix:[-.9,.15,.2,1.05,53,0]}]);
+      await compareDirect('Rotated and translated diagram camera',
+        [opaque],[0],[.8,.25,-.2,.9,13.25,-1.125]);
+      await compareDirect('Viewport mesh ignores diagram camera',
+        [{...opaque,space:'viewport',matrix:[.85,.1,.1,.85,1.125,2.375]}],
+        [0],[0,-3,3,0,80,80]);
+      await compareDirect('Four-sample coverage at double pixel density',
+        [{...opaque,space:'viewport',matrix:[.45,.05,-.05,.45,2.125,1.375]}],
+        [0],[3,0,0,3,100,-200],32);
+      await compareDirect('Mixed painter order and stencil cleanup',
+        [
+          {vertices:rect(0,0,64,64),clip:[8.25,8.375,40.5,40.25],color:[.9,.7,.2,1]},
+          opaque,
+          {kind:'mesh',vertices:[...rect(5,28,54,12),...rect(28,5,12,54)],color:[1,0,0,1],opacity:.5},
+          {kind:'mesh',vertices:rect(16.25,16.375,14.5,14.25),color:[0,.8,.2,1]},
+          {vertices:rect(40,40,20,20),color:[.4,0,.7,.5]}
+        ],[1,3]);
       sample = await draw([{}],true);
       pixel('Grid background',sample(2,2),[247,248,251,255]);
       pixel('Grid dot is centered in the 16px CSS tile',sample(8,8),[215,219,229,255],8);
       if (failures.length) throw new Error(failures.join('\n'));
       const adapterInfo = adapter.info;
       return {
-        shaderBytes:shader.length,pipelines:pipelines.size,samples:4,retainedBundles:true,checks,
+        shaderBytes:shader.length,pipelines:pipelines.size,samples:4,retainedBundles:true,checks,directMeshEquivalence,
         adapter:{vendor:adapterInfo.vendor,architecture:adapterInfo.architecture,device:adapterInfo.device,description:adapterInfo.description},
         browser:navigator.userAgent,purpose:'Actual production WGSL and offscreen pixel correctness; not a hardware benchmark.'
       };
@@ -232,7 +285,9 @@ try {
       device.destroy();
     }
   }, shader);
-  assert.equal(report.pipelines,6);
+  assert.equal(report.pipelines,7);
+  assert.equal(report.directMeshEquivalence.length,8);
+  assert.ok(report.directMeshEquivalence.every(comparison=>comparison.pass && comparison.differingChannels === 0));
   assert.ok(report.checks.length >= 29);
   assert.ok(report.checks.every(check=>check.pass));
   console.log(JSON.stringify(report,null,2));

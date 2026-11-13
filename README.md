@@ -81,6 +81,8 @@ The live SVG remains the semantic document for source addressing, hit testing, f
 
 Canvas outlines, ports, guides and manipulation handles also use retained viewport-space vector commands on the same device. Their logical sizes stay fixed while the diagram camera moves; position patches reuse geometry and paint. DOM hit targets remain attached and transparent after the combined GPU frame is accepted. Inline text editors and their controls preserve browser input behavior, and exports remain free of editor decorations.
 
+Source revisions retain exact cached text/effect pixels and current GPU images, while obsolete asynchronous compilation stops before its remaining captures. Sparse transform edits reuse validated bounds. Fully opaque, unclipped solid meshes use one draw; gradients, transparency and general fills preserve stencil coverage. [Performance work and measurements](docs/webgpu-performance.md).
+
 [The migration guide](docs/uno7-webgpu-migration.md) records the exact package graph, rendering architecture, resource ownership, limits, fallback behavior, diagnostics and validation commands. Shader pixel checks and application presentation checks run independently in CI. Software-adapter results are correctness evidence; hardware performance requires a measured hardware run.
 
 ## Build and test

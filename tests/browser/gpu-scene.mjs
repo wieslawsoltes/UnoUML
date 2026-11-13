@@ -359,6 +359,205 @@ export async function verifyGpuScene(page,{artifactDir=process.env.SCREENSHOT_DI
       }finally{presentation.dispose();f.close();}
     });
 
+
+    await run('superseded raster compilation stops before remaining owners and source-version gaps',async()=>{
+      const f=fixture('<text x="5" y="25" font-size="20">Obsolete head</text><text x="5" y="55" font-size="20">Obsolete tail</text>');
+      const view={version:1,surface:f.host},updates=[],errors=[],jobs=[];
+      const presentation=new ScenePresentation(view,update=>updates.push(update),{
+        onError:error=>errors.push(error),
+        rasterOptions:{raster:(xml,width,height)=>new Promise(resolve=>jobs.push({
+          xml,complete:id=>resolve({id,width,height,rgba:bytesToBase64(new Uint8Array(width*height*4))})
+        }))}
+      });
+      let svg=f.svg;
+      const replace=markup=>{
+        const next=svg.cloneNode(false);next.innerHTML=markup;svg.replaceWith(next);svg=next;
+        presentation.setScene(svg,view.version);
+      };
+      try{
+        presentation.setScene(svg,view.version);
+        await until(()=>jobs.length===1||errors.length>0,'Old raster owner never started');
+        equal(errors,[],'Old raster starts without a compiler error');
+        view.version=2;
+        replace('<text x="5" y="25" font-size="20">Current head</text><text x="5" y="55" font-size="20">Current tail</text>');
+        jobs[0].complete('obsolete-head');
+        await until(()=>jobs.length===2||errors.length>0,'Current raster owner never started');
+        equal(errors,[],'Source replacement silently cancels stale compilation');
+        check(jobs[1].xml.includes('Current head'),'The next decode belongs to the replacement SVG');
+        equal(jobs.length,2,'No remaining obsolete owner is captured');
+        equal(updates.length,0,'Neither incomplete source publishes a transaction');
+        // Source layout is asynchronous: version can advance before setScene.
+        view.version=3;jobs[1].complete('superseded-head');
+        await until(()=>!presentation.running||jobs.length>2||errors.length>0,'Version-only invalidation did not stop compilation');
+        equal(jobs.length,2,'Version-only invalidation stops the remaining current-source owner');
+        equal(errors,[],'A source-version gap does not show a compiler error or fallback');
+        equal(updates.length,0,'A source-version gap never publishes the obsolete source');
+        replace('<rect x="5" y="5" width="40" height="30" fill="#259"/>');
+        await until(()=>updates.length===1||errors.length>0,'Latest vector source never committed');
+        equal(errors,[],'The latest source remains renderable after cancellation');
+        equal(updates[0].textures,[],'Cancelled sources contribute no stale texture payload');
+        equal(updates[0].commands.map(command=>command.kind),['fill'],'Only the latest vector source is submitted');
+        check(presentation.presented(updates[0].revision),'The latest exact source revision can be acknowledged');
+      }finally{presentation.dispose();for(const [index,job] of jobs.entries())job.complete('cleanup-'+index);f.close();}
+    });
+
+    await run('superseded tiled raster stops immediately after its active decode',async()=>{
+      const f=fixture('<g opacity=".5"><rect x="5" y="5" width="300" height="100" fill="#259"/></g>');
+      const view={version:1,surface:f.host},updates=[],errors=[],jobs=[];
+      const presentation=new ScenePresentation(view,update=>updates.push(update),{
+        onError:error=>errors.push(error),rasterLimits:{tileSize:64,maxTiles:256},
+        rasterOptions:{raster:(_xml,width,height)=>new Promise(resolve=>jobs.push({
+          width,height,complete:id=>resolve({id,width,height,rgba:bytesToBase64(new Uint8Array(width*height*4))})
+        }))}
+      });
+      try{
+        presentation.setScene(f.svg,view.version);
+        await until(()=>jobs.length===1||errors.length>0,'First raster tile never started');
+        equal(errors,[],'Tiled source starts without a compiler error');
+        check(jobs[0].width<=64&&jobs[0].height<=64,'The first decode is one tile of the larger owner');
+        const next=f.svg.cloneNode(false);next.innerHTML='<rect x="7" y="9" width="31" height="19" fill="#a53"/>';
+        f.svg.replaceWith(next);view.version=2;presentation.setScene(next,view.version);
+        jobs[0].complete('obsolete-tile');
+        await until(()=>updates.length===1||jobs.length>1||errors.length>0,'Cancellation did not release the presenter for the current source');
+        equal(jobs.length,1,'No second obsolete tile starts after the awaited decode completes');
+        equal(errors,[],'Tile cancellation does not request a fallback');
+        equal(updates.length,1,'The replacement source commits after the active old decode');
+        equal(updates[0].textures,[],'No obsolete tile is uploaded');
+        equal(updates[0].commands.map(command=>command.kind),['fill'],'The submitted source contains only the replacement rectangle');
+        check(presentation.presented(updates[0].revision),'Only the current revision is acknowledged');
+      }finally{presentation.dispose();for(const [index,job] of jobs.entries())job.complete('cleanup-'+index);f.close();}
+    });
+
+
+    await run('SVG replacement retains exact raster pixels and current GPU image ownership',async()=>{
+      const f=fixture('<rect x="0" y="0" width="220" height="90" fill="#def"/>'+
+        '<text id="retained-alpha" x="8" y="28" font-family="sans-serif" font-size="20" fill="#136">Alpha ÅΩ</text>'+
+        '<text id="retained-beta" x="8" y="60" font-family="sans-serif" font-size="20" fill="#631">Beta</text>');
+      const view={version:1,surface:f.host},updates=[],errors=[];
+      const presentation=new ScenePresentation(view,update=>updates.push(update),{onError:error=>errors.push(error)});
+      let svg=f.svg;
+      const imageIds=()=>presentation.diagramCommands.filter(command=>command.kind==='image').map(command=>command.image);
+      async function replace(edit=()=>{}){
+        const previous=updates.at(-1),count=updates.length,next=svg.cloneNode(true);edit(next);
+        svg.replaceWith(next);svg=next;view.version++;presentation.setScene(svg,view.version);
+        check(!presentation.presented(previous.revision),'Previous source cannot acknowledge a pending replacement');
+        await until(()=>updates.length>count||errors.length>0,'Replacement source did not compile');
+        equal(errors,[],'Replacement source has no compiler error');
+        equal(updates.length,count+1,'Replacement source publishes exactly one transaction');
+        const update=updates.at(-1);
+        check(presentation.presented(update.revision),'Exact replacement revision is accepted');
+        return update;
+      }
+      try{
+        presentation.setScene(svg,view.version);
+        await until(()=>updates.length===1||errors.length>0,'Initial raster scene never committed');
+        equal(errors,[],'Initial raster scene compiles');
+        const first=updates[0],initialImages=imageIds(),initialMisses=presentation.rasterCache.misses;
+        const alpha=svg.querySelector('#retained-alpha').cloneNode(true);
+        check(first.reset,'First submitted scene resets the native display list');
+        equal(first.textures.length,2,'Initial scene uploads both shaped labels');
+        equal(initialImages.length,2,'Both text owners produce retained image commands');
+        check(presentation.presented(first.revision),'Initial raster scene can be acknowledged');
+        const replacement=await replace(next=>next.querySelector('rect').setAttribute('fill','#fde'));
+        check(!replacement.reset,'Regenerated SVG diffs against the submitted scene');
+        equal(replacement.remove,first.order,'Every obsolete DOM owner is removed');
+        check(replacement.order.every(id=>!first.order.includes(id)),'New SVG owners have fresh command IDs');
+        equal(replacement.textures,[],'Unchanged label pixels require no texture upload');
+        equal(imageIds(),initialImages,'New DOM owners reference the existing GPU images');
+        equal(presentation.rasterCache.misses,initialMisses,'Source replacement does not recapture unchanged labels');
+        equal(presentation.rasterCache.hits,2,'Each unchanged label hits its exact snapshot');
+        const freshCache=new RasterCache();
+        try{
+          const fresh=await compileScene(svg,{scale:presentation.bucket,rasterCache:freshCache});
+          const freshImages=fresh.commands.filter(command=>command.kind==='image');
+          for(let index=0;index<freshImages.length;index++){
+            const retained=first.textures.find(texture=>texture.id===initialImages[index]);
+            const captured=fresh.textures.find(texture=>texture.id===freshImages[index].image);
+            equal([retained.width,retained.height],[captured.width,captured.height],'Retained pixel dimensions match a fresh capture');
+            check(retained.rgba===captured.rgba,'Retained pixel bytes match a fresh browser capture exactly');
+          }
+        }finally{freshCache.dispose();}
+        const changed=await replace(next=>{next.querySelector('#retained-beta').textContent='Beta updated';});
+        equal(changed.textures.length,1,'Changing one label uploads only its new pixels');
+        equal(imageIds()[0],initialImages[0],'The unchanged label retains its original image');
+        check(imageIds()[1]!==initialImages[1],'The changed label receives a new image');
+        equal(presentation.rasterCache.misses,initialMisses+1,'Only changed content is recaptured');
+        const beforeRemoval=presentation.rasterCache.misses;
+        const removed=await replace(next=>next.querySelector('#retained-alpha').remove());
+        equal(removed.textures,[],'Removing an owner needs no texture upload');
+        check(!presentation.uploadedTextures.has(initialImages[0]),'An image with no current owner is no longer marked uploaded');
+        const restored=await replace(next=>next.querySelector('#retained-beta').before(alpha.cloneNode(true)));
+        equal(restored.textures.map(texture=>texture.id),[initialImages[0]],'Reintroducing a pruned native image retransmits its payload');
+        check(restored.textures[0]===first.textures.find(texture=>texture.id===initialImages[0]),'Reintroduced pixels reuse the exact cached resource');
+        equal(presentation.rasterCache.misses,beforeRemoval,'Reintroduction needs no new browser pixel capture');
+        equal([...presentation.uploadedTextures],imageIds(),'Uploaded-image knowledge contains only current scene resources');
+        const beforeReset=imageIds(),missesBeforeReset=presentation.rasterCache.misses;
+        presentation.resetAfterRejection();
+        const recovered=await replace();
+        check(recovered.reset,'Backend rejection still requires a complete native reset');
+        equal(recovered.textures.map(texture=>texture.id),beforeReset,'Reset retransmits every current image even when pixels are cached');
+        equal(presentation.rasterCache.misses,missesBeforeReset,'Backend reset reuses valid browser pixel captures');
+      }finally{presentation.dispose();f.close();}
+    });
+
+    await run('retained source snapshots invalidate changed references, fonts and resolution',async()=>{
+      const f=fixture('<defs><linearGradient id="retained-paint"><stop stop-color="#e31"/><stop offset="1" stop-color="#16a"/></linearGradient></defs>'+
+        '<text id="referenced-label" x="8" y="28" font-family="sans-serif" font-size="20" fill="url(#retained-paint)">Gradient</text>'+
+        '<text id="plain-label" x="8" y="60" font-family="sans-serif" font-size="20" fill="#136">Plain</text>');
+      const view={version:1,surface:f.host},updates=[],errors=[];
+      const presentation=new ScenePresentation(view,update=>updates.push(update),{onError:error=>errors.push(error)});
+      let svg=f.svg;
+      const images=()=>presentation.diagramCommands.filter(command=>command.kind==='image').map(command=>command.image);
+      async function submitted(count,message){
+        await until(()=>updates.length>count||errors.length>0,message);
+        equal(errors,[],'Invalidated raster scene compiles without an error');
+        equal(updates.length,count+1,'Invalidation publishes one current scene');
+        check(presentation.presented(updates.at(-1).revision),'Invalidated current source can be acknowledged');
+        return updates.at(-1);
+      }
+      async function replace(edit){
+        const count=updates.length,next=svg.cloneNode(true);edit(next);
+        svg.replaceWith(next);svg=next;view.version++;presentation.setScene(svg,view.version);
+        return submitted(count,'Changed snapshot never committed');
+      }
+      try{
+        presentation.setScene(svg,view.version);
+        const first=await submitted(0,'Initial reference fixture never committed'),initialImages=images();
+        const initialMisses=presentation.rasterCache.misses;
+        const referenced=await replace(next=>next.querySelector('stop').setAttribute('stop-color','#5a2'));
+        equal(referenced.textures.length,1,'Changing a referenced gradient recaptures only its owner');
+        equal(images()[1],initialImages[1],'Unreferenced label retains its pixels');
+        equal(presentation.rasterCache.misses,initialMisses+1,'Changed definition produces one exact-signature miss');
+        check(referenced.textures[0].rgba!==first.textures[0].rgba,'Changed definition changes the actual browser pixels');
+        const beforeFont=images(),fontChanged=await replace(next=>next.querySelector('#referenced-label').setAttribute('font-weight','700'));
+        equal(fontChanged.textures.length,1,'Changed font shaping recaptures only its owner');
+        check(images()[0]!==beforeFont[0],'Changed font properties cannot reuse stale shaped pixels');
+        equal(images()[1],beforeFont[1],'Independent label still retains its original image');
+        const count=updates.length,misses=presentation.rasterCache.misses,beforeAvailability=images();
+        presentation.fontChanged();
+        equal(presentation.rasterCache.bytes,0,'Font availability change clears cached captures immediately');
+        const fonts=await submitted(count,'Font availability invalidation never committed');
+        equal(fonts.textures.length,2,'Font availability change recaptures both label owners');
+        equal(presentation.rasterCache.misses,misses+2,'Every current label has a new font-availability capture');
+        check(images().every(id=>!beforeAvailability.includes(id)),'Font availability never reuses an old GPU image');
+        const countBeforeScale=updates.length,scaleBefore=presentation.bucket,dimensions=fonts.textures.map(texture=>[texture.width,texture.height]);
+        f.camera.style.transform='scale(2)';presentation.setCamera();
+        const scaled=await submitted(countBeforeScale,'Resolution change never committed');
+        check(presentation.bucket>scaleBefore,'Zoom selects a higher raster quality bucket');
+        equal(scaled.textures.length,2,'Higher resolution recaptures both label owners');
+        check(scaled.textures.every((texture,index)=>texture.width>dimensions[index][0]&&texture.height>dimensions[index][1]),'Higher quality uses more pixels in both dimensions');
+        const freshCache=new RasterCache();
+        try{
+          const fresh=await compileScene(svg,{scale:presentation.bucket,rasterCache:freshCache});
+          for(let index=0;index<scaled.textures.length;index++){
+            const retained=scaled.textures[index],captured=fresh.textures[index];
+            equal([retained.width,retained.height],[captured.width,captured.height],'Higher-resolution dimensions match a fresh capture');
+            check(retained.rgba===captured.rgba,'Higher-resolution bytes match the current font and reference pixels');
+          }
+        }finally{freshCache.dispose();}
+      }finally{presentation.dispose();f.close();}
+    });
+
     return {results,assertions,browser:navigator.userAgent,remainingFixtures:document.querySelectorAll('[data-gpu-compiler-fixture]').length};
   }).catch(error=>({results:[{name:'compiler fixture initialization',pass:false,error:error.message,stack:error.stack}],assertions:0}));
   report.fixtures=fixtures;

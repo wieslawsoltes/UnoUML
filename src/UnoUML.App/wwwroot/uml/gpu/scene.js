@@ -143,8 +143,13 @@ function shapeCommands(ctx,element,style,matrix,clip){
  for(const name of ['fill','stroke'])if(!order.includes(name))order.push(name);
  return order.map(name=>commands[name]).filter(Boolean);
 }
-export async function compileScene(svg,{scale=1,rasterCache=new RasterCache(),geometryCache=new WeakMap(),rasterLimits}={}){
+export async function compileScene(svg,{scale=1,rasterCache=new RasterCache(),geometryCache=new WeakMap(),rasterLimits,isCurrent=()=>true}={}){
+ // Source replacement can happen while fonts or decoded image pixels are
+ // pending. Stop before the next owner/tile without cancelling shared cache work.
+ const checkpoint=()=>{if(!isCurrent())throw new Error('scene-compilation-cancelled');};
+ checkpoint();
  if(globalThis.document?.fonts?.status==='loading')await document.fonts.ready;
+ checkpoint();
  const started=performance.now(),styles=new WeakMap(),style=el=>{let value=styles.get(el);if(!value){value=getComputedStyle(el);styles.set(el,value);}return value;};
  const rootMatrix=arrayMatrix(svg.getCTM()),rootInverse=inverse(rootMatrix),viewport=viewportBounds(svg,style(svg)),byId=new Map();
  for(const el of svg.querySelectorAll('[id]'))byId.set(el.id,el);if(svg.id)byId.set(svg.id,svg);
@@ -152,15 +157,18 @@ export async function compileScene(svg,{scale=1,rasterCache=new RasterCache(),ge
  const rootStyle=style(svg),overflow=rootStyle.overflow||'hidden';
  const width=cssViewportLength(svg,rootStyle,'width')||viewport[2],height=cssViewportLength(svg,rootStyle,'height')||viewport[3];
  const rootClip=overflow==='visible'?null:axisAligned(rootInverse)?transformBounds([0,0,width,height],rootInverse):null;
- const ctx={svg,style,byId,scale,rootMatrix,rootInverse,viewport,rootClip,rasterCache,geometryCache,rasterLimits,stats};
+ const ctx={svg,style,byId,scale,rootMatrix,rootInverse,viewport,rootClip,rasterCache,geometryCache,rasterLimits,stats,checkpoint};
  const commands=[],textures=new Map();rasterCache.beginFrame();
  async function raster(element,reason,matrix,clip){
+  checkpoint();
   const result=await rasterCommands(ctx,element,ownerId(element),reason,matrix);
+  checkpoint();
   for(const command of result.commands){if(clip)command.clip=clip;commands.push(command);}
   for(const texture of result.textures)textures.set(texture.id,texture);
   stats.rasterReasons[reason]=(stats.rasterReasons[reason]||0)+1;stats.rasterCommands+=result.commands.length;
  }
  async function visit(element,inheritedClip){
+  checkpoint();
   if(SKIP.has(element.localName))return;
   const currentStyle=style(element);
   if(currentStyle.display==='none'||opacity(currentStyle.opacity)===0)return;
@@ -190,6 +198,7 @@ export async function compileScene(svg,{scale=1,rasterCache=new RasterCache(),ge
  // compositing context instead of rasterizing an isolated child incorrectly.
  const hasBlend=[svg,...svg.querySelectorAll('*')].some(el=>{const blend=style(el).getPropertyValue('mix-blend-mode');return blend&&blend!=='normal';});
  if(hasBlend)await raster(svg,'blend-mode',identity(),rootClip);else await visit(svg,rootClip);
+ checkpoint();
  if(commands.length>32768||stats.vertices>2097152)throw new GeometryError('scene-geometry-budget');
  stats.textureBytes=Array.from(textures.values()).reduce((sum,t)=>sum+t.width*t.height*4,0);
  stats.cacheBytes=rasterCache.bytes;stats.rasterCacheHits=rasterCache.hits;stats.rasterCacheMisses=rasterCache.misses;
@@ -238,8 +247,10 @@ export class ScenePresentation{
  setScene(svg,sourceVersion=this.view.version){
   if(this.disposed)return;
   this.observer.disconnect();this.svg=svg;this.sourceVersion=sourceVersion;this.generation++;
-  this.commands=[];this.diagramCommands=[];this.overlayCommands=[];this.observedOverlays=[];this.uploadedTextures.clear();
-  this.geometryCache=new WeakMap();this.rasterCache.clear();this.reset=true;this.lastCamera=null;this.lastStats=null;
+  // New DOM owners still diff against the last submitted scene. Exact raster
+  // snapshots can reuse pixels and GPU images across semantic SVG replacement;
+  // only the current scene's image IDs remain marked as uploaded after flush.
+  this.observedOverlays=[];this.geometryCache=new WeakMap();this.lastCamera=null;this.lastStats=null;
   this.dirty=false;this.overlayDirty=true;this.pendingScene=!!svg;
   if(!svg)return;
   this.observer.observe(svg,{attributes:true,attributeOldValue:true,childList:true,subtree:true,characterData:true});
@@ -324,10 +335,11 @@ export class ScenePresentation{
   }
   this.running=true;this.dirty=false;
   const generation=this.generation,version=this.sourceVersion,svg=this.svg;
+  const isCurrent=()=>!this.disposed&&generation===this.generation&&version===this.sourceVersion&&version===this.view.version&&svg===this.svg;
   this.bucket=qualityBucket(maxScale(this.camera.camera)*(globalThis.devicePixelRatio||1));
   try{
-   const result=await compileScene(svg,{scale:this.bucket,rasterCache:this.rasterCache,geometryCache:this.geometryCache,rasterLimits:this.rasterLimits});
-   if(this.disposed||generation!==this.generation||version!==this.sourceVersion||version!==this.view.version||svg!==this.svg)return;
+   const result=await compileScene(svg,{scale:this.bucket,rasterCache:this.rasterCache,geometryCache:this.geometryCache,rasterLimits:this.rasterLimits,isCurrent});
+   if(!isCurrent())return;
    if(!this.readCamera()){this.waitingForViewport=true;this.dirty=true;return;}
    // Snapshot after awaited text/image work, so camera and all editor paint
    // share one transaction even if selection changed during compilation.
@@ -339,7 +351,7 @@ export class ScenePresentation{
    this.uploadedTextures=new Set(result.textures.map(texture=>texture.id));
    this.reset=false;this.pendingScene=false;this.lastCamera=JSON.stringify(this.camera);this.lastStats=result.stats;
    this.emit(update);this.reportStats();
-  }catch(error){if(!this.disposed&&generation===this.generation)this.sceneError(error);}
+  }catch(error){if(isCurrent())this.sceneError(error);}
   finally{
    this.running=false;
    if(!this.disposed&&!this.waitingForViewport&&(this.dirty||this.overlayDirty))this.schedule();
